@@ -33,7 +33,9 @@ const TEXTURE_SPECS: Record<
   gabby: { width: 24, height: 48, color: PALETTE.lavender },
   caleb: { width: 24, height: 48, color: PALETTE.sky },
   car: { width: 110, height: 40, color: PALETTE.mint },
-  policeCar: { width: 110, height: 40, color: PALETTE.bgPink },
+  // outline (near-black), not bgPink: bgPink matches the canvas clear color,
+  // which would make the police car invisible during placeholder-era playtests.
+  policeCar: { width: 110, height: 40, color: PALETTE.outline },
   flag: { width: 24, height: 64, color: PALETTE.sunshine },
   tulip: { width: 16, height: 24, color: PALETTE.grass },
   balloon: { width: 24, height: 32, color: PALETTE.white },
