@@ -65,6 +65,115 @@ export const BIKE_TUNING = {
   maxWheelAngularVelocity: 0.9,
 } as const;
 
+/** Terrain generation & rendering tuning (PLAN-02 task 1 — see
+ * src/systems/terrain.ts). All distances are px at DESIGN_WIDTH/HEIGHT
+ * scale. Keep every terrain magic number here, never inline in terrain.ts,
+ * per CLAUDE.md conventions. */
+export const TERRAIN = {
+  /** Horizontal distance between adjacent heightmap sample points, px.
+   * Controls both the visual smoothness of the drawn ground and the
+   * resolution `heightAt()` interpolates between. */
+  sampleSpacingPx: 24,
+
+  /** Ground surface Y (screen space) when elevation is exactly 0 — the
+   * "sea level" the rolling hills oscillate above/below. Leaves headroom
+   * above for sky/backdrop and below for the dirt fill down to the world
+   * bottom. */
+  baseGroundYPx: Math.round(DESIGN_HEIGHT * 0.72), // 518 at 720px design height
+
+  /** Max rolling-hill amplitude (px, up AND down from baseGroundYPx) at
+   * hilliness = 1 — i.e. the hilliest any of the 22 levels should ever get.
+   * Kept tame so the steepest slope produced stays climbable by a bike
+   * holding full gas (NORTH_STAR "easy" mandate); most levels use hilliness
+   * well under 1 (difficulty ramps gently per PLAN-05). */
+  maxAmplitudePx: 60,
+
+  /** Number of stacked sine-wave octaves composing the rolling-hill shape. */
+  octaves: 3,
+
+  /** Wavelength (px) of the lowest/broadest sine octave; each subsequent
+   * octave halves it (doubles the frequency), like simple fractal noise. */
+  baseWavelengthPx: 900,
+
+  /** Amplitude falloff applied to each successive (higher-frequency) sine
+   * octave — e.g. 0.5 means each octave contributes half the previous
+   * one's weight to the final shape. */
+  persistence: 0.5,
+
+  /** Fraction (0..1) of the amplitude budget given to the fine value-noise
+   * layer vs. the broad sine octaves. Adds organic irregularity on top of
+   * the rolling-hill shape so it doesn't read as a pure sine wave. */
+  noiseWeight: 0.3,
+
+  /** Horizontal spacing (px) between the value-noise layer's random control
+   * points; the curve is smootherstep-interpolated between them. */
+  noiseControlSpacingPx: 260,
+
+  /** Box-blur smoothing passes applied to the combined sine+noise elevation
+   * before jumps/flat-zones are layered on (per PLAN-02: "layered sine/
+   * noise, smoothed"). */
+  smoothingPasses: 2,
+
+  /** Half-window size, in SAMPLES (not px), for each smoothing pass — 1
+   * averages each sample with its immediate left/right neighbor (a 3-point
+   * moving average). */
+  smoothingHalfWindow: 1,
+
+  /** Horizontal blend margin (px) used to ease terrain smoothly into and
+   * out of a flat zone, so scripted-event ground never has a height
+   * discontinuity (or slope kink) at its edges. */
+  flatBlendPx: 160,
+
+  /** Hard cap on authored jump-ramp height (px), regardless of what a level
+   * config requests — keeps every jump landable/climbable at "grandma
+   * difficulty" even if a level author fat-fingers a huge value. */
+  maxJumpHeightPx: 140,
+
+  /** Minimum jump-ramp width (px) — guards against a degenerate zero/near-
+   * zero width producing a divide-by-zero or a razor-thin, unrideable spike. */
+  minJumpWidthPx: 60,
+
+  /** Hard cap on a jump ramp's steepest slope (dy/dx; 1 = 45 degrees).
+   * A tall-but-narrow ramp request (e.g. maxJumpHeightPx over
+   * minJumpWidthPx) would otherwise produce a near-vertical wall — the
+   * raised-cosine ramp's steepest point has slope = height*pi/width, so
+   * terrain.ts widens the ramp's effective width (never shrinks its
+   * height) until this bound holds. Deliberately steeper than the ~30
+   * degree max rolling-hill slope at hilliness 1 (a launch ramp is
+   * SUPPOSED to feel like a ramp) but nowhere near unclimbable/vertical.
+   * NOTE: bounds the ramp's OWN contribution only — jumps add on top of
+   * the rolling hills, so a jump placed where hilliness-1 terrain is
+   * already near its own steepest point can combine to somewhat more.
+   * Real levels shouldn't stack maxed-out hilliness under a maxed-out
+   * jump; re-verify against real bike climbing capability in the PLAN-02
+   * task 6 feel-tuning pass, once the bike rig exists. */
+  maxJumpSlope: 1, // 45 degrees
+
+  /** Thickness (px) of each static Matter rectangle in the ground collision
+   * chain, measured perpendicular to the local slope. */
+  bodyThicknessPx: 24,
+
+  /** Target length (px) of each Matter collision segment along the ground.
+   * Deliberately coarser than sampleSpacingPx: NORTH_STAR §8 budgets fewer
+   * than 100 physics bodies per level, so the collision chain is built from
+   * far fewer, longer segments than the (denser) visual heightmap. */
+  segmentTargetPx: 160,
+
+  /** Matter friction for every ground body. High-ish so the rear wheel
+   * grips rather than slides on hills; revisited when the bike rig
+   * (PLAN-02 task 2) is tuned against real terrain. */
+  groundFriction: 0.9,
+
+  /** Thickness (px) of the rendered dirt/asphalt top-edge stroke. */
+  edgeThicknessPx: 6,
+
+  /** Absolute Y (screen space) the ground fill polygon is drawn down to.
+   * Generous and fixed (not derived from amplitude) so it comfortably
+   * covers camera zoom-out (PLAN-02 task 3) and any dip without ever
+   * showing a gap under the ground. */
+  groundFillBottomYPx: 2400,
+} as const;
+
 /** Z-depth layers for rendering order. */
 export const DEPTHS = {
   background: 0,
