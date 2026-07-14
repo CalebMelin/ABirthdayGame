@@ -53,6 +53,10 @@ export interface PixelButtonOptions {
   /** Minimum face width in px; the face still grows to fit the label and
    * never shrinks below UI_MIN_TOUCH_PX. */
   minWidth?: number;
+  /** When true, renders the button greyed-out and skips setInteractive and
+   * all pointer handlers entirely — a truly inert locked-level cell, not
+   * just a dimmed one that still hovers/clicks. */
+  disabled?: boolean;
 }
 
 /**
@@ -69,7 +73,7 @@ export function createPixelButton(
   scene: Phaser.Scene,
   opts: PixelButtonOptions
 ): Phaser.GameObjects.Container {
-  const { x, y, label, onClick, minWidth } = opts;
+  const { x, y, label, onClick, minWidth, disabled } = opts;
 
   const labelText = createPixelText(scene, 0, 0, label);
   // labelText.width is read synchronously — correct because BootScene's
@@ -86,6 +90,11 @@ export function createPixelButton(
 
   const container = scene.add.container(Math.round(x), Math.round(y), [shadow, face, labelText]);
   container.setDepth(DEPTHS.ui);
+
+  if (disabled) {
+    container.setAlpha(0.55);
+    return container;
+  }
 
   // The hit area lives on the CONTAINER with static geometry (container
   // local space, (0,0) at its center) — NOT on the face rect, which shifts
