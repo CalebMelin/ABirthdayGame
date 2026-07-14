@@ -17,6 +17,12 @@
 import type Phaser from 'phaser';
 import { PALETTE, DEPTHS, TERRAIN } from './constants';
 
+/** Matter label stamped on every static ground body. Collision logic in
+ * bike.ts (wheel-contact/airborne tracking and head-sensor fail detection,
+ * PLAN-02 task 2) recognizes ground by comparing against this constant —
+ * import it rather than re-typing the string. */
+export const TERRAIN_BODY_LABEL = 'terrain';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -504,7 +510,7 @@ function makeSegmentBody(scene: Phaser.Scene, a: TerrainPoint, b: TerrainPoint):
     isStatic: true,
     angle,
     friction: TERRAIN.groundFriction,
-    label: 'terrain',
+    label: TERRAIN_BODY_LABEL,
   });
 }
 

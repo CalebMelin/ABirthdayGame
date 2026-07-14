@@ -40,29 +40,138 @@ export const TEXT_COLOR = hexToCss(PALETTE.plum); // '#4a2c40'
 /** Matter.js world gravity-y. Placeholder; tuned in PLAN-02. */
 export const GRAVITY_Y = 1;
 
-/** Physics tuning for the bike.
- * All values are placeholders to be tuned in PLAN-02. */
+/** Physics tuning for the bike rig (PLAN-02 task 2 — see
+ * src/systems/bike.ts). First real pass; the dedicated feel-tuning task
+ * (PLAN-02 task 6) iterates on these against actual terrain.
+ *
+ * UNITS: Matter.js linear velocity is px per physics step (one step =
+ * 1/60 s at the fixed 60 Hz tick), angular velocity is radians per step.
+ * "Per step" quantities below assume that fixed tick.
+ *
+ * NOTE: BootScene's placeholder texture sizes derive from chassisWidth /
+ * chassisHeight / wheelRadius — keep those key names. */
 export const BIKE_TUNING = {
-  /** Bike body width, px. */
+  // -------------------------------------------------------------- geometry
+  /** Bike body width, px. Longer chassis = more stable, harder to flip. */
   chassisWidth: 96,
-  /** Bike body height, px. */
+  /** Bike body height, px. Taller = higher center of mass, tips easier. */
   chassisHeight: 28,
-  /** Wheel radius, px. */
+  /** Wheel radius, px. Bigger wheels roll over bumps more smoothly and
+   * raise top speed (linear speed = wheel spin x radius). */
   wheelRadius: 18,
-  /** Distance between wheel centers, px. */
+  /** Distance between wheel centers, px. Wider = more stable, harder to
+   * wheelie or flip. */
   wheelbase: 74,
-  /** Matter constraint stiffness for suspension (0–1). */
-  suspensionStiffness: 0.08,
-  /** Matter constraint damping for suspension (0–1). */
-  suspensionDamping: 0.12,
-  /** Torque applied to the rear wheel when holding gas. */
-  gasTorque: 0.06,
-  /** Torque opposing wheel spin when braking. */
-  brakeTorque: 0.05,
-  /** Torque for pitching the bike while airborne. */
-  airSpinTorque: 0.04,
-  /** Cap on wheel angular velocity, rad per physics step. */
-  maxWheelAngularVelocity: 0.9,
+  /** How far wheel centers hang below the chassis CENTER at rest, px.
+   * More = taller/tippier bike with more visible suspension travel. */
+  wheelDropPx: 30,
+  /** Extra air left under the wheels when spawning via bikeSpawnY(), px.
+   * More = a longer settle "drop-in" on spawn; too little risks spawning
+   * intersecting the (coarser-than-visual) physics ground — see the
+   * terrain.ts collision-chain caveat on bikeSpawnY's doc comment. */
+  spawnClearancePx: 10,
+
+  // -------------------------------------------------- mass & wheel surface
+  /** Matter density of the chassis rect. Heavier chassis = more momentum,
+   * mushier suspension response, harder for air control to rotate. */
+  chassisDensity: 0.0015,
+  /** Matter friction of the chassis when it scrapes ground (bottoming out
+   * is NOT a fail — only the head sensor is). Lower = slides off bumps
+   * instead of sticking. */
+  chassisFriction: 0.1,
+  /** Matter density of each wheel. Heavier wheels = steadier ride,
+   * slightly lazier acceleration response. */
+  wheelDensity: 0.002,
+  /** Matter friction of the wheels. Higher = more grip on slopes (drive
+   * force comes entirely from this against TERRAIN.groundFriction);
+   * too low and the rear wheel spins out on climbs. */
+  wheelFriction: 0.95,
+  /** Matter restitution (bounciness) of the wheels. More = springier
+   * landings; keep near 0 so landings feel planted, not bouncy. */
+  wheelRestitution: 0.05,
+
+  // ------------------------------------------------------------ suspension
+  /** Stiffness (0-1) of each wheel's vertical spring constraint. Higher =
+   * firmer, less squat under load; lower = soft and bouncy. */
+  suspensionStiffness: 0.12,
+  /** Damping (0-1) of the vertical spring. Higher = oscillations die
+   * faster after a landing (less pogo). */
+  suspensionDamping: 0.1,
+  /** Stiffness (0-1) of each wheel's diagonal anti-swing strut (wheel to
+   * chassis center). Stiffer than the vertical spring on purpose: it keeps
+   * the wheelbase from folding fore/aft while the softer vertical spring
+   * provides the suspension travel. */
+  strutStiffness: 0.5,
+  /** Damping (0-1) of the diagonal strut. */
+  strutDamping: 0.1,
+
+  // --------------------------------------------------------------- driving
+  /** Rear-wheel spin-up per step while holding gas, rad/step per step.
+   * This IS the "torque limit": more = snappier acceleration (and more
+   * wheelie tendency on climbs); the wheel only ever gains this much spin
+   * per tick no matter what. */
+  gasSpinUpPerStep: 0.012,
+  /** Cap on driven rear-wheel spin, rad/step — the easygoing top speed.
+   * Flat-ground top speed ~= this x wheelRadius px/step (0.6 x 18 = 10.8
+   * px/step ~= 650 px/s). More = faster bike; NORTH_STAR wants easygoing,
+   * not thrilling. (Coasting downhill may exceed it — gravity is allowed
+   * to be fun — the cap only limits DRIVEN spin.) */
+  maxWheelAngularVelocity: 0.6,
+  /** Fraction (0-1) of wheel spin removed per step while braking. Higher =
+   * more abrupt stops; 0.15 stops from top speed in roughly half a second. */
+  brakeDampingFactor: 0.15,
+  /** Wheel spin (rad/step) below which held brake starts creeping the
+   * rear wheel backward instead of damping ("when stopped, mild reverse").
+   * More = reverse engages while still rolling forward a little. */
+  reverseEngageThreshold: 0.05,
+  /** Backward spin-up per step while reverse-creeping, rad/step per step.
+   * More = reverse gets going quicker. Deliberately gentler than gas. */
+  reverseSpinUpPerStep: 0.004,
+  /** Cap on reverse-creep wheel spin, rad/step. More = faster backup speed
+   * (0.15 x 18 ~= 160 px/s, about a quarter of forward top speed). */
+  maxReverseWheelAngularVelocity: 0.15,
+
+  // ------------------------------------------- air control & easy-mode assist
+  /** Chassis pitch added per step while airborne holding a pedal,
+   * rad/step per step (gas = nose up / backflip, brake = nose down).
+   * More = twitchier air control. */
+  airSpinStepPerStep: 0.006,
+  /** Cap on pedal-driven chassis spin while airborne, rad/step. 0.12 =
+   * ~7 rad/s, a deliberate full backflip in just under a second — big
+   * ramps give about that much airtime, so flips are achievable but never
+   * accidental. More = faster/easier flips. */
+  maxAirAngularVelocity: 0.12,
+  /** Auto-stabilization spring gain: chassis spin added per step per
+   * radian of tilt away from upright, while airborne with NO pedal held
+   * (the NORTH_STAR "easy" assist — makes jumps land themselves). More =
+   * stronger self-righting; too strong would also fight deliberate flips
+   * the moment the pedal is released mid-air. */
+  stabilizationGain: 0.002,
+  /** Fraction (0-1) of chassis spin bled off per step while the assist is
+   * active. Higher = assist settles to upright with less wobble but also
+   * kills flip momentum faster once pedals are released. */
+  stabilizationDamping: 0.05,
+
+  // ------------------------------------------------- rider & head sensor
+  /** Rider (Gabby) sprite center relative to chassis center, px, in the
+   * chassis' local frame (rotates with it). Visual only. */
+  riderOffsetX: -4,
+  /** See riderOffsetX. Negative = above the chassis. Gabby's placeholder
+   * is 48px tall, so -38 seats her bottom near the chassis top edge. */
+  riderOffsetY: -38,
+  /** Radius of the head fail-sensor circle, px. Bigger = stricter crash
+   * detection (head "touches" ground earlier); smaller = more forgiving. */
+  headSensorRadius: 10,
+  /** Head sensor center relative to chassis center, px (local frame).
+   * Matches where the rider sprite's head is drawn. */
+  headOffsetX: -4,
+  /** See headOffsetX. -52 puts the sensor over the top ~20px of the
+   * 48px-tall rider placeholder. */
+  headOffsetY: -52,
+  /** Density of the head sensor part. Near-zero ON PURPOSE: the sensor is
+   * part of the chassis compound body and must not shift its center of
+   * mass or add meaningful inertia — it exists only to report contact. */
+  headSensorDensity: 0.00001,
 } as const;
 
 /** Terrain generation & rendering tuning (PLAN-02 task 1 — see
