@@ -5,44 +5,6 @@
 export const DESIGN_WIDTH = 1280;
 export const DESIGN_HEIGHT = 720;
 
-/** Pastel background used both in the Phaser canvas and the page chrome.
- * Manually kept in sync with TWO spots in index.html (HTML can't import
- * this constant): the inline <style> body background and the
- * <meta name="theme-color"> tag (line 7), so the letterbox bars (from
- * Scale.FIT) and the mobile browser UI match the game background. */
-export const PASTEL_BG_COLOR = 0xffd6e8; // soft pink, a.k.a. #ffd6e8
-
-/** Text color for placeholder/UI copy on the pastel background. */
-export const TEXT_COLOR = '#4a2c40';
-
-/** Matter.js world gravity-y. Placeholder; tuned in PLAN-02. */
-export const GRAVITY_Y = 1;
-
-/** Physics tuning placeholders for bike and world.
- * All values are placeholders to be tuned in PLAN-02. */
-export const BIKE_TUNING = {
-  /** Placeholder; tuned in PLAN-02. */
-  chassisWidth: 96,
-  /** Placeholder; tuned in PLAN-02. */
-  chassisHeight: 28,
-  /** Placeholder; tuned in PLAN-02. */
-  wheelRadius: 18,
-  /** Placeholder; tuned in PLAN-02. */
-  wheelbase: 74,
-  /** Placeholder; tuned in PLAN-02. */
-  suspensionStiffness: 0.08,
-  /** Placeholder; tuned in PLAN-02. */
-  suspensionDamping: 0.12,
-  /** Placeholder; tuned in PLAN-02. */
-  gasTorque: 0.06,
-  /** Placeholder; tuned in PLAN-02. */
-  brakeTorque: 0.05,
-  /** Placeholder; tuned in PLAN-02. */
-  airSpinTorque: 0.04,
-  /** Placeholder; tuned in PLAN-02. */
-  maxWheelAngularVelocity: 0.9,
-} as const;
-
 /** Named pastel pixel-art colors as 0xRRGGBB values. */
 export const PALETTE = {
   bgPink: 0xffd6e8,
@@ -58,10 +20,50 @@ export const PALETTE = {
   outline: 0x2a1820,
 } as const;
 
-/** Convert 0xRRGGBB hex color to CSS '#rrggbb' string. */
+/** Convert 0xRRGGBB hex color to CSS '#rrggbb' string.
+ * Input is clamped to the low 24 bits so negative/out-of-range/float
+ * values can't produce garbage strings. */
 export function hexToCss(color: number): string {
-  return `#${color.toString(16).padStart(6, '0')}`;
+  return `#${((color >>> 0) & 0xffffff).toString(16).padStart(6, '0')}`;
 }
+
+/** Pastel background used both in the Phaser canvas and the page chrome.
+ * Manually kept in sync with TWO spots in index.html (HTML can't import
+ * this constant): the inline <style> body background and the
+ * <meta name="theme-color"> tag, so the letterbox bars (from
+ * Scale.FIT) and the mobile browser UI match the game background. */
+export const PASTEL_BG_COLOR = PALETTE.bgPink; // soft pink, a.k.a. #ffd6e8
+
+/** Text color for placeholder/UI copy on the pastel background. */
+export const TEXT_COLOR = hexToCss(PALETTE.plum); // '#4a2c40'
+
+/** Matter.js world gravity-y. Placeholder; tuned in PLAN-02. */
+export const GRAVITY_Y = 1;
+
+/** Physics tuning for the bike.
+ * All values are placeholders to be tuned in PLAN-02. */
+export const BIKE_TUNING = {
+  /** Bike body width, px. */
+  chassisWidth: 96,
+  /** Bike body height, px. */
+  chassisHeight: 28,
+  /** Wheel radius, px. */
+  wheelRadius: 18,
+  /** Distance between wheel centers, px. */
+  wheelbase: 74,
+  /** Matter constraint stiffness for suspension (0–1). */
+  suspensionStiffness: 0.08,
+  /** Matter constraint damping for suspension (0–1). */
+  suspensionDamping: 0.12,
+  /** Torque applied to the rear wheel when holding gas. */
+  gasTorque: 0.06,
+  /** Torque opposing wheel spin when braking. */
+  brakeTorque: 0.05,
+  /** Torque for pitching the bike while airborne. */
+  airSpinTorque: 0.04,
+  /** Cap on wheel angular velocity, rad per physics step. */
+  maxWheelAngularVelocity: 0.9,
+} as const;
 
 /** Z-depth layers for rendering order. */
 export const DEPTHS = {
