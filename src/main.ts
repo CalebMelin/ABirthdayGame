@@ -1,2 +1,19 @@
-// Entry point. Phaser boot scene and game wiring land in PLAN-01 (see plans/PLAN-00-setup.md Task B).
-console.log('Gabby is 22!! — setup in progress');
+import Phaser from 'phaser';
+import { BootScene } from './scenes/BootScene';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR } from './systems/constants';
+
+const config: Phaser.Types.Core.GameConfig = {
+  type: Phaser.AUTO,
+  parent: 'app',
+  pixelArt: true,
+  backgroundColor: PASTEL_BG_COLOR,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: DESIGN_WIDTH,
+    height: DESIGN_HEIGHT,
+  },
+  scene: [BootScene],
+};
+
+new Phaser.Game(config);
