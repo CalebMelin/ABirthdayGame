@@ -5,10 +5,11 @@
 export const DESIGN_WIDTH = 1280;
 export const DESIGN_HEIGHT = 720;
 
-/** Pastel background used both in the Phaser canvas and the page CSS
- * (see the inline <style> in index.html — kept in sync manually since
- * HTML can't import this constant), so the letterbox bars (from
- * Scale.FIT) match the game background. */
+/** Pastel background used both in the Phaser canvas and the page chrome.
+ * Manually kept in sync with TWO spots in index.html (HTML can't import
+ * this constant): the inline <style> body background and the
+ * <meta name="theme-color"> tag (line 7), so the letterbox bars (from
+ * Scale.FIT) and the mobile browser UI match the game background. */
 export const PASTEL_BG_COLOR = 0xffd6e8; // soft pink, a.k.a. #ffd6e8
 
 /** Text color for placeholder/UI copy on the pastel background. */
