@@ -16,10 +16,17 @@ export function loadPixelFont(timeoutMs = 3000): Promise<void> {
     return Promise.resolve();
   }
 
-  const load = document.fonts
-    .load(`16px "${FONT_FAMILY_PIXEL}"`)
-    .then(() => undefined)
-    .catch(() => undefined);
+  // try/catch guards against SYNCHRONOUS throws from the font API (seen in
+  // odd mobile WebViews); the .catch handles ordinary async rejection.
+  let load: Promise<void>;
+  try {
+    load = document.fonts
+      .load(`16px "${FONT_FAMILY_PIXEL}"`)
+      .then(() => undefined)
+      .catch(() => undefined);
+  } catch {
+    return Promise.resolve();
+  }
 
   const timeout = new Promise<void>((resolve) => {
     setTimeout(resolve, timeoutMs);
