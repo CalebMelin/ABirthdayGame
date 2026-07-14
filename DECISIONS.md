@@ -9,3 +9,8 @@
 - **Choice:** Keep the existing GitHub repo name `ABirthdayGame` rather than renaming to `gabby-is-22`.
 - **Why:** Caleb created the repo before the agent started; the repo name doesn't affect gameplay, the package name, or the deploy URL slug requirements.
 - **How chosen:** Simplest option serving the plan (Rule 3, CLAUDE.md).
+
+## 2026-07-14 — Renamed `NORTH_STAR.MD` → `NORTH_STAR.md`
+- **Choice:** Renamed the file to use a lowercase `.md` extension; contents untouched.
+- **Why:** CLAUDE.md/README/plans all reference `NORTH_STAR.md` (lowercase). Windows is case-insensitive so this went unnoticed locally, but the mismatch would break resolution on case-sensitive systems (Linux CI, Vercel build).
+- **How chosen:** Code-review fix; simplest option serving the plan (Rule 3, CLAUDE.md).
