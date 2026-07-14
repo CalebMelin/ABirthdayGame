@@ -91,6 +91,9 @@ export function createPixelButton(
   // local space, (0,0) at its center) — NOT on the face rect, which shifts
   // +4px while pressed and would otherwise drag the hit shape with it and
   // drop the pointer mid-press. Only the face/label visuals move on press.
+  // Do NOT call setSize() on this container: a non-zero container size gives
+  // it a displayOrigin of size/2, which Phaser adds to the local point before
+  // hit-testing — silently shifting this rect by (+w/2, +h/2).
   container.setInteractive({
     hitArea: new Phaser.Geom.Rectangle(-width / 2, -height / 2, width, height),
     hitAreaCallback: Phaser.Geom.Rectangle.Contains,

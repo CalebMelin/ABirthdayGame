@@ -16,6 +16,10 @@ describe('snapFontSize', () => {
     expect(snapFontSize(20)).toBe(24);
   });
 
+  it('rounds 19 down to 16 (nearest multiple of 8)', () => {
+    expect(snapFontSize(19)).toBe(16);
+  });
+
   it('clamps tiny sizes up to the 8px minimum', () => {
     expect(snapFontSize(4)).toBe(8);
   });
