@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR, TEXT_COLOR, SCENE_KEYS } from '../systems/constants';
-import { addTempButton } from './tempButton';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR, SCENE_KEYS } from '../systems/constants';
+import { createPixelText, createPixelButton } from '../systems/ui';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -19,17 +19,15 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
 
-    this.add
-      .text(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2 - 80, `GameScene — Level ${this.level}`, {
-        fontFamily: 'Courier New, monospace',
-        fontSize: '40px',
-        color: TEXT_COLOR,
-        align: 'center',
-      })
-      .setOrigin(0.5);
+    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2 - 80, `GameScene — Level ${this.level}`, 32);
 
-    addTempButton(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2 + 40, 'next →', () => {
-      this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
+    createPixelButton(this, {
+      x: DESIGN_WIDTH / 2,
+      y: DESIGN_HEIGHT / 2 + 40,
+      label: 'next →',
+      onClick: () => {
+        this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
+      },
     });
   }
 }
