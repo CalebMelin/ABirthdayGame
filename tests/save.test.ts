@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSaveSystem, SAVE_VERSION } from '../src/systems/save';
+import { createSaveSystem, getSave, SAVE_VERSION } from '../src/systems/save';
 import type { CharacterConfig, KVStorage } from '../src/systems/save';
 import { TOTAL_LEVELS } from '../src/systems/constants';
 
@@ -34,6 +34,31 @@ function createThrowingStorage(): KVStorage {
       throw new Error('storage unavailable');
     },
   };
+}
+
+/** A KVStorage that works normally until its write budget is exhausted,
+ * then throws on every further setItem (reads/removes keep working) —
+ * simulates hitting the localStorage quota mid-session. */
+function createQuotaStorage(
+  seed: Record<string, string>,
+  allowedWrites: number
+): { storage: KVStorage; backing: Map<string, string> } {
+  const backing = new Map(Object.entries(seed));
+  let writes = 0;
+  const storage: KVStorage = {
+    getItem(key: string): string | null {
+      return backing.has(key) ? backing.get(key)! : null;
+    },
+    setItem(key: string, value: string): void {
+      writes++;
+      if (writes > allowedWrites) throw new Error('quota exceeded');
+      backing.set(key, value);
+    },
+    removeItem(key: string): void {
+      backing.delete(key);
+    },
+  };
+  return { storage, backing };
 }
 
 const sampleCharacter: CharacterConfig = {
@@ -157,6 +182,14 @@ describe('notesSeen', () => {
     save.markNoteSeen(7);
     expect(save.getNotesSeen()).toEqual([4, 7]);
   });
+
+  it('ignores negative and non-integer indices', () => {
+    const save = createSaveSystem(createFakeStorage());
+    save.markNoteSeen(-1);
+    save.markNoteSeen(2.5);
+    save.markNoteSeen(Number.NaN);
+    expect(save.getNotesSeen()).toEqual([]);
+  });
 });
 
 describe('resetAll', () => {
@@ -254,6 +287,70 @@ describe('unavailable storage (in-memory fallback)', () => {
   });
 });
 
+describe('mid-session partial degradation (writes fail, reads still work)', () => {
+  it('still reads data persisted before this session after a write failure', () => {
+    // "Previous session" data lives in the underlying storage; version is
+    // current so createSaveSystem performs no writes during construction.
+    const { storage } = createQuotaStorage(
+      {
+        'gabby22.saveVersion': String(SAVE_VERSION),
+        'gabby22.progress': JSON.stringify({
+          highestUnlocked: 7,
+          completed: Array(TOTAL_LEVELS).fill(false),
+        }),
+        'gabby22.tulips': '11',
+      },
+      0 // the very first write this session hits "quota"
+    );
+    const save = createSaveSystem(storage);
+
+    // Trigger degradation via a write the save system must swallow.
+    expect(() => save.saveCharacter(sampleCharacter)).not.toThrow();
+    expect(save.loadCharacter()).toEqual(sampleCharacter);
+
+    // Keys never touched this session must read through to the real
+    // storage — not silently reset to defaults (that would wipe progress).
+    expect(save.loadProgress().highestUnlocked).toBe(7);
+    expect(save.getTulips()).toBe(11);
+  });
+
+  it('does not resurrect keys removed after degradation (resetAll still works)', () => {
+    const { storage, backing } = createQuotaStorage(
+      {
+        'gabby22.saveVersion': String(SAVE_VERSION),
+        'gabby22.tulips': '5',
+      },
+      0
+    );
+    const save = createSaveSystem(storage);
+    save.saveCharacter(sampleCharacter); // degrades
+    expect(save.getTulips()).toBe(5); // read-through works
+
+    save.resetAll();
+
+    expect(save.getTulips()).toBe(0);
+    expect(backing.has('gabby22.tulips')).toBe(false);
+  });
+});
+
+describe('production defaults (no injected storage)', () => {
+  it('no-arg createSaveSystem works and round-trips under node (window undefined)', () => {
+    const save = createSaveSystem();
+    expect(() => save.saveCharacter(sampleCharacter)).not.toThrow();
+    expect(save.loadCharacter()).toEqual(sampleCharacter);
+    save.resetAll();
+    expect(save.loadCharacter()).toBeNull();
+  });
+
+  it('getSave returns the same singleton on every call', () => {
+    expect(getSave()).toBe(getSave());
+  });
+});
+
+// NOTE: while migrate() is a no-op stub these versioning tests only pin the
+// version-stamp bookkeeping (write-when-absent, bump-when-older, leave-when-
+// current). When the first REAL migration lands (SAVE_VERSION bump in a later
+// plan), add assertions here that old-shape data is actually transformed.
 describe('versioning', () => {
   it('writes the current save version to fresh storage', () => {
     const storage = createFakeStorage();

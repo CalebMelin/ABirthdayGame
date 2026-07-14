@@ -106,17 +106,39 @@ function resolveDefaultStorage(): KVStorage {
   return createInMemoryStorage();
 }
 
-/** Wraps any KVStorage so it can never throw. Successful reads/writes are
- * mirrored into an in-memory map; the first failure (e.g. quota exceeded
- * mid-session) permanently swaps all subsequent calls to that mirror, which
- * already carries every value this wrapper has seen. */
+/** Wraps any KVStorage so it can never throw — the single source of truth
+ * for "storage operations are total"; everything above it calls the
+ * wrapped store directly with no further try/catch.
+ *
+ * Normal mode: operations hit the real storage and successful values are
+ * mirrored into an in-memory map. The first failure (typically a quota
+ * error on setItem) flips the wrapper into degraded mode permanently.
+ *
+ * Degraded mode: writes go to the mirror only. Reads check the mirror
+ * first (it holds everything written or read this session), then
+ * best-effort read THROUGH to the real storage — degradation is almost
+ * always write-triggered, so reads of keys untouched this session usually
+ * still work and must not silently reset to defaults (that would wipe
+ * saved progress). Removes delete from the mirror AND best-effort from
+ * the real storage so removed keys can't be resurrected by a later
+ * read-through. */
 function makeResilient(storage: KVStorage): KVStorage {
   const fallback = createInMemoryStorage();
   let degraded = false;
 
   return {
     getItem(key: string): string | null {
-      if (degraded) return fallback.getItem(key);
+      if (degraded) {
+        const mirrored = fallback.getItem(key);
+        if (mirrored !== null) return mirrored;
+        try {
+          const value = storage.getItem(key);
+          if (value !== null) fallback.setItem(key, value);
+          return value;
+        } catch {
+          return null;
+        }
+      }
       try {
         const value = storage.getItem(key);
         if (value === null) {
@@ -146,6 +168,12 @@ function makeResilient(storage: KVStorage): KVStorage {
     removeItem(key: string): void {
       if (degraded) {
         fallback.removeItem(key);
+        try {
+          storage.removeItem(key);
+        } catch {
+          // Real storage fully broken: the read-through in getItem will
+          // throw too and return null, so the key still reads as removed.
+        }
         return;
       }
       try {
@@ -157,30 +185,6 @@ function makeResilient(storage: KVStorage): KVStorage {
       }
     },
   };
-}
-
-function readRaw(storage: KVStorage, key: string): string | null {
-  try {
-    return storage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeRaw(storage: KVStorage, key: string, value: string): void {
-  try {
-    storage.setItem(key, value);
-  } catch {
-    // makeResilient already prevents this; defense in depth only.
-  }
-}
-
-function removeRaw(storage: KVStorage, key: string): void {
-  try {
-    storage.removeItem(key);
-  } catch {
-    // makeResilient already prevents this; defense in depth only.
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,16 +275,16 @@ function migrate(_store: KVStorage, _fromVersion: number): void {
 }
 
 function ensureVersion(store: KVStorage): void {
-  const raw = readRaw(store, KEY_SAVE_VERSION);
+  const raw = store.getItem(KEY_SAVE_VERSION);
   if (raw === null) {
-    writeRaw(store, KEY_SAVE_VERSION, String(SAVE_VERSION));
+    store.setItem(KEY_SAVE_VERSION, String(SAVE_VERSION));
     return;
   }
   const parsed = Number(raw);
   const fromVersion = Number.isFinite(parsed) ? parsed : 0;
   if (fromVersion < SAVE_VERSION) {
     migrate(store, fromVersion);
-    writeRaw(store, KEY_SAVE_VERSION, String(SAVE_VERSION));
+    store.setItem(KEY_SAVE_VERSION, String(SAVE_VERSION));
   }
   // fromVersion >= SAVE_VERSION: leave data alone.
 }
@@ -298,20 +302,20 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
   ensureVersion(store);
 
   function loadCharacter(): CharacterConfig | null {
-    const parsed = parseJson(readRaw(store, KEY_CHARACTER));
+    const parsed = parseJson(store.getItem(KEY_CHARACTER));
     return isCharacterConfig(parsed) ? parsed : null;
   }
 
   function saveCharacter(character: CharacterConfig): void {
-    writeRaw(store, KEY_CHARACTER, JSON.stringify(character));
+    store.setItem(KEY_CHARACTER, JSON.stringify(character));
   }
 
   function loadProgress(): LevelProgress {
-    return normalizeProgress(parseJson(readRaw(store, KEY_PROGRESS)));
+    return normalizeProgress(parseJson(store.getItem(KEY_PROGRESS)));
   }
 
   function saveProgress(progress: LevelProgress): void {
-    writeRaw(store, KEY_PROGRESS, JSON.stringify(progress));
+    store.setItem(KEY_PROGRESS, JSON.stringify(progress));
   }
 
   function markLevelCompleted(level: number): void {
@@ -326,30 +330,30 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
   }
 
   function getTulips(): number {
-    return normalizeTulips(parseJson(readRaw(store, KEY_TULIPS)));
+    return normalizeTulips(parseJson(store.getItem(KEY_TULIPS)));
   }
 
   function addTulips(count: number): void {
     if (!Number.isFinite(count) || count <= 0) return;
-    writeRaw(store, KEY_TULIPS, JSON.stringify(getTulips() + Math.trunc(count)));
+    store.setItem(KEY_TULIPS, JSON.stringify(getTulips() + Math.trunc(count)));
   }
 
   function getNotesSeen(): number[] {
-    return normalizeNotesSeen(parseJson(readRaw(store, KEY_NOTES_SEEN)));
+    return normalizeNotesSeen(parseJson(store.getItem(KEY_NOTES_SEEN)));
   }
 
   function markNoteSeen(index: number): void {
-    if (!Number.isInteger(index)) return;
+    if (!Number.isInteger(index) || index < 0) return;
     const notes = getNotesSeen();
     if (!notes.includes(index)) {
       notes.push(index);
-      writeRaw(store, KEY_NOTES_SEEN, JSON.stringify(notes));
+      store.setItem(KEY_NOTES_SEEN, JSON.stringify(notes));
     }
   }
 
   function resetAll(): void {
     for (const key of ALL_KEYS) {
-      removeRaw(store, key);
+      store.removeItem(key);
     }
   }
 
