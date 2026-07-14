@@ -46,7 +46,9 @@ export const GRAVITY_Y = 1;
  *
  * UNITS: Matter.js linear velocity is px per physics step (one step =
  * 1/60 s at the fixed 60 Hz tick), angular velocity is radians per step.
- * "Per step" quantities below assume that fixed tick.
+ * bike.ts applies every "per step" quantity below on the Matter world's
+ * once-per-engine-step 'beforeupdate' hook (NOT per render frame), so
+ * these rates hold at any display refresh rate.
  *
  * NOTE: BootScene's placeholder texture sizes derive from chassisWidth /
  * chassisHeight / wheelRadius — keep those key names. */

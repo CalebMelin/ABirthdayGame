@@ -177,6 +177,17 @@ describe('airborneChassisAngularVelocity — pedal air control', () => {
     expect(airborneChassisAngularVelocity(0.03, 1.2, true, true)).toBe(0.03);
   });
 
+  it('lands exactly ON the cap when a pedal step would overshoot it', () => {
+    const nearCap =
+      BIKE_TUNING.maxAirAngularVelocity - BIKE_TUNING.airSpinStepPerStep / 2;
+    expect(airborneChassisAngularVelocity(nearCap, 0, false, true)).toBe(
+      BIKE_TUNING.maxAirAngularVelocity
+    );
+    expect(airborneChassisAngularVelocity(-nearCap, 0, true, false)).toBe(
+      -BIKE_TUNING.maxAirAngularVelocity
+    );
+  });
+
   it('refuses to add spin beyond the air-control cap', () => {
     const atCap = BIKE_TUNING.maxAirAngularVelocity;
     expect(airborneChassisAngularVelocity(atCap, 0, false, true)).toBe(atCap);

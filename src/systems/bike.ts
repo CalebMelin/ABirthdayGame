@@ -1,8 +1,9 @@
 // The bike rig (PLAN-02 task 2) — the single most feel-critical module in
 // the game. Builds the Matter composite (chassis + head fail-sensor as one
-// compound body, two sprung wheels), drives it from per-frame {gas, brake}
-// input, tracks airborne state + cumulative airborne rotation (trick
-// detection, PLAN-07), and DETECTS head-vs-terrain crashes. It deliberately
+// compound body, two sprung wheels), drives it from {gas, brake} input
+// (recorded per render frame, applied once per fixed 60 Hz physics step —
+// see BEFORE_UPDATE_EVENT), tracks airborne state + cumulative airborne
+// rotation (trick detection, PLAN-07), and DETECTS head-vs-terrain crashes. It deliberately
 // does NOT render fail overlays, restart anything, or check the world-bottom
 // fail — those are the consuming GameScene's job (PLAN-02 task 4); this
 // module only exposes the signals (`crashed`, `onCrash`).
@@ -45,10 +46,11 @@ export interface BikeOptions {
 /** Everything a scene needs after spawning the bike. All getters are live
  * (re-read them each frame; they reflect the physics bodies directly). */
 export interface BikeHandle {
-  /** Drive one frame of control. MUST be called once per scene update()
-   * tick — it applies pedal forces, advances airborne/rotation
-   * bookkeeping, and re-pins the sprites to their bodies. Assumes the
-   * default fixed 60 Hz Matter tick (see BIKE_TUNING units note). */
+  /** Records this frame's pedal input and re-pins the sprites to their
+   * bodies. Call once per scene update() (render frame). The control laws
+   * themselves run on the Matter world's 'beforeupdate' hook — exactly
+   * once per fixed 60 Hz physics step — so acceleration/flip rates are
+   * identical on a 120 Hz phone, a 60 Hz desktop, or under frame drops. */
   update(input: BikeInput): void;
   /** Chassis center x, px (world space). */
   readonly x: number;
@@ -79,12 +81,16 @@ export interface BikeHandle {
   readonly chassis: MatterJS.BodyType;
   /** Every top-level Matter body this bike added to the world (chassis
    * compound, rear wheel, front wheel) — the debug overlay's body-leak
-   * check (PLAN-02 task 5) counts against this. */
+   * check (PLAN-02 task 5) counts against this. A fresh array per read;
+   * mutating it never affects the rig. */
   readonly bodies: MatterJS.BodyType[];
   /** Removes ALL bodies, constraints, sprites, and world event listeners
    * this bike registered. Safe to call twice. After destroy(), update()
    * is a no-op — restart = destroy() + createBike() with no leaks (the
-   * PLAN-02 "no physics body leaks after 3 restarts" criterion). */
+   * PLAN-02 "no physics body leaks after 3 restarts" criterion).
+   * The consuming scene should ALSO call this from its shutdown handler
+   * as a backstop, so the world listeners can never accumulate if some
+   * restart path forgets an explicit destroy(). */
   destroy(): void;
 }
 
@@ -171,9 +177,11 @@ export function nextWheelAngularVelocity(
  * physics (wheel grip, suspension), never to this.
  *
  * - A pedal held: fixed pitch step (gas = nose-up/backflip = negative in
- *   screen coords, brake = nose-down = positive), never pushed past
- *   maxAirAngularVelocity. Spin already beyond the cap (violent bounce)
- *   isn't snapped back — the cap just refuses to ADD more.
+ *   screen coords, brake = nose-down = positive). A step that would
+ *   overshoot maxAirAngularVelocity lands exactly ON the cap (symmetric
+ *   with the wheel law's top-speed clamp); spin already beyond the cap
+ *   (violent bounce) is held rather than snapped back, and pedaling back
+ *   down from beyond it is always allowed.
  *   Both pedals held cancel to zero input (and no assist — the player is
  *   clearly "doing something").
  * - No pedal held: the auto-stabilization assist (NORTH_STAR "easy"
@@ -190,10 +198,15 @@ export function airborneChassisAngularVelocity(
   if (gas || brake) {
     const direction = (brake ? 1 : 0) - (gas ? 1 : 0);
     const next = current + direction * BIKE_TUNING.airSpinStepPerStep;
-    const pushingFurtherPastCap =
-      Math.abs(next) > BIKE_TUNING.maxAirAngularVelocity &&
-      Math.abs(next) > Math.abs(current);
-    return pushingFurtherPastCap ? current : next;
+    const cap = BIKE_TUNING.maxAirAngularVelocity;
+    if (Math.abs(next) <= cap || Math.abs(next) < Math.abs(current)) {
+      // Within the cap, or pedaling back DOWN from beyond it — allowed.
+      return next;
+    }
+    // The step would overshoot the cap: land exactly ON it — unless spin
+    // is ALREADY beyond the cap (violent bounce), which is held rather
+    // than snapped back.
+    return Math.abs(current) >= cap ? current : Math.sign(next) * cap;
   }
   const sprung =
     current + BIKE_TUNING.stabilizationGain * shortestArcToUpright(angle);
@@ -231,6 +244,16 @@ const FRONT_WHEEL_LABEL = 'bike-wheel-front';
  * not import (see module doc comment). */
 const COLLISION_START_EVENT = 'collisionstart';
 const COLLISION_END_EVENT = 'collisionend';
+
+/** Fired by the Phaser Matter world exactly once per ENGINE STEP: Phaser's
+ * World.update() runs a fixed-timestep accumulator (0..N Engine.update
+ * calls per render frame, each 1000/60 ms), and each Engine.update emits
+ * Matter's 'beforeUpdate', which World relays as this event (verified in
+ * phaser/src/physics/matter-js/World.js — the stepping loop and the relay).
+ * All rate-based control-law work hooks THIS, never the render-frame
+ * update(): per-step increments applied per render frame would run ~2x hot
+ * on a 120 Hz phone and ~0.5x under 30 fps frame drops. */
+const BEFORE_UPDATE_EVENT = 'beforeupdate';
 
 /** Matter's default collision category/mask ("collide with everything").
  * Spelled out because the ambient ICollisionFilter type requires all three
@@ -409,6 +432,11 @@ export function createBike(
   let airborne = false;
   let airborneRotation = 0;
   let previousAngle = chassis.angle;
+  // Latest pedal state, recorded per RENDER frame by update() and consumed
+  // per PHYSICS step by onBeforeUpdate below (field copies, so a caller
+  // mutating/reusing its input object between frames can't surprise us).
+  let gasHeld = false;
+  let brakeHeld = false;
 
   function applyPairDelta(
     mine: MatterJS.BodyType,
@@ -460,13 +488,16 @@ export function createBike(
     riderSprite.setRotation(angle);
   }
 
-  function update(input: BikeInput): void {
-    if (destroyed) return;
-
+  /** All rate-based work lives HERE, on the world's per-engine-step hook
+   * (see BEFORE_UPDATE_EVENT) — never in the render-frame update() — so
+   * the rad/step control laws and the airborne-rotation sampling run
+   * exactly once per fixed 60 Hz physics step at any display refresh
+   * rate. Runs just before the step consumes the velocities it sets. */
+  function onBeforeUpdate(): void {
     // A crashed bike goes limp: pedals ignored, assist off, physics keeps
     // tumbling until the scene restarts. (Friendlier than freezing it.)
-    const gas = !crashed && input.gas;
-    const brake = !crashed && input.brake;
+    const gas = !crashed && gasHeld;
+    const brake = !crashed && brakeHeld;
 
     // Wheel spin is driven in the air too — harmless (setting a wheel's
     // angular velocity applies no reaction torque to the chassis), and a
@@ -498,7 +529,15 @@ export function createBike(
     }
     previousAngle = chassis.angle;
     airborne = airborneNow;
+  }
+  scene.matter.world.on(BEFORE_UPDATE_EVENT, onBeforeUpdate);
 
+  function update(input: BikeInput): void {
+    if (destroyed) return;
+    gasHeld = input.gas;
+    brakeHeld = input.brake;
+    // Sprite pinning stays per RENDER frame (not per physics step) so the
+    // visuals track the freshest body transforms every drawn frame.
     syncSprites();
   }
 
@@ -508,6 +547,7 @@ export function createBike(
     destroyed = true;
     // Listeners first (no callbacks during teardown), then constraints
     // (never leave one dangling on a removed body), then bodies, sprites.
+    scene.matter.world.off(BEFORE_UPDATE_EVENT, onBeforeUpdate);
     scene.matter.world.off(COLLISION_START_EVENT, onCollisionStart);
     scene.matter.world.off(COLLISION_END_EVENT, onCollisionEnd);
     for (const constraint of constraints) {
@@ -548,6 +588,9 @@ export function createBike(
       return crashed;
     },
     chassis,
-    bodies: [chassis, rearWheel, frontWheel],
+    get bodies() {
+      // Fresh copy per read — consumers can't corrupt the rig's own list.
+      return [chassis, rearWheel, frontWheel];
+    },
   };
 }
