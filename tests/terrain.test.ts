@@ -15,6 +15,26 @@ function baseSpec(overrides: Partial<TerrainSpec> = {}): TerrainSpec {
   };
 }
 
+/** Max |change in consecutive dy| (the discrete second difference — a
+ * curvature proxy) over all samples whose CENTER x passes `inWindow`.
+ * A slope KINK (C0-but-not-C1 seam, e.g. a linear blend ramping on/off)
+ * shows up as a spike in this metric even when every per-step dy is small,
+ * which is exactly what the plain |dy| bounds in the "blends smoothly"
+ * tests cannot see. */
+function maxSecondDiff(
+  points: { x: number; y: number }[],
+  inWindow: (x: number) => boolean = () => true
+): number {
+  let max = 0;
+  for (let i = 2; i < points.length; i++) {
+    if (!inWindow(points[i - 1].x)) continue;
+    const dy1 = points[i - 1].y - points[i - 2].y;
+    const dy2 = points[i].y - points[i - 1].y;
+    max = Math.max(max, Math.abs(dy2 - dy1));
+  }
+  return max;
+}
+
 describe('generateHeightmap — determinism', () => {
   it('same seed (+ same rest of spec) produces identical heights', () => {
     const a = generateHeightmap(baseSpec());
@@ -126,6 +146,38 @@ describe('generateHeightmap — flat zones', () => {
       expect(dy).toBeLessThan(TERRAIN.maxAmplitudePx);
     }
   });
+
+  it('eases into the blend with near-zero curvature at the seam (kink regression guard)', () => {
+    // The |dy| bound above rules out a height JUMP but not a slope KINK —
+    // it would still pass if the smootherstep ease-in were regressed to a
+    // plain linear blend. This test bounds the discrete second difference
+    // (curvature) right AT the blend's outer seam, where smootherstep's
+    // zero first/second derivative guarantees a gradual slope handoff but
+    // a linear blend has its full weight-slope discontinuity.
+    //
+    // The spec is ENGINEERED (deterministic for any seed, since hilliness
+    // is 0) to make the kink unmissable: a wide, tall ramp (1000..1640)
+    // fills the zone's leading blend margin [1488, 1648], so the elevation
+    // the blend must pull down to flatTarget (= 0, past the ramp's end) is
+    // ~60px right at the seam x = 1488.
+    //
+    // Thresholds were derived empirically by running BOTH implementations
+    // (see the commit adding this test): within one sample of the seam,
+    // smootherstep measures max d2 = 1.44; a linear blend measures 5.95.
+    // 2.5 sits between with ~1.7x margin on the pass side and ~2.4x on the
+    // fail side.
+    const jump = { x: 1000, width: 640, height: 120 };
+    const zone = { start: 1648, end: 2200 };
+    const seam = zone.start - TERRAIN.flatBlendPx; // 1488 — on the 24px sample grid
+    const points = generateHeightmap(
+      baseSpec({ length: 4000, hilliness: 0, jumps: [jump], flatZones: [zone] })
+    );
+    const seamCurvature = maxSecondDiff(
+      points,
+      (x) => Math.abs(x - seam) <= TERRAIN.sampleSpacingPx
+    );
+    expect(seamCurvature).toBeLessThan(2.5);
+  });
 });
 
 describe('generateHeightmap — jump ramps', () => {
@@ -162,6 +214,24 @@ describe('generateHeightmap — jump ramps', () => {
       const dy = Math.abs(points[i].y - points[i - 1].y);
       expect(dy).toBeLessThan(TERRAIN.maxAmplitudePx);
     }
+  });
+
+  it('ramp curvature stays bounded (hard-edged wedge regression guard)', () => {
+    // Companion to the flat-zone kink guard: bounds the discrete second
+    // difference over the whole (deterministic — hilliness 0) ramp shape.
+    // The raised-cosine hump's curvature is spread evenly, while any
+    // kinked replacement (e.g. a triangle wedge) concentrates its slope
+    // change into single-sample spikes roughly twice as large.
+    //
+    // Thresholds derived empirically from both implementations (see the
+    // commit adding this test): raised cosine measures max d2 = 13.95; a
+    // triangle wedge of the same width/height measures 27.58. 20 sits
+    // between with ~1.4x margin on both sides.
+    const jump = { x: 1000, width: 200, height: 80 };
+    const points = generateHeightmap(
+      baseSpec({ length: 4000, hilliness: 0, jumps: [jump] })
+    );
+    expect(maxSecondDiff(points)).toBeLessThan(20);
   });
 
   /** Max climbable slope (dy/dx) as a design bound — see NORTH_STAR "grandma
