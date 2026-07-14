@@ -21,7 +21,7 @@ export class LevelCompleteScene extends Phaser.Scene {
   create(): void {
     // Minimal stub wiring so LevelSelect shows real, reload-surviving
     // progress (PLAN-01 acceptance criterion); the full level-complete flow
-    // (notes, tulips) lands in PLAN-05/PLAN-08.
+    // (tulips: PLAN-07, notes/UI: PLAN-08) lands later.
     getSave().markLevelCompleted(this.level);
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
