@@ -87,3 +87,7 @@ export const FONT_STACK_PIXEL = "'Press Start 2P', 'Courier New', monospace";
 
 /** Minimum touch-target size in pixels per project quality bar. */
 export const UI_MIN_TOUCH_PX = 88;
+
+/** Total number of levels in the game. A locked fact from NORTH_STAR.md —
+ * never make this configurable or derive it from level data. */
+export const TOTAL_LEVELS = 22;
