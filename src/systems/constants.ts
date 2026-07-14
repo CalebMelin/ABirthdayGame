@@ -119,3 +119,19 @@ export const SCENE_KEYS = {
   party: 'PartyScene',
   credits: 'CreditsScene',
 } as const;
+
+/** Centralized texture keys for generated (placeholder, then real pixel-art)
+ * textures. BootScene registers these; every later plan references them by
+ * key instead of string literals, so swapping placeholder rectangles for
+ * real art in PLAN-10 touches only the generator, not call sites. */
+export const TEXTURE_KEYS = {
+  bike: 'tex-bike',
+  wheel: 'tex-wheel',
+  gabby: 'tex-gabby',
+  caleb: 'tex-caleb',
+  car: 'tex-car',
+  policeCar: 'tex-police-car',
+  flag: 'tex-flag',
+  tulip: 'tex-tulip',
+  balloon: 'tex-balloon',
+} as const;
