@@ -91,3 +91,16 @@ export const UI_MIN_TOUCH_PX = 88;
 /** Total number of levels in the game. A locked fact from NORTH_STAR.md —
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
+
+/** Centralized scene keys — all scenes and transitions reference these
+ * instead of string literals. See NORTH_STAR.md §4 for the scene flow. */
+export const SCENE_KEYS = {
+  boot: 'BootScene',
+  title: 'TitleScene',
+  characterCreation: 'CharacterCreationScene',
+  levelSelect: 'LevelSelectScene',
+  game: 'GameScene',
+  levelComplete: 'LevelCompleteScene',
+  party: 'PartyScene',
+  credits: 'CreditsScene',
+} as const;
