@@ -23,11 +23,12 @@ export class TitleScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
 
     // Logo: exact title text from NORTH_STAR.md — byte-exact, two "!!".
-    // Drop shadow drawn first (behind), then the coral face copy on top.
-    createPixelText(this, DESIGN_WIDTH / 2, 200, 'Gabby is 22!!', 64).setColor(
+    // Drop shadow drawn first (behind), offset +4/+4 down-right per the
+    // ui.ts shadow convention; coral face copy on top at the nominal anchor.
+    createPixelText(this, DESIGN_WIDTH / 2 + 4, 200 + 4, 'Gabby is 22!!', 64).setColor(
       hexToCss(PALETTE.outline)
     );
-    createPixelText(this, DESIGN_WIDTH / 2 + 4, 200 + 4, 'Gabby is 22!!', 64).setColor(
+    createPixelText(this, DESIGN_WIDTH / 2, 200, 'Gabby is 22!!', 64).setColor(
       hexToCss(PALETTE.coral)
     );
 
