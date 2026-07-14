@@ -28,9 +28,16 @@ export function loadPixelFont(timeoutMs = 3000): Promise<void> {
     return Promise.resolve();
   }
 
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
-    setTimeout(resolve, timeoutMs);
+    timerId = setTimeout(resolve, timeoutMs);
   });
 
-  return Promise.race([load, timeout]);
+  // Clear the race timer once either side settles so a won race doesn't
+  // leave a live timer firing into an already-resolved promise.
+  return Promise.race([load, timeout]).finally(() => {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
+  });
 }

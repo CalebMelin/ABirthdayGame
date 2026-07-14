@@ -85,6 +85,21 @@ export const FONT_FAMILY_PIXEL = 'Press Start 2P';
 /** Full CSS font-family stack with fallbacks. */
 export const FONT_STACK_PIXEL = "'Press Start 2P', 'Courier New', monospace";
 
+/** Press Start 2P is drawn on an 8px grid; sizes off that grid blur/shimmer
+ * at non-integer sub-pixel scales. */
+export const FONT_PIXEL_GRID_PX = 8;
+
+/** Snaps a requested font size to the pixel font's 8px design grid:
+ * rounds to the nearest multiple of FONT_PIXEL_GRID_PX, minimum one grid
+ * step (8px). Pure function — unit-tested in tests/ui.test.ts. Lives here
+ * (not ui.ts) so tests can import it without pulling Phaser into node. */
+export function snapFontSize(sizePx: number): number {
+  return Math.max(
+    FONT_PIXEL_GRID_PX,
+    Math.round(sizePx / FONT_PIXEL_GRID_PX) * FONT_PIXEL_GRID_PX
+  );
+}
+
 /** Minimum touch-target size in pixels per project quality bar. */
 export const UI_MIN_TOUCH_PX = 88;
 

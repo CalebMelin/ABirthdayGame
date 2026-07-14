@@ -1,11 +1,14 @@
 // Tiny pixel-art UI kit shared by every menu scene.
 // Three helpers only — see CLAUDE.md: no premature options-explosion.
 import Phaser from 'phaser';
-import { PALETTE, FONT_STACK_PIXEL, TEXT_COLOR, UI_MIN_TOUCH_PX, DEPTHS } from './constants';
-
-/** Press Start 2P is drawn on an 8px grid; sizes off that grid blur/shimmer
- * at non-integer sub-pixel scales. Round requested sizes to it. */
-const PIXEL_GRID_PX = 8;
+import {
+  PALETTE,
+  FONT_STACK_PIXEL,
+  TEXT_COLOR,
+  UI_MIN_TOUCH_PX,
+  DEPTHS,
+  snapFontSize,
+} from './constants';
 
 /** Drop-shadow offset for the chunky pixel button/panel look, and the
  * distance a button's face travels when pressed onto its shadow. */
@@ -21,8 +24,8 @@ const BUTTON_PADDING_X_PX = 32;
  * Creates centered pixel-font text using the project's pixel font stack.
  *
  * Press Start 2P is designed on an 8px grid, so `sizePx` is clamped/rounded
- * to the nearest multiple of 8 (minimum 8) — this keeps glyphs crisp instead
- * of blurry at odd sizes.
+ * to the nearest multiple of 8 (minimum 8) via snapFontSize — this keeps
+ * glyphs crisp instead of blurry at odd sizes.
  */
 export function createPixelText(
   scene: Phaser.Scene,
@@ -31,12 +34,10 @@ export function createPixelText(
   text: string,
   sizePx = 24
 ): Phaser.GameObjects.Text {
-  const size = Math.max(PIXEL_GRID_PX, Math.round(sizePx / PIXEL_GRID_PX) * PIXEL_GRID_PX);
-
   return scene.add
     .text(Math.round(x), Math.round(y), text, {
       fontFamily: FONT_STACK_PIXEL,
-      fontSize: `${size}px`,
+      fontSize: `${snapFontSize(sizePx)}px`,
       color: TEXT_COLOR,
       align: 'center',
     })
@@ -71,6 +72,8 @@ export function createPixelButton(
   const { x, y, label, onClick, minWidth } = opts;
 
   const labelText = createPixelText(scene, 0, 0, label);
+  // labelText.width is read synchronously — correct because BootScene's
+  // font-gate (loadPixelFont) resolves the pixel font before any menu scene.
   const width = Math.max(labelText.width + BUTTON_PADDING_X_PX * 2, minWidth ?? 0, UI_MIN_TOUCH_PX);
   const height = UI_MIN_TOUCH_PX;
 
@@ -84,9 +87,15 @@ export function createPixelButton(
   const container = scene.add.container(Math.round(x), Math.round(y), [shadow, face, labelText]);
   container.setDepth(DEPTHS.ui);
 
-  // Full face rect is the hit area — setInteractive() with no args uses the
-  // shape's own geometry, which already matches (width, height) above.
-  face.setInteractive({ useHandCursor: true });
+  // The hit area lives on the CONTAINER with static geometry (container
+  // local space, (0,0) at its center) — NOT on the face rect, which shifts
+  // +4px while pressed and would otherwise drag the hit shape with it and
+  // drop the pointer mid-press. Only the face/label visuals move on press.
+  container.setInteractive({
+    hitArea: new Phaser.Geom.Rectangle(-width / 2, -height / 2, width, height),
+    hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+    useHandCursor: true,
+  });
 
   const restore = (): void => {
     face.setFillStyle(PALETTE.cream);
@@ -94,23 +103,23 @@ export function createPixelButton(
     labelText.y = 0;
   };
 
-  face.on('pointerover', () => {
+  container.on('pointerover', () => {
     face.setFillStyle(PALETTE.sunshine);
   });
 
   // Covers both plain hover-out and "dragged off while pressed" — Phaser
-  // fires pointerout the moment the pointer leaves the face, before any
+  // fires pointerout the moment the pointer leaves the hit area, before any
   // pointerup/pointerupoutside, so this always restores the pressed state.
-  face.on('pointerout', restore);
+  container.on('pointerout', restore);
 
-  face.on('pointerdown', () => {
+  container.on('pointerdown', () => {
     face.y = SHADOW_OFFSET_PX;
     labelText.y = SHADOW_OFFSET_PX;
   });
 
-  // Only fires while the pointer is still over the face, i.e. a genuine
-  // click/tap — releasing outside never reaches this listener.
-  face.on('pointerup', () => {
+  // Only fires while the pointer is still inside the hit area, i.e. a
+  // genuine click/tap — releasing outside never reaches this listener.
+  container.on('pointerup', () => {
     restore();
     onClick();
   });
