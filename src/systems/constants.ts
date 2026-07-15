@@ -454,7 +454,7 @@ export const DEBUG_OVERLAY = {
 
 /** Touch-pedal HUD tuning (PLAN-03 task 2 — see src/systems/pedals.ts). The
  * pedals are the on-screen gas/brake control shown ONLY on touch-capable
- * devices (see pedals.ts isTouchDevice — maxTouchPoints AND a coarse
+ * devices (see device.ts isTouchDevice — maxTouchPoints AND a coarse
  * pointer); a pure-desktop build creates none.
  *
  * ART NOTE: the faces here are PLACEHOLDER primitives in the repo's chunky
