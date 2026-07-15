@@ -214,7 +214,7 @@ function readCreationState(page) {
     const active = g.scene.isActive('CharacterCreationScene');
     const s = g.scene.getScene('CharacterCreationScene');
     if (!active || !s) {
-      return { active, config: null, riderKey: null, bikeKey: null, wheelKeysOk: false };
+      return { active, config: null, riderKey: null, bikeKey: null, wheelsRawOk: false };
     }
     const wheelKeys = s.previewContainer
       ? s.previewContainer.list
@@ -226,7 +226,7 @@ function readCreationState(page) {
       config: s.config ? { ...s.config } : null,
       riderKey: s.riderPreviewSprite ? s.riderPreviewSprite.texture.key : null,
       bikeKey: s.bikePreviewSprite ? s.bikePreviewSprite.texture.key : null,
-      wheelKeysOk: wheelKeys.length === 2 && wheelKeys.every((k) => k === rawWheelKey),
+      wheelsRawOk: wheelKeys.length === 2 && wheelKeys.every((k) => k === rawWheelKey),
     };
   }, RAW_WHEEL_KEY);
 }
@@ -269,6 +269,25 @@ async function main() {
   const consoleErrors = [];
   const pageErrors = [];
 
+  /** Fresh isolated browser context + page: the common setup all six
+   * sections share (new context at the 1280x720 design viewport, error
+   * listeners attached, navigated to the dev URL, waited onto TitleScene).
+   * `contextOptions` is spread over the defaults — the touch section passes
+   * `{ hasTouch: true, isMobile: true }`. Returns `{ ctx, page }`; the caller
+   * closes `ctx` when its section is done. Closes over consoleErrors/
+   * pageErrors so every context funnels its errors into the one report. */
+  async function freshTitlePage(browser, contextOptions = {}) {
+    const ctx = await browser.newContext({
+      viewport: { width: DESIGN_W, height: DESIGN_H },
+      ...contextOptions,
+    });
+    const page = await ctx.newPage();
+    attachErrorListeners(page, consoleErrors, pageErrors);
+    await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
+    await waitForScene(page, 'TitleScene');
+    return { ctx, page };
+  }
+
   try {
     // ========================================================================
     // 1) DEFAULTS ON FIRST OPEN = blonde hair.
@@ -278,11 +297,7 @@ async function main() {
       // (Playwright isolates storage per context) — the same first-launch
       // guarantee playtest-drive.mjs's own "Fresh context => empty
       // localStorage" comment documents.
-      const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser);
 
       const preCharacter = await readLocalStorage(page, 'gabby22.character');
       checks.defaults_freshContextHadNoCharacter = preCharacter === null;
@@ -313,11 +328,7 @@ async function main() {
     // 2) >= 6 DISTINCT COMBOS render correctly in preview AND in-game.
     // ========================================================================
     {
-      const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser);
 
       const comboResults = [];
       for (const combo of COMBOS) {
@@ -354,7 +365,7 @@ async function main() {
         await page.screenshot({ path: join(OUT_DIR, `combo-${combo.name}-ingame.png`) });
 
         checks[`combo_${combo.name}_previewMatches`] = previewOk;
-        checks[`combo_${combo.name}_previewWheelsRaw`] = preview.wheelKeysOk;
+        checks[`combo_${combo.name}_previewWheelsRaw`] = preview.wheelsRawOk;
         checks[`combo_${combo.name}_inGameMatches`] = inGameOk;
         checks[`combo_${combo.name}_inGameWheelsRaw`] = inGame.wheelsRawOk;
 
@@ -383,11 +394,7 @@ async function main() {
     //    change path survives a reload, not just the read path).
     // ========================================================================
     {
-      const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser);
       await clickDesign(page, TITLE_PLAY.x, TITLE_PLAY.y); // fresh context, no character => first-run
       await waitForScene(page, 'CharacterCreationScene');
 
@@ -444,11 +451,7 @@ async function main() {
     //    gabby22.progress. Read REAL localStorage before AND after.
     // ========================================================================
     {
-      const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser);
 
       // Matches save.ts's LevelProgress shape exactly: { highestUnlocked,
       // completed: boolean[TOTAL_LEVELS] } (22 levels — constants.ts
@@ -458,7 +461,12 @@ async function main() {
         completed: Array.from({ length: 22 }, (_, i) => i < 8),
       };
       await seedLocalStorage(page, 'gabby22.progress', seededProgress);
-      const progressRightAfterSeed = safeJsonParse(await readLocalStorage(page, 'gabby22.progress'));
+      // RAW (unparsed) progress string, captured right after seeding — the
+      // byte-exact baseline the post-edit string must still equal. Nothing
+      // between here and the character edit below writes gabby22.progress, so
+      // this IS the pre-edit raw state.
+      const progressBeforeRaw = await readLocalStorage(page, 'gabby22.progress');
+      const progressRightAfterSeed = safeJsonParse(progressBeforeRaw);
       checks.progress_seedReadsBackBeforeEdit =
         !!progressRightAfterSeed &&
         progressRightAfterSeed.highestUnlocked === seededProgress.highestUnlocked &&
@@ -480,17 +488,35 @@ async function main() {
       await waitForScene(page, 'LevelSelectScene');
 
       const characterAfter = await readLocalStorage(page, 'gabby22.character');
-      const progressAfter = safeJsonParse(await readLocalStorage(page, 'gabby22.progress'));
+      const progressAfterRaw = await readLocalStorage(page, 'gabby22.progress');
+      const progressAfter = safeJsonParse(progressAfterRaw);
 
       checks.progress_characterActuallyChanged = characterAfter !== null && characterAfter !== characterBefore;
-      checks.progress_unchangedAfterCharacterEdit =
+      // PRIMARY guard (THE acceptance criterion "changing character mid-
+      // progress doesn't reset level progress"): the RAW gabby22.progress
+      // string is byte-for-byte identical before and after the character
+      // edit — the strongest possible form of "untouched". saveCharacter only
+      // ever writes gabby22.character (save.ts), so this string must not move.
+      checks.progress_unchangedAfterCharacterEdit = progressAfterRaw === progressBeforeRaw;
+      // SECONDARY (extra evidence, redundant with the raw check above): the
+      // parsed structure still matches the seeded LevelProgress field-by-field
+      // — human-readable corroboration that the untouched string is in fact
+      // the fully-completed-8/unlocked-9 progress we seeded.
+      checks.progress_unchangedStructural =
         !!progressAfter &&
         progressAfter.highestUnlocked === seededProgress.highestUnlocked &&
         Array.isArray(progressAfter.completed) &&
         progressAfter.completed.length === seededProgress.completed.length &&
         progressAfter.completed.every((v, i) => v === seededProgress.completed[i]);
 
-      evidence.progressGuard = { seededProgress, characterBefore, characterAfter, progressAfter };
+      evidence.progressGuard = {
+        seededProgress,
+        characterBefore,
+        characterAfter,
+        progressBeforeRaw,
+        progressAfterRaw,
+        progressAfter,
+      };
       await ctx.close();
     }
 
@@ -499,15 +525,7 @@ async function main() {
     //    (8-wide BIKE) row's LAST swatch, then Randomize + Let's ride!.
     // ========================================================================
     {
-      const ctx = await browser.newContext({
-        hasTouch: true,
-        isMobile: true,
-        viewport: { width: DESIGN_W, height: DESIGN_H },
-      });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser, { hasTouch: true, isMobile: true });
       await tapDesign(page, TITLE_PLAY.x, TITLE_PLAY.y);
       await waitForScene(page, 'CharacterCreationScene');
       await page.screenshot({ path: join(OUT_DIR, 'touch-character-creation-start.png') });
@@ -568,7 +586,7 @@ async function main() {
         eyePick,
         bikePick,
         suitPick,
-        configAfterAllTaps: cfg,
+        configAfterSwatchTaps: cfg,
         randomizedConfig: randomized,
       };
       await ctx.close();
@@ -578,11 +596,7 @@ async function main() {
     // 6) FIRST-RUN ROUTING both directions.
     // ========================================================================
     {
-      const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
-      const page = await ctx.newPage();
-      attachErrorListeners(page, consoleErrors, pageErrors);
-      await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
-      await waitForScene(page, 'TitleScene');
+      const { ctx, page } = await freshTitlePage(browser);
 
       const noCharAtStart = await readLocalStorage(page, 'gabby22.character');
       checks.routing_freshContextHasNoCharacter = noCharAtStart === null;
