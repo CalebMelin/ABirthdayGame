@@ -111,8 +111,16 @@ export const BIKE_TUNING = {
   /** Rear-wheel spin-up per step while holding gas, rad/step per step.
    * This IS the "torque limit": more = snappier acceleration (and more
    * wheelie tendency on climbs); the wheel only ever gains this much spin
-   * per tick no matter what. */
-  gasSpinUpPerStep: 0.012,
+   * per tick no matter what.
+   * TUNING NOTE (PLAN-02 task 4 integration, browser-measured): the
+   * original 0.012 stalled at ~3 px/step — the per-step drive impulse
+   * (wheel inertia x excess spin / radius) has to outrun Matter's default
+   * body frictionAir (0.01) drag on the whole rig, and 0.012 balanced it
+   * at a tenth of the intended top speed, leaving ramps unclimbable.
+   * 0.05 reaches the maxWheelAngularVelocity-capped top speed in ~2-3s.
+   * Task 6's feel-tuning pass may prefer explicit frictionAir control on
+   * the bodies + a gentler spin-up instead. */
+  gasSpinUpPerStep: 0.05,
   /** Cap on driven rear-wheel spin, rad/step — the easygoing top speed.
    * Flat-ground top speed ~= this x wheelRadius px/step (0.6 x 18 = 10.8
    * px/step ~= 650 px/s). More = faster bike; NORTH_STAR wants easygoing,
@@ -136,8 +144,16 @@ export const BIKE_TUNING = {
   // ------------------------------------------- air control & easy-mode assist
   /** Chassis pitch added per step while airborne holding a pedal,
    * rad/step per step (gas = nose up / backflip, brake = nose down).
-   * More = twitchier air control. */
-  airSpinStepPerStep: 0.006,
+   * More = twitchier air control.
+   * TUNING NOTE (PLAN-02 task 4 integration, browser-measured): 0.006
+   * rotated a full-gas rider ~100 degrees during the ~0.5s hops that
+   * natural hill crests produce at cruise speed — every such hop became a
+   * tail-first faceplant, violating the "holding only gas succeeds"
+   * criterion. 0.0025 keeps those hops under ~45 degrees. Trade-off:
+   * deliberate flips now need longer airtime to wind up (rotation ramps
+   * to maxAirAngularVelocity slower) — task 6's feel-tuning pass should
+   * rebalance this against a proper big-air ramp. */
+  airSpinStepPerStep: 0.0025,
   /** Cap on pedal-driven chassis spin while airborne, rad/step. 0.12 =
    * ~7 rad/s, a deliberate full backflip in just under a second — big
    * ramps give about that much airtime, so flips are achievable but never
@@ -283,6 +299,62 @@ export const TERRAIN = {
    * covers camera zoom-out (PLAN-02 task 3) and any dip without ever
    * showing a gap under the ground. */
   groundFillBottomYPx: 2400,
+} as const;
+
+/** Camera behavior tuning (PLAN-02 task 3 — see GameScene's updateCamera).
+ * The camera is driven manually every render frame (not startFollow) so the
+ * lookahead offset, vertical softness, and speed-zoom can each have their
+ * own smoothing rate. All lerp factors are per-render-frame fractions
+ * (0..1): higher = snappier, lower = floatier. */
+export const CAMERA = {
+  /** Max horizontal lookahead ahead of the bike in its travel direction,
+   * px, reached at full speed. More = you see further down the road but
+   * the bike sits further off-center. */
+  lookaheadMaxPx: 240,
+  /** Smoothing (0-1, per frame) of the lookahead offset itself, so
+   * flipping travel direction swings the camera over gradually instead of
+   * snapping ~2x lookaheadMaxPx sideways. */
+  lookaheadLerp: 0.04,
+  /** Horizontal follow lerp (0-1, per frame) toward bike x + lookahead.
+   * Snappier than vertical so the bike never outruns the view. */
+  followLerpX: 0.15,
+  /** Vertical follow lerp (0-1, per frame). Deliberately soft — rolling
+   * hills bob the bike constantly and the camera must not bob with it
+   * ("soft vertical damping, no jarring vertical snaps"). */
+  followLerpY: 0.06,
+  /** Camera center offset from the bike, px, negative = camera sits above
+   * the bike so more sky/upcoming terrain is visible than dirt below. */
+  verticalOffsetPx: -48,
+  /** Zoom while stationary (1 = native design scale). */
+  zoomMax: 1.0,
+  /** Zoom at full speed — the "slight zoom-out at speed" (shows ~18% more
+   * world). Keep subtle; big swings read as motion sickness. */
+  zoomMin: 0.85,
+  /** Zoom smoothing (0-1, per frame). Low on purpose: zoom changes should
+   * be barely noticeable as they happen. */
+  zoomLerp: 0.02,
+  /** Speed (px/step, matching BikeHandle.speed units) treated as "full
+   * speed" for lookahead/zoom normalization — the bike's driven top speed,
+   * maxWheelAngularVelocity x wheelRadius (see that constant's doc). */
+  fullSpeedPxPerStep: BIKE_TUNING.maxWheelAngularVelocity * BIKE_TUNING.wheelRadius,
+  /** Top of the camera bounds rect, px (negative = above "sea level").
+   * Generous headroom so big jump airtime never clamps the view; the
+   * bottom bound is TERRAIN.groundFillBottomYPx so the camera can never
+   * show below the drawn ground fill. */
+  boundsTopPx: -1600,
+} as const;
+
+/** Soft-fail tuning (PLAN-02 task 4 — GameScene's crash / fell-off-world
+ * handling). Restart flow: fail detected -> friendly overlay -> scene
+ * restart; overlayDurationMs + the restart itself must stay well under the
+ * 500ms budget (PLAN-02: "restarts are < 500ms"). */
+export const FAIL = {
+  /** How far below the LOWEST terrain surface point the bike may fall
+   * before it counts as "fell off the world", px. */
+  worldBottomMarginPx: 500,
+  /** How long the "Oops! Go again 💛" overlay stays up before the level
+   * restarts, ms. */
+  overlayDurationMs: 350,
 } as const;
 
 /** Z-depth layers for rendering order. */
