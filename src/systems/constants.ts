@@ -357,6 +357,25 @@ export const FAIL = {
   overlayDurationMs: 350,
 } as const;
 
+/** Debug overlay tuning (PLAN-02 task 5 — GameScene's dev-only debug
+ * overlay, toggled with the D key). The overlay itself is stripped from
+ * production bundles via `import.meta.env.DEV` (same pattern as the
+ * `__gabbyGame` exposure in main.ts) — these are just its presentation
+ * knobs, kept here per CLAUDE.md's "no magic numbers in scene code". */
+export const DEBUG_OVERLAY = {
+  /** Pixel-font size, snapped to the 8px grid (see snapFontSize). Small on
+   * purpose — a corner readout, not a HUD. */
+  fontSizePx: 8,
+  /** Distance from the top-left screen corner, px (both axes). */
+  marginPx: 8,
+  /** Matter's fixed physics tick rate, Hz — converts BikeHandle.speed (px
+   * per physics STEP, see bike.ts) to px per SECOND for a human-readable
+   * readout. Matches bike.ts's BEFORE_UPDATE_EVENT doc: Phaser's Matter
+   * world always steps at a fixed 1000/60 ms regardless of display refresh
+   * rate, so this is a true constant, not a tuning knob. */
+  physicsStepsPerSecond: 60,
+} as const;
+
 /** Z-depth layers for rendering order. */
 export const DEPTHS = {
   background: 0,

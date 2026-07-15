@@ -13,6 +13,7 @@ import {
   TERRAIN,
   CAMERA,
   FAIL,
+  DEBUG_OVERLAY,
 } from '../systems/constants';
 import { createPixelText } from '../systems/ui';
 import { createTerrain } from '../systems/terrain';
@@ -89,6 +90,19 @@ export class GameScene extends Phaser.Scene {
   /** Latched once the run is over (crashed, fell, or finished) so the fail
    * overlay/transition can only fire once per run. */
   private ended = false;
+  /** Dev-only debug overlay (PLAN-02 task 5) — always declared (cheap: just
+   * these three field slots), but only ever CREATED/READ inside an
+   * `import.meta.env.DEV` gate, which Vite dead-code-eliminates from
+   * production builds (same pattern as the `__gabbyGame` exposure in
+   * main.ts). `debugText`/`debugKey` are recreated every create() because
+   * scene.restart() destroys the previous text object and clears
+   * previously-added keys (same lifecycle as `cursors` below). */
+  private debugText: Phaser.GameObjects.Text | undefined;
+  private debugKey: Phaser.Input.Keyboard.Key | undefined;
+  /** Deliberately NOT reset in create() (unlike `ended`/`lookaheadPx`): this
+   * is the one piece of overlay state meant to survive scene.restart(), so
+   * toggling stays on/off across a fail-restart. */
+  private debugVisible = false;
 
   constructor() {
     super(SCENE_KEYS.game);
@@ -124,6 +138,26 @@ export class GameScene extends Phaser.Scene {
     // Temporary desktop mapping (NORTH_STAR §2): Right/Up = gas,
     // Left/Down = brake. Touch pedals arrive in PLAN-03.
     this.cursors = this.input.keyboard?.createCursorKeys();
+
+    // Dev-only debug overlay (PLAN-02 task 5): FPS, speed, airborne state,
+    // cumulative airborne rotation, crashed flag, Matter body count —
+    // toggled with D. See the `debugText`/`debugKey`/`debugVisible` field
+    // docs above for the restart lifecycle.
+    if (import.meta.env.DEV) {
+      this.debugText = createPixelText(
+        this,
+        DEBUG_OVERLAY.marginPx,
+        DEBUG_OVERLAY.marginPx,
+        '',
+        DEBUG_OVERLAY.fontSizePx
+      )
+        .setOrigin(0, 0)
+        .setAlign('left')
+        .setScrollFactor(0)
+        .setDepth(DEPTHS.overlay)
+        .setVisible(this.debugVisible);
+      this.debugKey = this.input.keyboard?.addKey('D');
+    }
 
     this.setUpCamera();
 
@@ -169,6 +203,38 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateCamera();
+
+    // Dev-only debug overlay (PLAN-02 task 5). Inlined here (rather than
+    // delegated to a private method) on purpose: `import.meta.env.DEV` is
+    // statically false in production, and Vite's minifier only proves an
+    // `if (false) { ... }` BRANCH dead and strips it — a same-named class
+    // method would still be emitted as a reachable member even though this
+    // call site to it was removed, defeating the tree-shake (same pattern
+    // as the `__gabbyGame` exposure in main.ts, which is also inlined).
+    if (import.meta.env.DEV && this.debugKey && this.debugText) {
+      if (Phaser.Input.Keyboard.JustDown(this.debugKey)) {
+        this.debugVisible = !this.debugVisible;
+        this.debugText.setVisible(this.debugVisible);
+      }
+      if (this.debugVisible) {
+        // BikeHandle.speed is px per physics STEP (see its doc) — x60 for
+        // a human-readable px/s readout (DEBUG_OVERLAY.physicsStepsPerSecond).
+        const speedPxPerSec = Math.round(this.bike.speed * DEBUG_OVERLAY.physicsStepsPerSecond);
+        // airborneRotation is radians and resets at TAKEOFF, not landing
+        // (see its doc) — degrees here purely for human readability.
+        const airRotationDeg = Math.round(Phaser.Math.RadToDeg(this.bike.airborneRotation));
+        this.debugText.setText(
+          [
+            `FPS: ${Math.round(this.game.loop.actualFps)}`,
+            `Speed: ${speedPxPerSec} px/s`,
+            `Airborne: ${this.bike.airborne}`,
+            `Air rot: ${airRotationDeg}deg (resets @ takeoff)`,
+            `Crashed: ${this.bike.crashed}`,
+            `Bodies: ${this.matter.world.getAllBodies().length}`,
+          ].join('\n')
+        );
+      }
+    }
   }
 
   private keyDown(name: keyof Phaser.Types.Input.Keyboard.CursorKeys): boolean {
@@ -198,7 +264,11 @@ export class GameScene extends Phaser.Scene {
    * softer vertical than horizontal, slight zoom-out with speed. Each
    * smoothing rate is an independent CAMERA knob. Lerps run per render
    * frame — cosmetic only, so mild frame-rate dependence is acceptable
-   * (unlike the bike control laws, which are fixed-step). */
+   * (unlike the bike control laws, which are fixed-step). Concretely: a
+   * 120Hz display calls this twice as often as 60Hz, so each lerp fraction
+   * compounds twice as fast — the camera reads roughly 2x snappier there.
+   * If the feel-tuning pass (task 6) finds that matters, the fix is
+   * dt-normalizing each factor `f` before use: `1 - (1 - f) ** (dt / 16.67)`. */
   private updateCamera(): void {
     if (!this.bike) return;
     const cam = this.cameras.main;

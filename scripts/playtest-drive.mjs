@@ -172,7 +172,12 @@ async function main() {
       lastProgressSamples: progressSamples.slice(-8),
     };
     console.log(JSON.stringify(report, null, 2));
-    if (!finished || failCount > 0) process.exitCode = 1;
+    // consoleErrors/pageErrors were already collected + printed above (via
+    // `report`) but previously never failed the run — a regression that
+    // logs a console error could pass silently. Gate on them too.
+    if (!finished || failCount > 0 || consoleErrors.length > 0 || pageErrors.length > 0) {
+      process.exitCode = 1;
+    }
   } finally {
     await browser.close();
   }
