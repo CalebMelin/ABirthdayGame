@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   accumulateAirborneRotation,
+  airPitchAuthority,
   airborneChassisAngularVelocity,
   bikeSpawnY,
+  brakingChassisAngularVelocity,
+  isTrickAirPhase,
+  nextGroundedSteps,
+  nextHeldSteps,
+  nextPedalAirFresh,
   nextWheelAngularVelocity,
   normalizeAngle,
   shortestArcToUpright,
@@ -148,6 +154,16 @@ describe('nextWheelAngularVelocity — brake', () => {
     expect(nextWheelAngularVelocity(0, false, true, false)).toBe(0);
   });
 
+  it('brakes the front wheel at only frontBrakeFraction strength (anti-endo)', () => {
+    const next = nextWheelAngularVelocity(0.5, false, true, false);
+    expect(next).toBeCloseTo(
+      0.5 * (1 - BIKE_TUNING.brakeDampingFactor * BIKE_TUNING.frontBrakeFraction),
+      12
+    );
+    // Strictly gentler than the rear's braking.
+    expect(next).toBeGreaterThan(nextWheelAngularVelocity(0.5, false, true, true));
+  });
+
   it('damps (not snaps) a wheel rolling backward faster than the reverse cap', () => {
     const fastBackward = -3 * BIKE_TUNING.maxReverseWheelAngularVelocity;
     const next = nextWheelAngularVelocity(fastBackward, false, true, true);
@@ -201,6 +217,167 @@ describe('airborneChassisAngularVelocity — pedal air control', () => {
   });
 });
 
+describe('nextPedalAirFresh — the deliberate-trick input detector', () => {
+  it('a press that BEGINS mid-air is fresh', () => {
+    expect(nextPedalAirFresh(false, true, false, true)).toBe(true);
+  });
+
+  it('a pedal held since the ground never becomes fresh in the air', () => {
+    // wasHeld=true when airborne starts: the press began on the ground.
+    expect(nextPedalAirFresh(false, true, true, true)).toBe(false);
+  });
+
+  it('stays fresh while held airborne', () => {
+    expect(nextPedalAirFresh(true, true, true, true)).toBe(true);
+  });
+
+  it('releasing the pedal clears freshness', () => {
+    expect(nextPedalAirFresh(true, false, true, true)).toBe(false);
+  });
+
+  it('touching the ground clears freshness (held through a landing)', () => {
+    expect(nextPedalAirFresh(true, true, true, false)).toBe(false);
+  });
+
+  it('is never fresh on the ground, even for a brand-new press', () => {
+    expect(nextPedalAirFresh(false, true, false, false)).toBe(false);
+  });
+
+  it('a release + re-press mid-air is fresh again', () => {
+    // step 1: held from ground into air -> not fresh
+    let fresh = nextPedalAirFresh(false, true, true, true);
+    expect(fresh).toBe(false);
+    // step 2: released mid-air
+    fresh = nextPedalAirFresh(fresh, false, true, true);
+    expect(fresh).toBe(false);
+    // step 3: pressed again mid-air -> fresh
+    fresh = nextPedalAirFresh(fresh, true, false, true);
+    expect(fresh).toBe(true);
+  });
+
+  it('press buffering: a just-pressed pedal counts at the takeoff step', () => {
+    // Held (wasHeld=true, so not a brand-new press), but the press is
+    // younger than the buffer window and the bike takes off THIS step.
+    const young = BIKE_TUNING.trickPressBufferSteps;
+    expect(nextPedalAirFresh(false, true, true, true, true, young)).toBe(true);
+  });
+
+  it('press buffering rejects an old (grandma cruise) hold at takeoff', () => {
+    const old = BIKE_TUNING.trickPressBufferSteps + 1;
+    expect(nextPedalAirFresh(false, true, true, true, true, old)).toBe(false);
+  });
+
+  it('press buffering only applies on the takeoff step itself', () => {
+    const young = BIKE_TUNING.trickPressBufferSteps;
+    expect(nextPedalAirFresh(false, true, true, true, false, young)).toBe(false);
+  });
+});
+
+describe('nextHeldSteps / nextGroundedSteps — trick-input counters', () => {
+  it('counts held steps and resets on release', () => {
+    let steps = 0;
+    steps = nextHeldSteps(steps, true);
+    expect(steps).toBe(1);
+    steps = nextHeldSteps(steps, true);
+    expect(steps).toBe(2);
+    steps = nextHeldSteps(steps, false);
+    expect(steps).toBe(0);
+  });
+
+  it('saturates just past the press-buffer window', () => {
+    let steps = 0;
+    for (let i = 0; i < BIKE_TUNING.trickPressBufferSteps * 5; i++) {
+      steps = nextHeldSteps(steps, true);
+    }
+    expect(steps).toBe(BIKE_TUNING.trickPressBufferSteps + 1);
+  });
+
+  it('grounded counter resets to zero the moment the bike is airborne', () => {
+    expect(nextGroundedSteps(BIKE_TUNING.trickGroundDebounceSteps, true)).toBe(0);
+  });
+
+  it('grounded counter saturates at the debounce window', () => {
+    let steps = 0;
+    for (let i = 0; i < BIKE_TUNING.trickGroundDebounceSteps * 3; i++) {
+      steps = nextGroundedSteps(steps, false);
+    }
+    expect(steps).toBe(BIKE_TUNING.trickGroundDebounceSteps);
+  });
+});
+
+describe('isTrickAirPhase — ground-contact debounce', () => {
+  it('is true while actually airborne', () => {
+    expect(isTrickAirPhase(true, BIKE_TUNING.trickGroundDebounceSteps)).toBe(true);
+  });
+
+  it('stays true through a ground touch shorter than the debounce', () => {
+    expect(isTrickAirPhase(false, BIKE_TUNING.trickGroundDebounceSteps - 1)).toBe(true);
+  });
+
+  it('ends once grounded for the full debounce window', () => {
+    expect(isTrickAirPhase(false, BIKE_TUNING.trickGroundDebounceSteps)).toBe(false);
+  });
+});
+
+describe('airPitchAuthority — grandma-proof pitch gating', () => {
+  it('gives full authority immediately to a mid-air press', () => {
+    expect(airPitchAuthority(0, true)).toBe(1);
+    expect(airPitchAuthority(1, true)).toBe(1);
+  });
+
+  it('gives ZERO authority to a held-from-ground pedal before the delay', () => {
+    expect(airPitchAuthority(0, false)).toBe(0);
+    expect(airPitchAuthority(BIKE_TUNING.heldPitchDelaySteps, false)).toBe(0);
+  });
+
+  it('ramps held-pedal authority linearly after the delay', () => {
+    const midway = BIKE_TUNING.heldPitchDelaySteps + BIKE_TUNING.heldPitchRampSteps / 2;
+    expect(airPitchAuthority(midway, false)).toBeCloseTo(0.5, 12);
+  });
+
+  it('saturates held-pedal authority at 1 after delay + ramp', () => {
+    const full = BIKE_TUNING.heldPitchDelaySteps + BIKE_TUNING.heldPitchRampSteps;
+    expect(airPitchAuthority(full, false)).toBe(1);
+    expect(airPitchAuthority(full * 10, false)).toBe(1);
+  });
+
+  it('never leaves [0, 1] across a sweep', () => {
+    for (let steps = -10; steps <= 500; steps += 7) {
+      const a = airPitchAuthority(steps, false);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('airborneChassisAngularVelocity — pitch authority scaling', () => {
+  it('scales the pedal pitch step by the authority factor', () => {
+    const half = airborneChassisAngularVelocity(0, 0, true, false, 0.5);
+    expect(half).toBeCloseTo(-BIKE_TUNING.airSpinStepPerStep * 0.5, 12);
+  });
+
+  it('zero authority + pedal held falls back to the full assist (the grandma safety net)', () => {
+    const withPedal = airborneChassisAngularVelocity(0.03, 1.2, true, false, 0);
+    const noPedal = airborneChassisAngularVelocity(0.03, 1.2, false, false);
+    expect(withPedal).toBeCloseTo(noPedal, 12);
+  });
+
+  it('partial authority blends pedal pitch with the assist', () => {
+    const authority = 0.25;
+    const blended = airborneChassisAngularVelocity(0.03, 1.2, true, false, authority);
+    const fullPedal = airborneChassisAngularVelocity(0.03, 1.2, true, false, 1);
+    const fullAssist = airborneChassisAngularVelocity(0.03, 1.2, false, false);
+    expect(blended).toBeCloseTo(authority * fullPedal + (1 - authority) * fullAssist, 12);
+  });
+
+  it('defaults to full authority (backward-compatible call shape)', () => {
+    expect(airborneChassisAngularVelocity(0, 0, true, false)).toBeCloseTo(
+      -BIKE_TUNING.airSpinStepPerStep,
+      12
+    );
+  });
+});
+
 describe('airborneChassisAngularVelocity — auto-stabilization assist', () => {
   it('does nothing when upright and not spinning', () => {
     expect(airborneChassisAngularVelocity(0, 0, false, false)).toBe(0);
@@ -240,6 +417,23 @@ describe('airborneChassisAngularVelocity — auto-stabilization assist', () => {
     }
     expect(Math.abs(angle)).toBeLessThan(0.05);
     expect(Math.abs(spin)).toBeLessThan(0.01);
+  });
+});
+
+describe('brakingChassisAngularVelocity — grounded anti-endo damping', () => {
+  it('bleeds off pitch rate by exactly brakeGroundStabilization per step', () => {
+    expect(brakingChassisAngularVelocity(0.1)).toBeCloseTo(
+      0.1 * (1 - BIKE_TUNING.brakeGroundStabilization),
+      12
+    );
+  });
+
+  it('is pure damping: zero stays zero (never fights a slope attitude)', () => {
+    expect(brakingChassisAngularVelocity(0)).toBe(0);
+  });
+
+  it('damps both pitch directions symmetrically', () => {
+    expect(brakingChassisAngularVelocity(-0.1)).toBeCloseTo(-brakingChassisAngularVelocity(0.1), 12);
   });
 });
 

@@ -27,10 +27,13 @@ import { TERRAIN_BODY_LABEL } from './terrain';
  * Just the two pedals — the whole game is gas/brake only (NORTH_STAR §4). */
 export interface BikeInput {
   /** Right pedal: drive forward on the ground, pitch nose-UP (backflip
-   * direction) in the air. */
+   * direction) in the air. Full pitch authority only when the press began
+   * MID-AIR (the deliberate trick input); held from the ground it stays
+   * near-zero on short hops — see airPitchAuthority. */
   gas: boolean;
   /** Left pedal: brake (then mild reverse once stopped) on the ground,
-   * pitch nose-DOWN in the air. Wins over gas if both are held. */
+   * pitch nose-DOWN in the air (same authority rules as gas). Wins over
+   * gas if both are held. */
   brake: boolean;
 }
 
@@ -117,7 +120,7 @@ export function shortestArcToUpright(angle: number): number {
 /** One step of airborne-rotation bookkeeping: adds the frame's signed
  * angle delta (wrap-safe, so crossing ±π doesn't spuriously add ~2π) to
  * the running total. Assumes < half a revolution per step — at
- * maxAirAngularVelocity (0.12 rad/step) that leaves ~26x headroom. */
+ * maxAirAngularVelocity (0.18 rad/step) that leaves ~17x headroom. */
 export function accumulateAirborneRotation(
   accumulated: number,
   previousAngle: number,
@@ -132,9 +135,12 @@ export function accumulateAirborneRotation(
  * `driven` = the rear wheel (gets gas spin-up and the reverse creep);
  * the front wheel only ever receives brake damping.
  *
- * - Brake (wins over gas): multiplicative damping toward zero — except
- *   the driven wheel, once near-stopped, creeps gently BACKWARD up to
- *   maxReverseWheelAngularVelocity ("when stopped, mild reverse").
+ * - Brake (wins over gas): multiplicative damping toward zero — the
+ *   front (undriven) wheel at only frontBrakeFraction of the rear's
+ *   strength (hard front braking endos the bike over its front axle —
+ *   see the constant's doc). The driven wheel, once near-stopped, creeps
+ *   gently BACKWARD up to maxReverseWheelAngularVelocity ("when stopped,
+ *   mild reverse").
  * - Gas: fixed spin-up per step (the torque limit) capped at
  *   maxWheelAngularVelocity. A wheel already spinning faster than the cap
  *   (e.g. rolling downhill) is left alone rather than clamped down, so
@@ -159,7 +165,9 @@ export function nextWheelAngularVelocity(
     }
     // Also covers rolling backward FASTER than the reverse cap (e.g. after
     // sliding back down a hill): damp toward zero like any other braking.
-    return current * (1 - BIKE_TUNING.brakeDampingFactor);
+    const damping =
+      BIKE_TUNING.brakeDampingFactor * (driven ? 1 : BIKE_TUNING.frontBrakeFraction);
+    return current * (1 - damping);
   }
   if (gas && driven && current < BIKE_TUNING.maxWheelAngularVelocity) {
     return Math.min(
@@ -171,46 +179,154 @@ export function nextWheelAngularVelocity(
 }
 
 /**
+ * The trick-input detector (PLAN-02 task 6): a pedal press is "air-fresh"
+ * while it is held, the bike is airborne, AND either
+ * - the press BEGAN mid-air (or it was already air-fresh last step and
+ *   hasn't been released or grounded since), or
+ * - the bike is taking off THIS step and the press is at most
+ *   trickPressBufferSteps old ("press buffering": a human pressing right
+ *   at the lip is often a few frames early — that must still count).
+ * Air-fresh presses are the deliberate flip input — they get full pitch
+ * authority immediately (see airPitchAuthority) — while a pedal merely
+ * held since the ground (far older than the buffer window by the time a
+ * ramp launches the bike) never becomes fresh, which is what makes
+ * accidental flips impossible for a player who just holds gas.
+ * Landing (see isTrickAirPhase's debounce) or releasing the pedal clears
+ * freshness.
+ *
+ * @param airborne   the DEBOUNCED trick air phase (isTrickAirPhase)
+ * @param tookOffNow true only on the step airborne goes false -> true (RAW)
+ * @param heldSteps  consecutive steps the pedal has been held, incl. this one
+ */
+export function nextPedalAirFresh(
+  wasFresh: boolean,
+  held: boolean,
+  wasHeld: boolean,
+  airborne: boolean,
+  tookOffNow = false,
+  heldSteps = Number.MAX_SAFE_INTEGER
+): boolean {
+  if (!held || !airborne) return false;
+  if (wasFresh || !wasHeld) return true;
+  return tookOffNow && heldSteps <= BIKE_TUNING.trickPressBufferSteps;
+}
+
+/**
+ * Consecutive-steps-held counter for press buffering (see
+ * nextPedalAirFresh): 0 while released, counts up while held, saturating
+ * just past the buffer window (all the comparison ever needs).
+ */
+export function nextHeldSteps(previous: number, held: boolean): number {
+  return held ? Math.min(previous + 1, BIKE_TUNING.trickPressBufferSteps + 1) : 0;
+}
+
+/**
+ * Grounded-step counter for the trick-input debounce (see isTrickAirPhase):
+ * resets to 0 the moment the bike is airborne, otherwise counts up,
+ * saturating at trickGroundDebounceSteps (all the comparison ever needs —
+ * saturating keeps the counter from growing unboundedly on a long drive).
+ */
+export function nextGroundedSteps(previous: number, airborne: boolean): number {
+  return airborne ? 0 : Math.min(previous + 1, BIKE_TUNING.trickGroundDebounceSteps);
+}
+
+/**
+ * The debounced "air phase" the trick-input freshness logic uses instead of
+ * the raw airborne flag: still true during ground contacts SHORTER than
+ * trickGroundDebounceSteps. Cresting a ramp chatters the wheels against the
+ * coarse collision chords for a few steps at a time — a mid-air press that
+ * happens to land in one of those gaps must still count as a trick press,
+ * or flip input becomes frame-perfect. Only freshness uses this; the pitch
+ * itself is still only ever applied while ACTUALLY airborne.
+ */
+export function isTrickAirPhase(airborne: boolean, groundedSteps: number): boolean {
+  return airborne || groundedSteps < BIKE_TUNING.trickGroundDebounceSteps;
+}
+
+/**
+ * Airborne pitch authority (0..1) scaling airSpinStepPerStep:
+ * - A pedal press that began mid-air (see nextPedalAirFresh): full
+ *   authority (1) immediately — deliberate tricks respond instantly.
+ * - A pedal held since the ground: zero authority for the first
+ *   heldPitchDelaySteps airborne steps, then ramps linearly to 1 over
+ *   heldPitchRampSteps. Keeps NORTH_STAR §4's "gas rotates nose-up in
+ *   mid-air" true on long airtime while natural short hops stay ballistic
+ *   (the EASY mandate: gas-only survival is sacred).
+ */
+export function airPitchAuthority(airborneSteps: number, pressedMidAir: boolean): number {
+  if (pressedMidAir) return 1;
+  const t = (airborneSteps - BIKE_TUNING.heldPitchDelaySteps) / BIKE_TUNING.heldPitchRampSteps;
+  return Math.min(Math.max(t, 0), 1);
+}
+
+/**
  * The airborne chassis control law: given the chassis' current angular
  * velocity (rad/step) and angle, returns next step's angular velocity.
  * Only ever applied while airborne — grounded pitch belongs to real
  * physics (wheel grip, suspension), never to this.
  *
  * - A pedal held: fixed pitch step (gas = nose-up/backflip = negative in
- *   screen coords, brake = nose-down = positive). A step that would
+ *   screen coords, brake = nose-down = positive), scaled by `authority`
+ *   (see airPitchAuthority — 1 for deliberate mid-air presses, ramping
+ *   from 0 for pedals held since the ground). A step that would
  *   overshoot maxAirAngularVelocity lands exactly ON the cap (symmetric
  *   with the wheel law's top-speed clamp); spin already beyond the cap
  *   (violent bounce) is held rather than snapped back, and pedaling back
  *   down from beyond it is always allowed.
- *   Both pedals held cancel to zero input (and no assist — the player is
- *   clearly "doing something").
+ *   Both pedals held cancel to zero pedal input (at full authority that
+ *   means no assist either — the player is clearly "doing something").
  * - No pedal held: the auto-stabilization assist (NORTH_STAR "easy"
  *   mandate) — a weak spring toward upright (via shortestArcToUpright, so
  *   past-halfway flips complete instead of reversing) plus damping so the
- *   bike settles level instead of oscillating.
+ *   bike settles level instead of oscillating. This is also what lands
+ *   deliberate flips: release the pedal past ~250° and the assist pushes
+ *   the flip ONWARD to upright.
+ * - Pedal held at PARTIAL authority: linear blend of the two results by
+ *   `authority`. Load-bearing for the EASY mandate: at authority ~0 a
+ *   gas-held hop still gets the full assist (browser-measured: a purely
+ *   ballistic gas-held hop let natural takeoff spin accumulate to ~90
+ *   degrees and crash — the assist is the safety net that makes
+ *   "holding only gas always survives" true).
  */
 export function airborneChassisAngularVelocity(
   current: number,
   angle: number,
   gas: boolean,
-  brake: boolean
+  brake: boolean,
+  authority = 1
 ): number {
-  if (gas || brake) {
-    const direction = (brake ? 1 : 0) - (gas ? 1 : 0);
-    const next = current + direction * BIKE_TUNING.airSpinStepPerStep;
-    const cap = BIKE_TUNING.maxAirAngularVelocity;
-    if (Math.abs(next) <= cap || Math.abs(next) < Math.abs(current)) {
-      // Within the cap, or pedaling back DOWN from beyond it — allowed.
-      return next;
-    }
+  const sprung =
+    current + BIKE_TUNING.stabilizationGain * shortestArcToUpright(angle);
+  const assistResult = sprung * (1 - BIKE_TUNING.stabilizationDamping);
+  if (!gas && !brake) return assistResult;
+
+  const direction = (brake ? 1 : 0) - (gas ? 1 : 0);
+  const next = current + direction * BIKE_TUNING.airSpinStepPerStep;
+  const cap = BIKE_TUNING.maxAirAngularVelocity;
+  let pedalResult: number;
+  if (Math.abs(next) <= cap || Math.abs(next) < Math.abs(current)) {
+    // Within the cap, or pedaling back DOWN from beyond it — allowed.
+    pedalResult = next;
+  } else {
     // The step would overshoot the cap: land exactly ON it — unless spin
     // is ALREADY beyond the cap (violent bounce), which is held rather
     // than snapped back.
-    return Math.abs(current) >= cap ? current : Math.sign(next) * cap;
+    pedalResult = Math.abs(current) >= cap ? current : Math.sign(next) * cap;
   }
-  const sprung =
-    current + BIKE_TUNING.stabilizationGain * shortestArcToUpright(angle);
-  return sprung * (1 - BIKE_TUNING.stabilizationDamping);
+  return authority * pedalResult + (1 - authority) * assistResult;
+}
+
+/**
+ * The grounded braking-stability law (anti-endo, PLAN-02 task 6): while
+ * the brake is held and at least one wheel is on the ground, chassis
+ * angular velocity is bled off multiplicatively. Deliberately damping
+ * ONLY (no spring toward upright): it never fights the attitude terrain
+ * imposes on a slope, it just resists the fast pitch-over that hard
+ * braking from speed otherwise develops (browser-measured 100-200 degree
+ * nose-over without it — see brakeGroundStabilization's doc).
+ */
+export function brakingChassisAngularVelocity(current: number): number {
+  return current * (1 - BIKE_TUNING.brakeGroundStabilization);
 }
 
 /** The chassis-center spawn y for a bike whose wheels should hover just
@@ -432,6 +548,21 @@ export function createBike(
   let airborne = false;
   let airborneRotation = 0;
   let previousAngle = chassis.angle;
+  // Trick-input state (PLAN-02 task 6 — see nextPedalAirFresh /
+  // airPitchAuthority / isTrickAirPhase): consecutive airborne physics
+  // steps, the grounded-step debounce counter (starts saturated: a spawn
+  // is a firm grounding), last step's pedal state, and whether each held
+  // pedal's press began mid-air.
+  let airborneSteps = 0;
+  // Explicit `number`: BIKE_TUNING is `as const`, so without the
+  // annotation this would infer the literal type of the initializer.
+  let groundedSteps: number = BIKE_TUNING.trickGroundDebounceSteps;
+  let gasWasHeldStep = false;
+  let brakeWasHeldStep = false;
+  let gasAirFresh = false;
+  let brakeAirFresh = false;
+  let gasHeldSteps = 0;
+  let brakeHeldSteps = 0;
   // Latest pedal state, recorded per RENDER frame by update() and consumed
   // per PHYSICS step by onBeforeUpdate below (field copies, so a caller
   // mutating/reusing its input object between frames can't surprise us).
@@ -512,6 +643,20 @@ export function createBike(
     }
 
     const airborneNow = rearContacts === 0 && frontContacts === 0;
+    // Trick-input bookkeeping (see nextPedalAirFresh / airPitchAuthority):
+    // a pedal press that BEGAN mid-air is the deliberate flip input and
+    // gets full pitch authority; one held since the ground ramps in only
+    // after a long airborne delay. Freshness runs on the DEBOUNCED air
+    // phase (isTrickAirPhase) so ramp-crest wheel chatter can't eat a
+    // deliberate mid-air press.
+    const tookOffNow = airborneNow && !airborne;
+    groundedSteps = nextGroundedSteps(groundedSteps, airborneNow);
+    const trickAir = isTrickAirPhase(airborneNow, groundedSteps);
+    gasHeldSteps = nextHeldSteps(gasHeldSteps, gas);
+    brakeHeldSteps = nextHeldSteps(brakeHeldSteps, brake);
+    gasAirFresh = nextPedalAirFresh(gasAirFresh, gas, gasWasHeldStep, trickAir, tookOffNow, gasHeldSteps);
+    brakeAirFresh = nextPedalAirFresh(brakeAirFresh, brake, brakeWasHeldStep, trickAir, tookOffNow, brakeHeldSteps);
+    airborneSteps = airborneNow ? airborneSteps + 1 : 0;
     if (airborneNow) {
       if (!airborne) {
         // Takeoff: discard the PREVIOUS air phase's total now — not at
@@ -521,14 +666,24 @@ export function createBike(
       }
       airborneRotation = accumulateAirborneRotation(airborneRotation, previousAngle, chassis.angle);
       if (!crashed) {
+        const authority = airPitchAuthority(airborneSteps, gasAirFresh || brakeAirFresh);
         scene.matter.setAngularVelocity(
           chassis,
-          airborneChassisAngularVelocity(chassis.angularVelocity, chassis.angle, gas, brake)
+          airborneChassisAngularVelocity(chassis.angularVelocity, chassis.angle, gas, brake, authority)
         );
       }
+    } else if (brake && !gas && !crashed) {
+      // Grounded braking: the anti-endo stability assist (see
+      // brakingChassisAngularVelocity). Grounded GAS stays pure physics.
+      scene.matter.setAngularVelocity(
+        chassis,
+        brakingChassisAngularVelocity(chassis.angularVelocity)
+      );
     }
     previousAngle = chassis.angle;
     airborne = airborneNow;
+    gasWasHeldStep = gas;
+    brakeWasHeldStep = brake;
   }
   scene.matter.world.on(BEFORE_UPDATE_EVENT, onBeforeUpdate);
 

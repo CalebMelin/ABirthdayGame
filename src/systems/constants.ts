@@ -37,7 +37,14 @@ export const PASTEL_BG_COLOR = PALETTE.bgPink; // soft pink, a.k.a. #ffd6e8
 /** Text color for placeholder/UI copy on the pastel background. */
 export const TEXT_COLOR = hexToCss(PALETTE.plum); // '#4a2c40'
 
-/** Matter.js world gravity-y. Placeholder; tuned in PLAN-02. */
+/** Matter.js world gravity-y (1 = Matter default, ~0.278 px/step^2 at the
+ * fixed 60 Hz tick). The PLAN-02 task-6 feel pass TRIED 0.8 for floatier
+ * jumps and rejected it (browser-measured): the ~25% longer hops chained
+ * natural bumps into compounding suspension-rebound launches — one lip on
+ * the test level kicked the chassis to ~90 degrees nose-up under gas-only
+ * input, crashing a run that is rock-solid at 1.0. Flip airtime comes
+ * from ramp GEOMETRY instead (see TEST_LEVEL's kicker note). More =
+ * heavier/snappier falls, shorter airtime everywhere. */
 export const GRAVITY_Y = 1;
 
 /** Physics tuning for the bike rig (PLAN-02 task 2 — see
@@ -127,9 +134,30 @@ export const BIKE_TUNING = {
    * not thrilling. (Coasting downhill may exceed it — gravity is allowed
    * to be fun — the cap only limits DRIVEN spin.) */
   maxWheelAngularVelocity: 0.6,
-  /** Fraction (0-1) of wheel spin removed per step while braking. Higher =
-   * more abrupt stops; 0.15 stops from top speed in roughly half a second. */
+  /** Fraction (0-1) of REAR-wheel spin removed per step while braking.
+   * Higher = more abrupt stops; 0.15 stops from top speed in under a
+   * second. */
   brakeDampingFactor: 0.15,
+  /** The front wheel brakes at this fraction of brakeDampingFactor.
+   * Load-bearing anti-endo tuning (PLAN-02 task 6, browser-measured):
+   * braking BOTH wheels at full strength from top speed decelerates near
+   * the friction limit (~0.95g), which is past the geometric overturn
+   * threshold (~0.77g for this wheelbase/COM height) — the bike pitched
+   * to ~108 degrees nose-down and balanced on its front wheel. Front
+   * braking is what makes endos; keep this low. More = shorter stops but
+   * more nose-dive. */
+  frontBrakeFraction: 0.25,
+  /** Fraction (0-1) of chassis angular velocity bled off per physics step
+   * while braking ON THE GROUND — the anti-endo stability assist.
+   * Browser-measured: without it, a full-brake stop from top speed
+   * converted forward momentum into a pitch-over (the bike vaulted its
+   * front axle to 100-200 degrees nose-down) no matter how the per-wheel
+   * brake strengths were balanced. Pure damping (no upright spring), so
+   * it never fights the bike's natural attitude on slopes — it only makes
+   * pitch CHANGES sluggish while the brake is held. More = flatter, more
+   * planted stops; too high would make crossing dips under braking feel
+   * glued. */
+  brakeGroundStabilization: 0.35,
   /** Wheel spin (rad/step) below which held brake starts creeping the
    * rear wheel backward instead of damping ("when stopped, mild reverse").
    * More = reverse engages while still rolling forward a little. */
@@ -142,23 +170,63 @@ export const BIKE_TUNING = {
   maxReverseWheelAngularVelocity: 0.15,
 
   // ------------------------------------------- air control & easy-mode assist
-  /** Chassis pitch added per step while airborne holding a pedal,
-   * rad/step per step (gas = nose up / backflip, brake = nose down).
-   * More = twitchier air control.
-   * TUNING NOTE (PLAN-02 task 4 integration, browser-measured): 0.006
-   * rotated a full-gas rider ~100 degrees during the ~0.5s hops that
-   * natural hill crests produce at cruise speed — every such hop became a
-   * tail-first faceplant, violating the "holding only gas succeeds"
-   * criterion. 0.0025 keeps those hops under ~45 degrees. Trade-off:
-   * deliberate flips now need longer airtime to wind up (rotation ramps
-   * to maxAirAngularVelocity slower) — task 6's feel-tuning pass should
-   * rebalance this against a proper big-air ramp. */
-  airSpinStepPerStep: 0.0025,
-  /** Cap on pedal-driven chassis spin while airborne, rad/step. 0.12 =
-   * ~7 rad/s, a deliberate full backflip in just under a second — big
-   * ramps give about that much airtime, so flips are achievable but never
-   * accidental. More = faster/easier flips. */
-  maxAirAngularVelocity: 0.12,
+  /** Chassis pitch added per step while airborne holding a pedal at FULL
+   * pitch authority, rad/step per step (gas = nose up / backflip, brake =
+   * nose down). Scaled by airPitchAuthority() (see bike.ts): a pedal press
+   * that BEGINS mid-air (or within trickPressBufferSteps of takeoff) gets
+   * authority 1 immediately — the deliberate-trick input; a pedal merely
+   * held since the ground only gains authority after heldPitchDelaySteps
+   * (see below). More = twitchier air control, faster flip wind-up.
+   * TUNING NOTE (PLAN-02 task 6, browser-measured): the REALIZED spin is
+   * well below (this x steps): the sprung wheels act as orbital inertia
+   * and Matter's constraint solver bleeds chassis spin ~10%/step, so spin
+   * saturates near -0.3 rad/step. 0.04 makes a full 360 backflip complete
+   * within the trick kicker's ~0.55-1.0s of air (32-59 steps measured)
+   * with margin; at 0.03 marginal flights landed ~350 degrees. Raised
+   * from the pre-trick-mechanic 0.0025, which existed only to keep
+   * full-gas hill hops from tail-planting back when held gas got full
+   * pitch — held-from-ground authority is ~0 now, so grandma runs are
+   * unaffected by this knob. */
+  airSpinStepPerStep: 0.04,
+  /** Cap on pedal-driven chassis spin while airborne, rad/step. Rarely
+   * binding in practice (the wheel-orbit bleed above saturates realized
+   * spin near -0.3 first) — it exists to bound violent cases (bounces,
+   * long falls). More = faster max flips; accidental flips stay
+   * impossible regardless because grandma inputs never reach authority 1
+   * (see heldPitchDelaySteps). */
+  maxAirAngularVelocity: 0.3,
+  /** Airborne steps (60 Hz) a pedal HELD SINCE THE GROUND must stay
+   * airborne before it starts gaining pitch authority. Keeps NORTH_STAR
+   * §4's "gas also rotates nose-up in mid-air" true on genuinely long
+   * airtime while making it a no-op on the ~0.3-0.6s hops natural hills
+   * and gas-only ramp crossings produce — that's what makes "a non-gamer
+   * holding only gas never flips/crashes" hold by construction. More =
+   * grandma-safer, less held-pedal attitude control on long jumps.
+   * (42 steps = 0.7s — longer than any airtime a full-gas run over the
+   * test level's terrain or ramps was measured to produce.) */
+  heldPitchDelaySteps: 42,
+  /** Airborne steps over which held-from-ground pitch authority then
+   * ramps 0 -> 1 after the delay. More = gentler onset. */
+  heldPitchRampSteps: 30,
+  /** Consecutive grounded steps before the trick-input "air phase" ends
+   * (see bike.ts isTrickAirPhase). Cresting a ramp produces sub-100ms
+   * wheel micro-touches on the coarse collision chords; without this
+   * debounce, a mid-air pedal press landing in one of those gaps would
+   * silently lose its full pitch authority — turning the flip recipe into
+   * frame-perfect wizardry (browser-measured). More = a press shortly
+   * AFTER a real landing still counts as a trick press (harmless: pitch
+   * is only ever applied while actually airborne). */
+  trickGroundDebounceSteps: 10,
+  /** "Press buffering" for trick input: a pedal press that began at most
+   * this many steps BEFORE takeoff still counts as a mid-air (full pitch
+   * authority) press the moment the bike leaves the ground. Humans press
+   * "right at the lip" — often a few frames early; without the buffer the
+   * flip only works when the press lands strictly after takeoff
+   * (browser-measured: that latency alone cost ~140 degrees of rotation).
+   * A pedal held from way back (a non-gamer cruising on gas) is far older
+   * than this window, so accidental flips stay impossible. More = more
+   * forgiving flip timing. (12 steps = 0.2s.) */
+  trickPressBufferSteps: 12,
   /** Auto-stabilization spring gain: chassis spin added per step per
    * radian of tilt away from upright, while airborne with NO pedal held
    * (the NORTH_STAR "easy" assist — makes jumps land themselves). More =
