@@ -40,6 +40,28 @@ interface SwatchRowHandle {
   refreshHighlight(): void;
 }
 
+/** Options for {@link CharacterCreationScene.buildSwatchRow} — one labeled
+ * swatch row. Bundled into an object rather than positional params to match
+ * the codebase's multi-param builder style (see ui.ts's createPixelButton /
+ * PixelButtonOptions). Generic over the option shape so `colorOf` stays
+ * typed against the concrete option (SwatchOption vs OutfitOption). */
+interface SwatchRowOptions<T extends { id: string }> {
+  /** Row center y, px (design space). */
+  y: number;
+  /** Pixel-text row label (HAIR / EYES / BIKE / SUIT). */
+  label: string;
+  /** The option array this row draws one swatch per. */
+  options: readonly T[];
+  /** Extracts an option's swatch-face fill color (for outfits, its
+   * suitColor). */
+  colorOf: (option: T) => number;
+  /** Reads the currently-selected id for this dimension off the working
+   * config — called to place the initial highlight and on every refresh. */
+  getSelectedId: () => string;
+  /** Called with the tapped swatch's id. */
+  onSelect: (id: string) => void;
+}
+
 /**
  * Character creation: live preview + swatch customization + Randomize +
  * Let's ride! -> LevelSelect. See the module doc comment above.
@@ -78,7 +100,6 @@ export class CharacterCreationScene extends Phaser.Scene {
     // selected in its row. Normalizing here keeps the working config's ids
     // always real from the start.
     this.config = normalizeCharacterConfig(getSave().loadCharacter() ?? defaultCharacter());
-    this.swatchRows = [];
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
 
@@ -212,38 +233,38 @@ export class CharacterCreationScene extends Phaser.Scene {
 
   private buildSwatchRows(): void {
     this.swatchRows = [
-      this.buildSwatchRow(
-        CHARACTER_CREATE.hairRowY,
-        'HAIR',
-        HAIR_OPTIONS,
-        (option) => option.color,
-        () => this.config.hairColor,
-        (id) => this.selectSwatch('hairColor', id)
-      ),
-      this.buildSwatchRow(
-        CHARACTER_CREATE.eyesRowY,
-        'EYES',
-        EYE_OPTIONS,
-        (option) => option.color,
-        () => this.config.eyeColor,
-        (id) => this.selectSwatch('eyeColor', id)
-      ),
-      this.buildSwatchRow(
-        CHARACTER_CREATE.bikeRowY,
-        'BIKE',
-        BIKE_OPTIONS,
-        (option) => option.color,
-        () => this.config.bikeColor,
-        (id) => this.selectSwatch('bikeColor', id)
-      ),
-      this.buildSwatchRow(
-        CHARACTER_CREATE.suitRowY,
-        'SUIT',
-        OUTFIT_OPTIONS,
-        (option) => option.suitColor,
-        () => this.config.outfit,
-        (id) => this.selectSwatch('outfit', id)
-      ),
+      this.buildSwatchRow({
+        y: CHARACTER_CREATE.hairRowY,
+        label: 'HAIR',
+        options: HAIR_OPTIONS,
+        colorOf: (option) => option.color,
+        getSelectedId: () => this.config.hairColor,
+        onSelect: (id) => this.selectSwatch('hairColor', id),
+      }),
+      this.buildSwatchRow({
+        y: CHARACTER_CREATE.eyesRowY,
+        label: 'EYES',
+        options: EYE_OPTIONS,
+        colorOf: (option) => option.color,
+        getSelectedId: () => this.config.eyeColor,
+        onSelect: (id) => this.selectSwatch('eyeColor', id),
+      }),
+      this.buildSwatchRow({
+        y: CHARACTER_CREATE.bikeRowY,
+        label: 'BIKE',
+        options: BIKE_OPTIONS,
+        colorOf: (option) => option.color,
+        getSelectedId: () => this.config.bikeColor,
+        onSelect: (id) => this.selectSwatch('bikeColor', id),
+      }),
+      this.buildSwatchRow({
+        y: CHARACTER_CREATE.suitRowY,
+        label: 'SUIT',
+        options: OUTFIT_OPTIONS,
+        colorOf: (option) => option.suitColor,
+        getSelectedId: () => this.config.outfit,
+        onSelect: (id) => this.selectSwatch('outfit', id),
+      }),
     ];
   }
 
@@ -259,14 +280,8 @@ export class CharacterCreationScene extends Phaser.Scene {
    * size). Tapping a swatch updates the working config, refreshes every
    * row's highlight + the preview textures, and saves.
    */
-  private buildSwatchRow<T extends { id: string }>(
-    y: number,
-    label: string,
-    options: readonly T[],
-    colorOf: (option: T) => number,
-    getSelectedId: () => string,
-    onSelect: (id: string) => void
-  ): SwatchRowHandle {
+  private buildSwatchRow<T extends { id: string }>(opts: SwatchRowOptions<T>): SwatchRowHandle {
+    const { y, label, options, colorOf, getSelectedId, onSelect } = opts;
     createPixelText(this, CHARACTER_CREATE.rowLabelX, y, label, CHARACTER_CREATE.rowLabelFontSizePx);
 
     const swatches: Array<{ id: string; highlight: Phaser.GameObjects.Rectangle }> = [];

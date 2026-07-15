@@ -50,8 +50,12 @@ describe('CHARACTER_CREATE swatch thumb-friendly budget', () => {
     expect(CHARACTER_CREATE.swatchHitSizePx).toBeGreaterThanOrEqual(UI_MIN_TOUCH_PX);
   });
 
-  it('swatch center spacing is wide enough that adjacent hit areas never overlap', () => {
-    expect(CHARACTER_CREATE.swatchCenterSpacingPx).toBeGreaterThanOrEqual(CHARACTER_CREATE.swatchHitSizePx);
+  it('swatch center spacing is wide enough that adjacent hit areas never touch or overlap', () => {
+    // Strict > (not >=): the constant's doc comment promises adjacent 88px
+    // hit areas "never touch/overlap"; at spacing exactly == hit size the
+    // two hit areas would share an edge (touch), which the comment's
+    // contract forbids. Today's 90 vs 88 satisfies strict with a 2px gutter.
+    expect(CHARACTER_CREATE.swatchCenterSpacingPx).toBeGreaterThan(CHARACTER_CREATE.swatchHitSizePx);
   });
 
   it('the widest row (BIKE, 8 swatches) fits inside DESIGN_WIDTH with its full hit area', () => {
