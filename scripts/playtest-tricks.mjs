@@ -65,8 +65,8 @@ const ENDO_LIMIT_DEG = 45;
  * Looser than the flat limit because the bike legitimately aligns to
  * terrain slopes and adds a brake-pitch transient on top, and the timed
  * round boundaries land on slightly different terrain each run. Envelope
- * measured over 5 independent runs of 3 rounds each (2026-07-14, after
- * the anti-endo tuning): flat 5–6°, descents 10–26°. Limit sits midway
+ * measured over 6 independent runs of 3 rounds each (2026-07-14, after
+ * the anti-endo tuning): flat 5–6°, descents 10–34°. Limit sits midway
  * between that worst case and a real endo (90°+): unambiguous both ways. */
 const DESCENT_PITCH_LIMIT_DEG = 60;
 
@@ -98,8 +98,18 @@ async function enterLevel1(page) {
   await page.waitForTimeout(600);
 }
 
+/** Telemetry tuple layout — the SINGLE source of truth shared by the
+ * recorder below and every reader (airPhases, brake mode). Readers index
+ * with these names, never bare numbers: a silent reorder here would
+ * otherwise make e.g. the brake mode's grounded filter read the wrong
+ * field and produce a false PASS — the worst failure mode for an
+ * evidence harness. */
+const T = { X: 0, Y: 1, ANGLE: 2, AIR: 3, ROT: 4, CRASHED: 5 };
+
 /** Attach a per-physics-step telemetry recorder to the CURRENT Matter
- * world (scene.restart destroys the world, so re-install after one). */
+ * world (scene.restart destroys the world, so re-install after one).
+ * Frame layout MUST match `T` above (the page-side closure can't see
+ * harness constants, hence the mirrored comment here). */
 function installRecorder(page) {
   return page.evaluate(() => {
     const s = globalThis.__gabbyGame.scene.getScene('GameScene');
@@ -108,6 +118,7 @@ function installRecorder(page) {
     s.matter.world.on('beforeupdate', () => {
       const b = s.bike;
       if (!b) return;
+      // [X, Y, ANGLE, AIR, ROT, CRASHED] — keep in sync with T.
       frames.push([b.x, b.y, b.angle, b.airborne ? 1 : 0, b.airborneRotation, b.crashed ? 1 : 0]);
     });
   });
@@ -140,7 +151,8 @@ function airPhases(frames) {
   let cur = null;
   let crashes = 0;
   let prevCrashed = false;
-  for (const [x, , a, air, rot, crashed] of frames) {
+  for (const f of frames) {
+    const [x, a, air, rot, crashed] = [f[T.X], f[T.ANGLE], f[T.AIR], f[T.ROT], f[T.CRASHED]];
     if (crashed && !prevCrashed) crashes++;
     prevCrashed = crashed === 1;
     if (air) {
@@ -358,7 +370,7 @@ async function main() {
         Math.round(
           Math.max(
             0,
-            ...fr.filter((f) => f[3] === 0).map((f) => Math.abs((f[2] * 180) / Math.PI))
+            ...fr.filter((f) => f[T.AIR] === 0).map((f) => Math.abs((f[T.ANGLE] * 180) / Math.PI))
           )
         );
 
@@ -383,8 +395,8 @@ async function main() {
       await page.keyboard.up('ArrowLeft');
       let frames = await page.evaluate(() => globalThis.__telem);
       // Only frames inside the flat zone count toward the flat limit.
-      const flatMax = groundedMaxDeg(frames.filter((f) => f[0] < 700));
-      const flatCrashed = frames.some((f) => f[5] === 1);
+      const flatMax = groundedMaxDeg(frames.filter((f) => f[T.X] < 700));
+      const flatCrashed = frames.some((f) => f[T.CRASHED] === 1);
       // Rolling: 3 rounds of full gas to (near-)top speed, then full brake
       // to a stop, marching forward through the hills. Round boundaries are
       // timed — where each brake lands on the terrain varies slightly run
@@ -401,7 +413,7 @@ async function main() {
         await page.keyboard.up('ArrowLeft');
         frames = await page.evaluate(() => globalThis.__telem);
         downMax = Math.max(downMax, groundedMaxDeg(frames));
-        downCrashed = downCrashed || frames.some((f) => f[5] === 1);
+        downCrashed = downCrashed || frames.some((f) => f[T.CRASHED] === 1);
         await page.evaluate(() => (globalThis.__telem.length = 0));
       }
       const report = {

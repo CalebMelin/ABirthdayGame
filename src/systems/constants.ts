@@ -199,11 +199,18 @@ export const BIKE_TUNING = {
    * airborne before it starts gaining pitch authority. Keeps NORTH_STAR
    * §4's "gas also rotates nose-up in mid-air" true on genuinely long
    * airtime while making it a no-op on the ~0.3-0.6s hops natural hills
-   * and gas-only ramp crossings produce — that's what makes "a non-gamer
-   * holding only gas never flips/crashes" hold by construction. More =
-   * grandma-safer, less held-pedal attitude control on long jumps.
-   * (42 steps = 0.7s — longer than any airtime a full-gas run over the
-   * test level's terrain or ramps was measured to produce.) */
+   * produce. More = grandma-safer, less held-pedal attitude control on
+   * long jumps. IMPORTANT — held authority is NOT always zero: the trick
+   * kicker's longest gas-only flight (59 steps measured) exceeds this
+   * delay, reaching partial authority ((59-42)/heldPitchRampSteps ≈ 0.57)
+   * for its final ~17 steps. What actually keeps grandma safe there is
+   * the ASSIST BLEND (bike.ts weighs the stabilization assist at
+   * 1-authority), which browser-measured to +16° at landing. LEVEL
+   * AUTHORS (PLAN-05): jumps giving much more than ~this many steps of
+   * airtime start eroding the gas-only-survives guarantee, and past
+   * delay+ramp (72 steps ≈ 1.2s) a held pedal has FULL authority —
+   * re-validate gas-only survival per level; don't assume this constant
+   * covers arbitrary ramps. */
   heldPitchDelaySteps: 42,
   /** Airborne steps over which held-from-ground pitch authority then
    * ramps 0 -> 1 after the delay. More = gentler onset. */

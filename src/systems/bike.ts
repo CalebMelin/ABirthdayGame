@@ -120,7 +120,7 @@ export function shortestArcToUpright(angle: number): number {
 /** One step of airborne-rotation bookkeeping: adds the frame's signed
  * angle delta (wrap-safe, so crossing ±π doesn't spuriously add ~2π) to
  * the running total. Assumes < half a revolution per step — at
- * maxAirAngularVelocity (0.18 rad/step) that leaves ~17x headroom. */
+ * maxAirAngularVelocity (0.3 rad/step) that leaves ~10x headroom. */
 export function accumulateAirborneRotation(
   accumulated: number,
   previousAngle: number,

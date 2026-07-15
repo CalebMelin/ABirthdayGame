@@ -60,9 +60,14 @@ export const TEST_LEVEL: TerrainSpec = {
     //   Height 106 is the max the 45-degree maxJumpSlope cap allows at
     //   width 336 without auto-widening (which would break the node
     //   alignment). Gas-only over it is safe (browser-measured: +16deg
-    //   rotation at landing, no crash): held-from-ground pedals get ~zero
-    //   pitch authority (bike.ts airPitchAuthority) and fly with the
-    //   stabilization assist.
+    //   rotation at landing, no crash): held-from-ground pedals get little
+    //   pitch authority (bike.ts airPitchAuthority) and the stabilization
+    //   assist fills the rest. CAUTION for bigger jumps: that guarantee is
+    //   coupled to airtime — past BIKE_TUNING.heldPitchDelaySteps (0.7s)
+    //   held pedals start gaining authority, and past delay+ramp (~1.2s)
+    //   they have FULL authority, so a huge jump can make a gas-holding
+    //   non-gamer flip. Re-verify gas-only survival per level (see the
+    //   heldPitchDelaySteps doc in constants.ts).
     // Placement is seed-aware (also browser-tested): a ramp stacked on a
     // hill crest whose back side falls away turns into a launch cliff —
     // an earlier x=9800 spot did exactly that and full-gas runs crashed
