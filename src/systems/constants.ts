@@ -616,8 +616,13 @@ export const SCENE_KEYS = {
  *
  * `gabbyBase` / `bikeBase` (PLAN-04 task 1) are the marker-composite BASE
  * textures the palette-swap engine (src/systems/palette.ts) recolors —
- * separate from the solid-color `gabby` / `bike` placeholders above, which
- * stay in place until PLAN-04 task 4 retires the raw-render path. */
+ * separate from the solid-color `gabby` / `bike` placeholders above. Those
+ * raw placeholders are deliberately KEPT (not retired): they are createBike's
+ * DEFAULT texture fallback (bike.ts BikeOptions.textures), so a
+ * non-character-aware caller stays behavior-identical, while GameScene
+ * (PLAN-04 task 4) overrides them per-instance with the palette-swapped
+ * character variants recolored from `gabbyBase` / `bikeBase`. `wheel` is
+ * always used raw (wheels are never recolored). */
 export const TEXTURE_KEYS = {
   bike: 'tex-bike',
   bikeBase: 'tex-bike-base',

@@ -45,11 +45,11 @@ export interface BikeOptions {
    * keeps tumbling until `destroy()`). */
   onCrash?: () => void;
   /** Sprite texture keys for the bike's visuals. Defaults to the raw
-   *  placeholder textures; GameScene passes the palette-swapped character
-   *  variants (PLAN-04 task 4) so the in-game bike matches the chosen look —
-   *  the SAME textures the CharacterCreation preview builds via
-   *  buildCharacterTextures (one source of truth). Wheels are never recolored. */
-  textures?: { body?: string; wheel?: string; rider?: string };
+   * placeholder textures; GameScene passes the palette-swapped character
+   * variants (PLAN-04 task 4) so the in-game bike matches the chosen look —
+   * the SAME textures the CharacterCreation preview builds via
+   * buildCharacterTextures (one source of truth). Wheels are never recolored. */
+  textures?: { bike?: string; wheel?: string; rider?: string };
 }
 
 /** Everything a scene needs after spawning the bike. All getters are live
@@ -437,7 +437,7 @@ export function createBike(
   options: BikeOptions = {}
 ): BikeHandle {
   const t = BIKE_TUNING;
-  const bodyTextureKey = options.textures?.body ?? TEXTURE_KEYS.bike;
+  const bikeTextureKey = options.textures?.bike ?? TEXTURE_KEYS.bike;
   const wheelTextureKey = options.textures?.wheel ?? TEXTURE_KEYS.wheel;
   const riderTextureKey = options.textures?.rider ?? TEXTURE_KEYS.gabby;
   const onCrashCallback = options.onCrash;
@@ -540,7 +540,7 @@ export function createBike(
     .image(frontWheel.position.x, frontWheel.position.y, wheelTextureKey)
     .setDepth(DEPTHS.bike);
   const chassisSprite = scene.add
-    .image(x, y, bodyTextureKey)
+    .image(x, y, bikeTextureKey)
     .setDepth(DEPTHS.bike);
   const riderSprite = scene.add
     .image(x + t.riderOffsetX, y + t.riderOffsetY, riderTextureKey)

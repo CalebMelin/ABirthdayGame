@@ -212,7 +212,7 @@ export class GameScene extends Phaser.Scene {
       // `wheel` intentionally left unset — stays bike.ts's default
       // (TEXTURE_KEYS.wheel). Only the motorcycle BODY color is a player
       // choice; wheels stay the raw dark placeholder regardless.
-      textures: { body: bikeTextureKey, rider: riderTextureKey },
+      textures: { bike: bikeTextureKey, rider: riderTextureKey },
     });
 
     // Finish flag stands ON the terrain surface (origin at its base).

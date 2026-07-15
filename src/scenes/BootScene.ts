@@ -162,9 +162,13 @@ export class BootScene extends Phaser.Scene {
    * differently-colored regions drawn with real MARKERS.* colors — pixels
    * `recolorTexture` can later exact-RGB-swap into a player's chosen
    * colors. The pre-existing solid tex-gabby/tex-bike/tex-wheel
-   * placeholders above are UNCHANGED and still generated — task 4 retires
-   * the raw-render path in favor of these *-base textures; until then both
-   * sets coexist. */
+   * placeholders above are UNCHANGED and still generated — and deliberately
+   * KEPT, not retired: tex-gabby/tex-bike are createBike's DEFAULT texture
+   * fallback (bike.ts BikeOptions.textures) so a non-character-aware caller
+   * stays behavior-identical, GameScene (PLAN-04 task 4) overrides them
+   * per-instance with the character variants recolored from these *-base
+   * textures, and tex-wheel is always used as-is (wheels are never
+   * recolored). All coexist by design. */
   private generateMarkerBaseTextures(): void {
     this.generateGabbyBaseTexture();
     this.generateBikeBaseTexture();
