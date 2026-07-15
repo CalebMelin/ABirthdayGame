@@ -38,8 +38,13 @@ export class TitleScene extends Phaser.Scene {
       label: 'Play',
       minWidth: MENU_BUTTON_MIN_WIDTH,
       onClick: () => {
-        // CharacterCreationScene doesn't persist a character until PLAN-04,
-        // so today this routes to CharacterCreation on every run — expected.
+        // First run (no gabby22.character saved yet) routes to Character
+        // Creation so the player picks a look before playing. Once a
+        // character has been saved — CharacterCreationScene persists on
+        // every swatch tap / Randomize / "Let's ride!" (PLAN-04 tasks 3-4)
+        // — later runs of "Play" skip straight to Level Select. "Edit
+        // Character" below always returns to Character Creation regardless
+        // of save state.
         const destination =
           getSave().loadCharacter() === null ? SCENE_KEYS.characterCreation : SCENE_KEYS.levelSelect;
         this.scene.start(destination);
