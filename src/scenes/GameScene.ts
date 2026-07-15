@@ -43,22 +43,45 @@ export const TEST_LEVEL: TerrainSpec = {
   length: 15000,
   hilliness: 0.45,
   jumps: [
-    // Deliberately low + wide (browser-tested): gas held in the air
-    // pitches the nose up (backflip direction), so taller/steeper ramps
-    // gave a full-gas run enough airtime to rotate past recovery and
-    // faceplant — violating "holding only gas succeeds". At 55x520 the
-    // hop is short enough to land clean with gas held; task 6's
-    // feel-tuning pass owns making deliberate flips comfortable here.
+    // Two deliberately different ramps (browser-tested in the task-6
+    // feel-tuning pass):
+    // - 5200: low + wide "hop" ramp — a short, safe pop that lands clean
+    //   with gas held (accidental-flip-proof by airtime alone).
+    // - 10584: the trick ramp ("kicker"). Its geometry is deliberately
+    //   aligned to the physics collision-chain grid (chain nodes sit
+    //   every 168px — the segmentTargetPx/sampleSpacingPx stride — so
+    //   base/peak/end land exactly on the nodes 10584/10752/10920): the
+    //   chain renders the raised cosine as a clean TRIANGLE kicker, and
+    //   the bike launches off the peak at the up-chord's angle with real
+    //   upward velocity (~0.55-1.0s of air, browser-measured). A wider
+    //   ramp puts a flat-top chord across the crest and the bike launches
+    //   FLAT with half the airtime — do not "fix" this by making it
+    //   bigger (browser-tested: a 140x700 ramp gave LESS air than this).
+    //   Height 106 is the max the 45-degree maxJumpSlope cap allows at
+    //   width 336 without auto-widening (which would break the node
+    //   alignment). Gas-only over it is safe (browser-measured: +16deg
+    //   rotation at landing, no crash): held-from-ground pedals get ~zero
+    //   pitch authority (bike.ts airPitchAuthority) and fly with the
+    //   stabilization assist.
     // Placement is seed-aware (also browser-tested): a ramp stacked on a
     // hill crest whose back side falls away turns into a launch cliff —
     // an earlier x=9800 spot did exactly that and full-gas runs crashed
     // on landing every time. Both sites below have flat-to-rising ground
-    // after the ramp so the hop lands quickly.
+    // after the ramp so the hop lands predictably.
     { x: 5200, width: 520, height: 55 },
-    { x: 10500, width: 520, height: 55 },
+    { x: 10584, width: 336, height: 106 },
   ],
   flatZones: [
     { start: 0, end: 700 }, // spawn runway (visual == physics on flats — see bikeSpawnY doc)
+    // Flat RUN-UP before the trick kicker: the rolling bumps that would
+    // otherwise precede it made approach speed (and therefore flip
+    // airtime) vary ~8% run-to-run — enough to drop a marginal backflip
+    // under 360. A flat approach makes the launch reproducible. NOTE the
+    // zone must end at least TERRAIN.flatBlendPx (160) BEFORE the ramp
+    // base (10584): flat zones are stamped AFTER jumps, so a blend region
+    // overlapping the ramp would squash its face. Reusable level-design
+    // pattern for every trick ramp in PLAN-05.
+    { start: 10000, end: 10424 },
     { start: 14200, end: 15000 }, // finish-flag zone
   ],
 };
