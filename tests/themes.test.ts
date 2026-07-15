@@ -23,6 +23,13 @@ function isColor(n: unknown): n is number {
 // ---------------------------------------------------------------------------
 
 describe('THEMES — coverage', () => {
+  // NOTE: this runtime check is DELIBERATELY REDUNDANT with the compile-time
+  // `Record<ThemeId, ThemeDef>` type on THEMES — `npm run build` (tsc)
+  // already fails the build if any ThemeId is missing or an extra key is
+  // present, so this can never actually catch a regression the build wouldn't.
+  // Kept anyway as cheap belt-and-suspenders + living documentation of the
+  // "all 15, no extras" contract for anyone skimming only the tests. The real
+  // value lives in the well-formedness + distinctness tests below.
   it('has exactly one entry per THEME_IDS id, and no extras', () => {
     const keys = Object.keys(THEMES).sort();
     const expected = [...THEME_IDS].sort();

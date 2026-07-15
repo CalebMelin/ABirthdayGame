@@ -139,18 +139,21 @@ export interface ThemeDef {
   props: { accent: number };
 }
 
-/** The handle GameScene (ST-4) holds for a level's backdrop. Mirrors
- * terrain.ts's TerrainHandle pattern: build once via createBackdrop, call
- * update() every render frame, destroy() on level teardown/restart. */
+/** The handle GameScene (ST-4) holds for a level's backdrop. Its
+ * create-once (via createBackdrop) / destroy()-on-teardown lifecycle mirrors
+ * terrain.ts's TerrainHandle; update() is an ADDITION here — TerrainHandle
+ * has no such method — see its own doc for what it is (and isn't) for. */
 export interface BackdropHandle {
-  /** Called every render frame to reposition/repaint layers for the current
-   * camera. NOTE: this is currently a documented no-op — see createBackdrop's
-   * doc comment for why (every layer uses Phaser's native scrollFactor, which
-   * Phaser itself reprojects every frame; there is no extra per-frame work
-   * for this module to do). The method still exists so GameScene can call it
-   * unconditionally without caring which parallax technique this file uses
-   * internally, and so a future change (e.g. genuine vertical drift) has
-   * somewhere to live without changing the handle's shape. */
+  /** Per-frame hook GameScene calls every render frame. Currently a
+   * deliberate NO-OP: horizontal parallax is handled entirely by Phaser's
+   * own setScrollFactor, which Phaser reprojects every frame from the live
+   * camera scroll (see the module doc comment), so this module has no extra
+   * per-frame work to do. It exists NOT because terrain.ts has such a method
+   * (TerrainHandle does not) but as (a) a uniform call point so GameScene can
+   * drive the backdrop without caring which parallax technique this file uses
+   * internally, and (b) the natural home for any future animated-backdrop
+   * work — e.g. the currently-deferred genuine vertical parallax — without
+   * changing the handle's shape. */
   update(): void;
   /** Destroys every GameObject createBackdrop created. Call on level
    * teardown/restart — same lifecycle as TerrainHandle.destroy. */
