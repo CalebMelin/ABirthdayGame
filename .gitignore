@@ -31,3 +31,6 @@ lerna-debug.log*
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Playtest-script output (screenshots/JSON from scripts/playtest-*.mjs)
+playtest-out

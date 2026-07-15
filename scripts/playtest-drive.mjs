@@ -29,6 +29,12 @@ const OUT_DIR = process.env.OUT_DIR ?? './playtest-out';
 const DESIGN_W = 1280;
 const DESIGN_H = 720;
 const DRIVE_TIMEOUT_MS = 90_000;
+/** PLAN-02 "60fps" criterion: average actualFps sampled mid-drive must
+ * clear this (55 leaves headroom for headless-Chrome scheduling noise
+ * while still catching a real perf regression). Samples skip the first
+ * 3s (scene spin-up + font/texture warmup skews early frames). */
+const MIN_AVG_FPS = 55;
+const FPS_WARMUP_MS = 3_000;
 
 /** Click a design-space (1280x720) coordinate on the FIT-scaled canvas by
  * mapping it through the canvas element's current bounding box. */
@@ -129,6 +135,7 @@ async function main() {
     let failCount = 0; // mid-drive restarts (bike x warping back to spawn)
     let prevX = null;
     const progressSamples = [];
+    const fpsSamples = [];
     while (Date.now() - driveStart < DRIVE_TIMEOUT_MS) {
       await page.keyboard.down('ArrowRight');
       const state = await page.evaluate(() => {
@@ -137,8 +144,12 @@ async function main() {
         return {
           complete: g.scene.isActive('LevelCompleteScene'),
           bikeX: g.scene.isActive('GameScene') && s.bike ? Math.round(s.bike.x) : null,
+          fps: g.loop.actualFps,
         };
       });
+      if (Date.now() - driveStart > FPS_WARMUP_MS && state.bikeX !== null) {
+        fpsSamples.push(state.fps);
+      }
       if (state.complete) {
         finished = true;
         break;
@@ -158,6 +169,13 @@ async function main() {
     const driveMs = Date.now() - driveStart;
     await page.screenshot({ path: join(OUT_DIR, 'end-state.png') });
 
+    const avgFps =
+      fpsSamples.length > 0
+        ? Math.round((fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length) * 10) / 10
+        : null;
+    const minFps =
+      fpsSamples.length > 0 ? Math.round(Math.min(...fpsSamples) * 10) / 10 : null;
+
     const report = {
       finished,
       failCountDuringDrive: failCount,
@@ -166,6 +184,9 @@ async function main() {
       bodiesAfterRestart,
       bodiesAfterFail,
       failToPlayableMs,
+      avgFps,
+      minFps,
+      minAvgFps: MIN_AVG_FPS,
       consoleErrors,
       consoleWarnings,
       pageErrors,
@@ -175,7 +196,14 @@ async function main() {
     // consoleErrors/pageErrors were already collected + printed above (via
     // `report`) but previously never failed the run — a regression that
     // logs a console error could pass silently. Gate on them too.
-    if (!finished || failCount > 0 || consoleErrors.length > 0 || pageErrors.length > 0) {
+    if (
+      !finished ||
+      failCount > 0 ||
+      avgFps === null ||
+      avgFps < MIN_AVG_FPS ||
+      consoleErrors.length > 0 ||
+      pageErrors.length > 0
+    ) {
       process.exitCode = 1;
     }
   } finally {

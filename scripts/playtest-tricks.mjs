@@ -14,9 +14,16 @@
 //            level completes, with zero crashes, and no airborne phase
 //            exceeds the LOOP_OUT_LIMIT_DEG chassis angle ("no loop-outs on
 //            natural hills", and "gas-only over the trick ramp doesn't flip").
-//   brake    — accelerates to top speed then slams the brake, on the spawn
-//            flat and on a downhill stretch; exit 0 if neither endos (max
-//            |chassis angle| under ENDO_LIMIT_DEG) nor crashes.
+//   brake    — full-brake stops on the spawn flat (position-keyed, moderate
+//            speed — the flat is only 700px) and across 3 rounds of
+//            top-speed rolling hills; exit 0 only if no crash anywhere AND
+//            the GROUNDED max |chassis angle| stays under ENDO_LIMIT_DEG
+//            (flat) / DESCENT_PITCH_LIMIT_DEG (rolling). Grounded-only on
+//            purpose: an endo/faceplant is a grounded pitch-over (front
+//            wheel down, rear lifting — `airborne` needs BOTH wheels off,
+//            so it stays false through a real endo and the frames count);
+//            harmless airborne hop attitude mid-braking is governed by the
+//            gasonly/flip modes' loop-out checks, not this gate.
 //
 // THE BACKFLIP RECIPE (human instructions, encoded in `flip` below):
 //   1. Hold gas at full speed up the big kicker (x=10584 in TEST_LEVEL).
@@ -52,8 +59,16 @@ const CREST_X = RAMP_X + RAMP_W / 2;
 /** Criterion (e): max |chassis angle| allowed during any airborne phase of
  * a gas-only run — "the bike never loops out on natural hills". */
 const LOOP_OUT_LIMIT_DEG = 140;
-/** Brake test: max |chassis angle| allowed while stopping (no endo). */
+/** Brake test, spawn flat: max GROUNDED |chassis angle| while stopping. */
 const ENDO_LIMIT_DEG = 45;
+/** Brake test, top-speed rolling descents: max GROUNDED |chassis angle|.
+ * Looser than the flat limit because the bike legitimately aligns to
+ * terrain slopes and adds a brake-pitch transient on top, and the timed
+ * round boundaries land on slightly different terrain each run. Envelope
+ * measured over 5 independent runs of 3 rounds each (2026-07-14, after
+ * the anti-endo tuning): flat 5–6°, descents 10–26°. Limit sits midway
+ * between that worst case and a real endo (90°+): unambiguous both ways. */
+const DESCENT_PITCH_LIMIT_DEG = 60;
 
 const mode = process.argv[2] ?? 'flip';
 
@@ -337,19 +352,43 @@ async function main() {
     }
 
     if (mode === 'brake') {
-      // Flat: full gas 3.5s on the spawn runway, then full brake to a stop.
+      /** Max |chassis angle| (deg) over GROUNDED frames only — see the
+       * header for why airborne frames are excluded from the endo gate. */
+      const groundedMaxDeg = (fr) =>
+        Math.round(
+          Math.max(
+            0,
+            ...fr.filter((f) => f[3] === 0).map((f) => Math.abs((f[2] * 180) / Math.PI))
+          )
+        );
+
+      // Flat: gas from spawn, brake at x >= 550 (POSITION-keyed — a timed
+      // press let timing jitter carry the stop past the 700px flat zone
+      // into the hills, which made runs unreproducible), hold until
+      // stopped. Moderate speed by design; top speed needs ~1200px of
+      // runway and is exercised in the rolling rounds below.
       await installRecorder(page);
       await page.keyboard.down('ArrowRight');
-      await page.waitForTimeout(3500);
+      await page.waitForFunction(
+        () => {
+          const s = globalThis.__gabbyGame.scene.getScene('GameScene');
+          return s.bike && s.bike.x >= 550;
+        },
+        undefined,
+        { timeout: 10_000 }
+      );
       await page.keyboard.up('ArrowRight');
       await page.keyboard.down('ArrowLeft');
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(1800);
       await page.keyboard.up('ArrowLeft');
       let frames = await page.evaluate(() => globalThis.__telem);
-      const flatMax = Math.max(...frames.map((f) => Math.abs((f[2] * 180) / Math.PI)));
+      // Only frames inside the flat zone count toward the flat limit.
+      const flatMax = groundedMaxDeg(frames.filter((f) => f[0] < 700));
       const flatCrashed = frames.some((f) => f[5] === 1);
-      // Downhill: keep driving into the rolling hills, brake mid-descent
-      // (detected: airspeed high + y increasing), repeat a few times.
+      // Rolling: 3 rounds of full gas to (near-)top speed, then full brake
+      // to a stop, marching forward through the hills. Round boundaries are
+      // timed — where each brake lands on the terrain varies slightly run
+      // to run, which is why the limit is an envelope, not a point value.
       await page.evaluate(() => (globalThis.__telem.length = 0));
       let downMax = 0;
       let downCrashed = false;
@@ -361,15 +400,16 @@ async function main() {
         await page.waitForTimeout(2000);
         await page.keyboard.up('ArrowLeft');
         frames = await page.evaluate(() => globalThis.__telem);
-        downMax = Math.max(downMax, ...frames.map((f) => Math.abs((f[2] * 180) / Math.PI)));
+        downMax = Math.max(downMax, groundedMaxDeg(frames));
         downCrashed = downCrashed || frames.some((f) => f[5] === 1);
         await page.evaluate(() => (globalThis.__telem.length = 0));
       }
       const report = {
         mode,
-        flat: { maxAbsAngleDeg: Math.round(flatMax), crashed: flatCrashed },
-        rollingDescents: { maxAbsAngleDeg: Math.round(downMax), crashed: downCrashed },
+        flat: { groundedMaxAbsAngleDeg: flatMax, crashed: flatCrashed },
+        rollingDescents: { groundedMaxAbsAngleDeg: downMax, crashed: downCrashed },
         endoLimitDeg: ENDO_LIMIT_DEG,
+        descentPitchLimitDeg: DESCENT_PITCH_LIMIT_DEG,
         consoleErrors,
         pageErrors,
       };
@@ -378,6 +418,7 @@ async function main() {
         flatCrashed ||
         downCrashed ||
         flatMax >= ENDO_LIMIT_DEG ||
+        downMax >= DESCENT_PITCH_LIMIT_DEG ||
         consoleErrors.length > 0 ||
         pageErrors.length > 0
       ) {
