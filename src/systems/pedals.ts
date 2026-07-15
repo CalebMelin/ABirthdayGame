@@ -25,6 +25,11 @@
 import type Phaser from 'phaser';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, PALETTE, DEPTHS, PEDALS } from './constants';
 import type { GameInput } from './input';
+// isTouchDevice moved to the shared device.ts (PLAN-03 task 3): the touch
+// pedals and the portrait orientation guard are now both consumers, so the
+// device predicate lives in one place. Same runtime-safe contract as before
+// (only touches navigator/window when called).
+import { isTouchDevice } from './device';
 
 // ---------------------------------------------------------------------------
 // Pure helpers — no Phaser/DOM, unit-tested in tests/pedals.test.ts.
@@ -91,29 +96,6 @@ const PIVOT: Vec2 = { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
 /** Minimum concurrent pointers we need: two thumbs on the two pedals + one
  * of margin. addPointer tops the manager up to this (see createPedals). */
 const NEEDED_POINTERS = 3;
-
-/**
- * True on a touch device the pedals should show on; false on pure desktop.
- *
- * The task's named signal is `navigator.maxTouchPoints > 0`. That is CORRECT
- * on phones/tablets but OVER-REPORTS on desktop Chrome on Windows: the OS
- * advertises touch capability (up to 10 contacts) even on a machine with NO
- * touchscreen, so maxTouchPoints alone is > 0 there and would wrongly show
- * the pedals on a mouse-only Windows desktop — breaking the spec's other,
- * equally explicit requirement, "always hidden on pure desktop"
- * (browser-verified: headless Chrome on this Windows host reports
- * maxTouchPoints = 10 on a plain non-touch context; see DECISIONS.md
- * 2026-07-15). We therefore AND it with `(any-pointer: coarse)`, which is
- * true iff SOME connected input is a finger/coarse pointer — every phone,
- * tablet, and touch 2-in-1 — and false on a mouse-only desktop. A real phone
- * passes BOTH, so pedals are never hidden where they are actually needed
- * (the safe direction); a pure desktop fails the media query, so it stays
- * pedal-free regardless of the Windows maxTouchPoints quirk. Only ever called
- * at runtime in the browser (never at module import), so touching
- * navigator/window here is safe for the Node-tested pure helpers above. */
-function isTouchDevice(): boolean {
-  return navigator.maxTouchPoints > 0 && window.matchMedia('(any-pointer: coarse)').matches;
-}
 
 /** Which glyph a pedal draws. */
 type PedalGlyph = 'gas' | 'brake';

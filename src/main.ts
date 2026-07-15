@@ -8,6 +8,7 @@ import { LevelCompleteScene } from './scenes/LevelCompleteScene';
 import { PartyScene } from './scenes/PartyScene';
 import { CreditsScene } from './scenes/CreditsScene';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR, GRAVITY_Y } from './systems/constants';
+import { installOrientationGuard } from './systems/orientation';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -41,6 +42,12 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const game = new Phaser.Game(config);
+
+// Portrait rotate-phone guard (PLAN-03 task 3): on touch phones held upright,
+// a full-screen DOM overlay covers the canvas and auto-pauses the game (via
+// game.loop.sleep) until rotated back to landscape. No-op on desktop. Installed
+// once here for the page's lifetime.
+installOrientationGuard(game);
 
 // Dev-only: expose the game instance so browser-automation playtests
 // (scripts/playtest-drive.mjs) can poll scene state / Matter body counts.
