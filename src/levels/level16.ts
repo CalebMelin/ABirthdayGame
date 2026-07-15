@@ -18,5 +18,5 @@ export const level16: LevelConfig = {
       { start: 13100, end: 14000 },
     ],
   },
-  introText: 'Cobblestones and old streetlamps — nearly there.',
+  introText: 'Cobblestones and old streetlamps. Nearly there.',
 };

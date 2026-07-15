@@ -23,5 +23,5 @@ export const level12: LevelConfig = {
     ],
   },
   events: [{ type: 'calebPickup', x: 6250 }],
-  introText: "Caleb's waiting outside…",
+  introText: "Caleb's waiting outside...",
 };

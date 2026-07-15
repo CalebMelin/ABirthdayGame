@@ -18,5 +18,5 @@ export const level14: LevelConfig = {
       { start: 12100, end: 13000 },
     ],
   },
-  introText: "Crossing the river — you're making great time.",
+  introText: "Crossing the river. You're making great time.",
 };

@@ -20,5 +20,5 @@ export const level11: LevelConfig = {
     ],
   },
   events: [{ type: 'wheelieRider', x: 6500 }],
-  introText: 'Merging onto the highway — hang on tight!',
+  introText: 'Merging onto the highway. Hang on tight!',
 };

@@ -21,5 +21,5 @@ export const level04: LevelConfig = {
       { start: 10100, end: 11000 },
     ],
   },
-  introText: 'Tulip fields mean more jumps — go get some air!',
+  introText: 'Tulip fields mean more jumps. Go get some air!',
 };

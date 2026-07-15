@@ -20,7 +20,7 @@ export const level01: LevelConfig = {
     ],
   },
   decorations: [
-    { kind: 'sign', x: 1200, text: 'Hold GAS to go! →' },
+    { kind: 'sign', x: 1200, text: 'Hold GAS to go! ->' },
     { kind: 'sign', x: 3200, text: 'Hold BRAKE to slow down' },
     { kind: 'sign', x: 5200, text: 'Catch air? GAS leans you back!' },
   ],

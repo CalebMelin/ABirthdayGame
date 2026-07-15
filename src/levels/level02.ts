@@ -18,5 +18,5 @@ export const level02: LevelConfig = {
       { start: 9100, end: 10000 },
     ],
   },
-  introText: 'Ooh, a little bump ahead — hold on tight!',
+  introText: 'Ooh, a little bump ahead. Hold on tight!',
 };

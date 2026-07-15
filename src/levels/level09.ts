@@ -22,5 +22,5 @@ export const level09: LevelConfig = {
       { start: 11600, end: 12500 },
     ],
   },
-  introText: 'Under construction — watch for ramps!',
+  introText: 'Under construction. Watch for ramps!',
 };

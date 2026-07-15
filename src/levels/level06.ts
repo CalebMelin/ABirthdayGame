@@ -18,5 +18,5 @@ export const level06: LevelConfig = {
       { start: 10600, end: 11500 },
     ],
   },
-  introText: "Downtown's just up ahead — you can see the skyline.",
+  introText: "Downtown's just up ahead. You can see the skyline.",
 };

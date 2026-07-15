@@ -24,5 +24,5 @@ export const level20: LevelConfig = {
     { kind: 'balloon', x: 12400 },
     { kind: 'balloon', x: 13700 },
   ],
-  introText: 'Balloons up ahead — the party district!',
+  introText: 'Balloons up ahead, the party district!',
 };

@@ -25,5 +25,5 @@ export const level17: LevelConfig = {
       { start: 13600, end: 14500 },
     ],
   },
-  introText: 'Big hills, big jumps — perfect for tulip hunting!',
+  introText: 'Big hills, big jumps. Perfect for tulip hunting!',
 };
