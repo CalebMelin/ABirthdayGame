@@ -433,7 +433,8 @@ export const FAIL = {
 } as const;
 
 /** Debug overlay tuning (PLAN-02 task 5 — GameScene's dev-only debug
- * overlay, toggled with the D key). The overlay itself is stripped from
+ * overlay, toggled with the backtick/tilde key; it moved off D in PLAN-03
+ * task 1 when D became a gas key). The overlay itself is stripped from
  * production bundles via `import.meta.env.DEV` (same pattern as the
  * `__gabbyGame` exposure in main.ts) — these are just its presentation
  * knobs, kept here per CLAUDE.md's "no magic numbers in scene code". */

@@ -20,6 +20,8 @@ import { createTerrain } from '../systems/terrain';
 import type { TerrainHandle, TerrainSpec } from '../systems/terrain';
 import { createBike, bikeSpawnY } from '../systems/bike';
 import type { BikeHandle } from '../systems/bike';
+import { createGameInput } from '../systems/input';
+import type { GameInput } from '../systems/input';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -109,7 +111,11 @@ export class GameScene extends Phaser.Scene {
   private level = 1;
   private terrain: TerrainHandle | undefined;
   private bike: BikeHandle | undefined;
-  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  /** Unified keyboard+touch pedals (PLAN-03 task 1). NOT named `input` —
+   * that's already Phaser.Scene's InputPlugin. Recreated every create() and
+   * destroyed in the SHUTDOWN handler (its Keys are per-run, same lifecycle
+   * as the bike/terrain handles). */
+  private gameInput: GameInput | undefined;
   /** Y below which the bike counts as fallen off the world (lowest terrain
    * surface point + FAIL.worldBottomMarginPx). */
   private worldBottomY = 0;
@@ -124,7 +130,7 @@ export class GameScene extends Phaser.Scene {
    * production builds (same pattern as the `__gabbyGame` exposure in
    * main.ts). `debugText`/`debugKey` are recreated every create() because
    * scene.restart() destroys the previous text object and clears
-   * previously-added keys (same lifecycle as `cursors` below). */
+   * previously-added keys (same lifecycle as `gameInput` above). */
   private debugText: Phaser.GameObjects.Text | undefined;
   private debugKey: Phaser.Input.Keyboard.Key | undefined;
   /** Deliberately NOT reset in create() (unlike `ended`/`lookaheadPx`): this
@@ -163,14 +169,17 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(DEPTHS.props);
 
-    // Temporary desktop mapping (NORTH_STAR §2): Right/Up = gas,
-    // Left/Down = brake. Touch pedals arrive in PLAN-03.
-    this.cursors = this.input.keyboard?.createCursorKeys();
+    // Unified input (PLAN-03 task 1): keyboard (Right/Up/W/D = gas,
+    // Left/Down/S/A = brake) merged with the touch pedals (task 2 feeds
+    // them in via setTouchGas/setTouchBrake) — either works at any time.
+    this.gameInput = createGameInput(this);
 
     // Dev-only debug overlay (PLAN-02 task 5): FPS, speed, airborne state,
     // cumulative airborne rotation, crashed flag, Matter body count —
-    // toggled with D. See the `debugText`/`debugKey`/`debugVisible` field
-    // docs above for the restart lifecycle.
+    // toggled with the backtick/tilde key (` — the D key is now gas as of
+    // PLAN-03 task 1, so the toggle moved to a non-gameplay key). See the
+    // `debugText`/`debugKey`/`debugVisible` field docs above for the
+    // restart lifecycle.
     if (import.meta.env.DEV) {
       this.debugText = createPixelText(
         this,
@@ -184,7 +193,7 @@ export class GameScene extends Phaser.Scene {
         .setScrollFactor(0)
         .setDepth(DEPTHS.overlay)
         .setVisible(this.debugVisible);
-      this.debugKey = this.input.keyboard?.addKey('D');
+      this.debugKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.BACKTICK);
     }
 
     this.setUpCamera();
@@ -208,16 +217,27 @@ export class GameScene extends Phaser.Scene {
       }
       this.bike = undefined;
       this.terrain = undefined;
+      // Input is DOM/keyboard, not Matter — always safe to tear down (no
+      // world-null guard needed). Removes the Keys it registered so restart
+      // can't leak or double-register (see GameInput.destroy).
+      this.gameInput?.destroy();
+      this.gameInput = undefined;
     });
   }
 
   update(): void {
     if (!this.bike || !this.terrain) return;
 
-    // OR-merge every key of an action so holding e.g. Right+Up (or rolling
-    // between them) never fights or drops the pedal.
-    const gas = this.ended ? false : this.keyDown('right') || this.keyDown('up');
-    const brake = this.ended ? false : this.keyDown('left') || this.keyDown('down');
+    // Merged keyboard+touch pedals for THIS frame (input.ts OR-merges every
+    // gas/brake source — see mergePedals). The this.ended gate forces both
+    // pedals false the instant the run is over (crashed/fell/finished),
+    // exactly as before, so bike.update can't be driven during the
+    // fail/finish freeze.
+    const { gas, brake } = this.gameInput
+      ? this.ended
+        ? { gas: false, brake: false }
+        : this.gameInput.sample()
+      : { gas: false, brake: false };
     this.bike.update({ gas, brake });
 
     if (!this.ended && this.bike.y > this.worldBottomY) {
@@ -263,10 +283,6 @@ export class GameScene extends Phaser.Scene {
         );
       }
     }
-  }
-
-  private keyDown(name: keyof Phaser.Types.Input.Keyboard.CursorKeys): boolean {
-    return this.cursors?.[name].isDown === true;
   }
 
   // -------------------------------------------------------------- camera
