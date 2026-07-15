@@ -22,6 +22,8 @@ import { createBike, bikeSpawnY } from '../systems/bike';
 import type { BikeHandle } from '../systems/bike';
 import { createGameInput } from '../systems/input';
 import type { GameInput } from '../systems/input';
+import { createPedals } from '../systems/pedals';
+import type { PedalsHandle } from '../systems/pedals';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -116,6 +118,12 @@ export class GameScene extends Phaser.Scene {
    * destroyed in the SHUTDOWN handler (its Keys are per-run, same lifecycle
    * as the bike/terrain handles). */
   private gameInput: GameInput | undefined;
+  /** On-screen touch gas/brake pedals (PLAN-03 task 2). Created only on
+   * touch-capable devices (inert no-op handle on desktop), laid out every
+   * update() to stay screen-fixed under camera zoom, and destroyed in the
+   * SHUTDOWN handler — same per-run lifecycle as gameInput/bike/terrain, so
+   * scene.restart() can't leak Zones or pointer listeners. */
+  private pedals: PedalsHandle | undefined;
   /** Y below which the bike counts as fallen off the world (lowest terrain
    * surface point + FAIL.worldBottomMarginPx). */
   private worldBottomY = 0;
@@ -174,6 +182,12 @@ export class GameScene extends Phaser.Scene {
     // them in via setTouchGas/setTouchBrake) — either works at any time.
     this.gameInput = createGameInput(this);
 
+    // Touch pedals (PLAN-03 task 2): GAS bottom-right, BRAKE bottom-left,
+    // feeding the same gameInput via setTouchGas/setTouchBrake. Created only
+    // on touch devices (inert no-op on pure desktop, so this line is free
+    // there). Must come AFTER gameInput exists — the pedals drive it.
+    this.pedals = createPedals(this, this.gameInput);
+
     // Dev-only debug overlay (PLAN-02 task 5): FPS, speed, airborne state,
     // cumulative airborne rotation, crashed flag, Matter body count —
     // toggled with the backtick/tilde key (` — the D key is now gas as of
@@ -222,6 +236,12 @@ export class GameScene extends Phaser.Scene {
       // can't leak or double-register (see GameInput.destroy).
       this.gameInput?.destroy();
       this.gameInput = undefined;
+      // Pedals are DOM/input + GameObjects, not Matter — always safe to tear
+      // down (no world-null guard). Destroys their Zones + visuals + pointer
+      // listeners so a restart can't leak or double-register (no-op on
+      // desktop). Same ownership as gameInput above.
+      this.pedals?.destroy();
+      this.pedals = undefined;
     });
   }
 
@@ -251,6 +271,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateCamera();
+
+    // Keep the touch pedals visually fixed on screen despite the camera's
+    // speed-zoom: layout() counter-scales/positions them for THIS frame's
+    // zoom. After updateCamera() so it reads the freshest zoom. No-op on
+    // desktop (inert handle). See PedalsHandle.layout / zoomCompensatedPosition.
+    this.pedals?.layout(this.cameras.main.zoom);
 
     // Dev-only debug overlay (PLAN-02 task 5). Inlined here (rather than
     // delegated to a private method) on purpose: `import.meta.env.DEV` is

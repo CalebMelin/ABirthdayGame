@@ -452,6 +452,53 @@ export const DEBUG_OVERLAY = {
   physicsStepsPerSecond: 60,
 } as const;
 
+/** Touch-pedal HUD tuning (PLAN-03 task 2 — see src/systems/pedals.ts). The
+ * pedals are the on-screen gas/brake control shown ONLY on touch-capable
+ * devices (see pedals.ts isTouchDevice — maxTouchPoints AND a coarse
+ * pointer); a pure-desktop build creates none.
+ *
+ * ART NOTE: the faces here are PLACEHOLDER primitives in the repo's chunky
+ * pixel style (cream face + dark outline + drop shadow, exactly like ui.ts's
+ * buttons) with a directional glyph — a right-pointing triangle for GAS
+ * (forward) and a solid square "stop" for BRAKE. Real pixel-art pedals land
+ * in PLAN-10; swap the drawing in pedals.ts, not these layout knobs.
+ *
+ * All lengths are px at the 1280x720 DESIGN scale AND are the FIXED
+ * on-screen geometry: because the play camera ZOOMS (CAMERA.zoomMin..zoomMax)
+ * and the pedals are screen-anchored (scrollFactor 0), pedals.ts counter-
+ * positions and counter-scales them every frame (see PedalsHandle.layout +
+ * zoomCompensatedPosition) so they hold this exact size/position on screen
+ * regardless of zoom. */
+export const PEDALS = {
+  /** Visible pedal face size (a square), px. The plan mandates >= 120 px
+   * visible; 144 is chunky-thumb-friendly and sits on the 8px pixel grid.
+   * Bigger = easier to hit but more screen real-estate eaten. */
+  visibleSizePx: 144,
+  /** Gap from the pedal face to the two screen edges it hugs (the bottom
+   * edge and its near side), px. */
+  marginPx: 36,
+  /** Invisible hit-Zone width, px — the "whole bottom corner" region, far
+   * wider than the visible face so a stray thumb still registers a press.
+   * Kept under half the design width (640) so the two corners never overlap
+   * in the middle (a mid-screen touch belongs to neither pedal). */
+  hitRegionWidthPx: 480,
+  /** Invisible hit-Zone height, px — the bottom band each pedal responds in
+   * (generous, taller than the visible face). */
+  hitRegionHeightPx: 300,
+  /** Downward travel of the face + glyph while pressed, px — the tactile
+   * "pushed down onto its shadow" shift (mirrors ui.ts's button press). */
+  pressOffsetPx: 6,
+  /** Drop-shadow offset beneath the face, px (the chunky pixel depth). Equal
+   * to pressOffsetPx on purpose, so a pressed face lands flush on its
+   * shadow, reading as fully depressed. */
+  shadowOffsetPx: 6,
+  /** Face outline stroke width, px (matches the chunky ui.ts look). */
+  outlineWidthPx: 4,
+  /** Directional glyph bounding-box size, px (triangle for gas / square for
+   * brake), drawn centered on the face. */
+  glyphSizePx: 72,
+} as const;
+
 /** Z-depth layers for rendering order. */
 export const DEPTHS = {
   background: 0,
