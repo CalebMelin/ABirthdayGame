@@ -26,6 +26,9 @@ import { createGameInput } from '../systems/input';
 import type { GameInput } from '../systems/input';
 import { createPedals, zoomCompensatedPosition, zoomCompensatedScale } from '../systems/pedals';
 import type { PedalsHandle, Vec2 } from '../systems/pedals';
+import { getSave } from '../systems/save';
+import { defaultCharacter } from '../data/characters';
+import { buildCharacterTextures } from '../systems/characterTextures';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -193,8 +196,23 @@ export class GameScene extends Phaser.Scene {
     this.worldBottomY =
       Math.max(...this.terrain.points.map((p) => p.y)) + FAIL.worldBottomMarginPx;
 
+    // Build the in-game bike+rider textures through the SAME one-source-of-
+    // truth path CharacterCreationScene's live preview uses (PLAN-04 task 4):
+    // the player's saved character choice, palette-swapped via
+    // buildCharacterTextures. loadCharacter() returns null on a missing/
+    // malformed save (?? defaultCharacter() covers it), and
+    // buildCharacterTextures's remaps/keys already resolve any corrupt/
+    // unknown saved id to defaults — no extra normalization needed here.
+    // Read-only: GameScene must never write/reset save data.
+    const character = getSave().loadCharacter() ?? defaultCharacter();
+    const { riderTextureKey, bikeTextureKey } = buildCharacterTextures(this, character);
+
     this.bike = createBike(this, SPAWN_X, bikeSpawnY(this.terrain.heightAt(SPAWN_X)), {
       onCrash: () => this.failLevel(),
+      // `wheel` intentionally left unset — stays bike.ts's default
+      // (TEXTURE_KEYS.wheel). Only the motorcycle BODY color is a player
+      // choice; wheels stay the raw dark placeholder regardless.
+      textures: { body: bikeTextureKey, rider: riderTextureKey },
     });
 
     // Finish flag stands ON the terrain surface (origin at its base).
