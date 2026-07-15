@@ -43,6 +43,19 @@ function requiredEventFor(id: number): LevelEvent | undefined {
   }
 }
 
+/** A scripted event whose `type` is guaranteed DIFFERENT from `excludeType`
+ * — used as filler in the "accept when other events are also present" cases
+ * so the assertion genuinely depends on the separately-injected required
+ * event. A filler that happened to duplicate the required type (e.g. a
+ * second `wheelieRider` for the level-11 case) would satisfy the check off
+ * the duplicate and never actually exercise the injected `required`. */
+function fillerEventExcept(excludeType: LevelEvent['type']): LevelEvent {
+  const candidates: LevelEvent[] = [{ type: 'wheelieRider' }, { type: 'traffic' }];
+  const picked = candidates.find((event) => event.type !== excludeType);
+  if (!picked) throw new Error(`test setup error: no filler event distinct from '${excludeType}'`);
+  return picked;
+}
+
 /** A fully valid 22-level set: ids 1..TOTAL_LEVELS exactly once, all
  * lengths in-bounds, every required scripted event present. */
 function makeValidLevels(): LevelConfig[] {
@@ -139,6 +152,20 @@ describe('validateLevels — id coverage', () => {
     const levels = makeValidLevels().filter((level) => level.id !== 3 && level.id !== 20);
     expect(validateLevels(levels)).toEqual(['Missing level id(s): 3, 20']);
   });
+
+  it('reports a fractional id directly, not just as a confusing missing-id', () => {
+    // A fractional id must surface as its OWN problem — otherwise `id: 7.5`
+    // (a realistic typo) would only ever appear indirectly as "Missing
+    // level id(s): 1" (the real id 1 it replaced), sending an author
+    // hunting in the wrong place. Non-integer is reported before the
+    // consequent missing-id it causes (cause before effect).
+    const levels = makeValidLevels();
+    levels[0] = { ...levels[0], id: 7.5 }; // was id 1
+    expect(validateLevels(levels)).toEqual([
+      'Non-integer level id(s): 7.5',
+      'Missing level id(s): 1',
+    ]);
+  });
 });
 
 describe('validateLevels — length bounds', () => {
@@ -188,7 +215,7 @@ describe('validateLevels — required scripted events', () => {
       const index = levels.findIndex((level) => level.id === id);
       const required = requiredEventFor(id);
       if (!required) throw new Error('test setup error: no required event for this id');
-      levels[index] = { ...levels[index], events: [{ type: 'wheelieRider' }, required] };
+      levels[index] = { ...levels[index], events: [fillerEventExcept(type), required] };
       expect(validateLevels(levels)).toEqual([]);
     });
   }

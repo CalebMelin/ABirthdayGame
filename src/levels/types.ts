@@ -140,6 +140,27 @@ export type LevelEvent =
 // LevelConfig — one level's complete data.
 // ---------------------------------------------------------------------------
 
+/** A level's terrain-generation input. Structurally compatible with
+ * terrain.ts's `TerrainSpec` on purpose (see getLevelTerrainSpec, which
+ * spreads this straight into one) — `jumps` is required here (a level
+ * always authors its jump list explicitly, even if empty `[]`), a
+ * compatible narrowing of TerrainSpec's optional `jumps`. Named (rather
+ * than left inline on LevelConfig.terrain) so getLevelTerrainSpec's mapping
+ * has a documentable source type and later PLAN-05 tasks can reference it. */
+export interface LevelTerrainConfig {
+  /** Seeds the deterministic terrain PRNG — see terrain.ts. */
+  seed: number;
+  /** Total horizontal length of the level, px. Must be within
+   * [LEVEL.lengthMinPx, LEVEL.lengthMaxPx] — see validateLevels. */
+  length: number;
+  /** Rolling-hill amplitude, 0 (flat) .. 1 (hilliest). */
+  hilliness: number;
+  /** Authored jump ramps. */
+  jumps: JumpSpec[];
+  /** Flat stretches reserved for scripted events/the finish flag. */
+  flatZones?: FlatZone[];
+}
+
 /** One of the 22 levels (NORTH_STAR §5 — the map is locked). Pure data; a
  * later PLAN-05 task builds terrain via getLevelTerrainSpec and consumes
  * decorations/events/introText to construct the actual GameScene. */
@@ -150,23 +171,9 @@ export interface LevelConfig {
   name: string;
   /** Backdrop + palette + props set (src/systems/themes.ts, later task). */
   theme: ThemeId;
-  /** Terrain generation input. Structurally compatible with TerrainSpec on
-   * purpose (see getLevelTerrainSpec) — `jumps` is required here (a level
-   * always authors its jump list explicitly, even if empty `[]`), which is
-   * a compatible narrowing of TerrainSpec's optional `jumps`. */
-  terrain: {
-    /** Seeds the deterministic terrain PRNG — see terrain.ts. */
-    seed: number;
-    /** Total horizontal length of the level, px. Must be within
-     * [LEVEL.lengthMinPx, LEVEL.lengthMaxPx] — see validateLevels. */
-    length: number;
-    /** Rolling-hill amplitude, 0 (flat) .. 1 (hilliest). */
-    hilliness: number;
-    /** Authored jump ramps. */
-    jumps: JumpSpec[];
-    /** Flat stretches reserved for scripted events/the finish flag. */
-    flatZones?: FlatZone[];
-  };
+  /** Terrain generation input (see getLevelTerrainSpec, which maps this to
+   * a terrain.ts TerrainSpec). */
+  terrain: LevelTerrainConfig;
   /** Ambient static scenery: signs, billboards, balloons, streamers. */
   decorations?: DecorationSpec[];
   /** Scripted one-off events: traffic, police, pickup, wheelie-rider,
@@ -190,13 +197,14 @@ export interface LevelConfig {
  * `config.terrain` directly, keeping terrain-building decoupled from
  * LevelConfig's exact shape. */
 export function getLevelTerrainSpec(config: LevelConfig): TerrainSpec {
-  return {
-    seed: config.terrain.seed,
-    length: config.terrain.length,
-    hilliness: config.terrain.hilliness,
-    jumps: config.terrain.jumps,
-    flatZones: config.terrain.flatZones,
-  };
+  // Shallow copy, NOT a field-by-field rebuild: LevelTerrainConfig is
+  // structurally assignable to TerrainSpec, so spreading forwards every
+  // field automatically — including any field a later plan adds to BOTH
+  // types — instead of silently dropping it the way a hand-listed literal
+  // would (the same drift the `FlatZone = Range` alias exists to avoid).
+  // Still a FRESH object, which is the seam's whole point: callers get a
+  // TerrainSpec to hand to createTerrain, never config.terrain itself.
+  return { ...config.terrain };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +228,8 @@ const REQUIRED_EVENTS: ReadonlyArray<{ id: number; type: LevelEvent['type'] }> =
 
 /** Validates a full level set. Returns a list of human-readable problem
  * strings — an empty array means everything checked out. Checks:
- * (1) ids 1..TOTAL_LEVELS are each present exactly once,
+ * (1) every id is an integer, and ids 1..TOTAL_LEVELS are each present
+ *     exactly once,
  * (2) every `terrain.length` is within [LEVEL.lengthMinPx, LEVEL.lengthMaxPx],
  * (3) the five NORTH_STAR §5 scripted events are present on their required
  *     level ids.
@@ -230,12 +239,28 @@ export function validateLevels(configs: readonly LevelConfig[]): string[] {
   const problems: string[] = [];
   const safeConfigs: readonly LevelConfig[] = Array.isArray(configs) ? configs : [];
 
-  // --- (1) id coverage: every 1..TOTAL_LEVELS present exactly once ---
+  // --- (1) id integrity + coverage: every 1..TOTAL_LEVELS present exactly
+  // once, each an integer ---
   const idCounts = new Map<number, number>();
+  const nonIntegerIds: number[] = [];
   for (const config of safeConfigs) {
     const id = config?.id;
-    if (typeof id !== 'number' || !Number.isFinite(id)) continue;
+    if (typeof id !== 'number') continue; // no numeric id at all → shows up as a missing id below
+    // A fractional (or NaN/Infinity) id is its own authoring defect, not a
+    // silent miss — surface it directly instead of letting `id: 7.5` show
+    // up only as a confusing "Missing level id(s): 7". Matches the
+    // Number.isInteger gate save.ts's markLevelCompleted and
+    // scenes/types.ts's normalizeLevel already use for level numbers.
+    if (!Number.isInteger(id)) {
+      nonIntegerIds.push(id);
+      continue;
+    }
     idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+  }
+
+  if (nonIntegerIds.length > 0) {
+    const unique = [...new Set(nonIntegerIds)].sort((a, b) => a - b);
+    problems.push(`Non-integer level id(s): ${unique.join(', ')}`);
   }
 
   const missingIds: number[] = [];
