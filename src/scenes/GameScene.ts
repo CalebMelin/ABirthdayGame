@@ -14,6 +14,7 @@ import {
   CAMERA,
   FAIL,
   DEBUG_OVERLAY,
+  PAUSE,
 } from '../systems/constants';
 import { createPixelText } from '../systems/ui';
 import { createTerrain } from '../systems/terrain';
@@ -22,8 +23,8 @@ import { createBike, bikeSpawnY } from '../systems/bike';
 import type { BikeHandle } from '../systems/bike';
 import { createGameInput } from '../systems/input';
 import type { GameInput } from '../systems/input';
-import { createPedals } from '../systems/pedals';
-import type { PedalsHandle } from '../systems/pedals';
+import { createPedals, zoomCompensatedPosition, zoomCompensatedScale } from '../systems/pedals';
+import type { PedalsHandle, Vec2 } from '../systems/pedals';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -107,6 +108,19 @@ const FINISH_X = 14500;
  * never paraphrase (CLAUDE.md Rule 4). */
 const FAIL_OVERLAY_TEXT = 'Oops! Go again 💛';
 
+/** The camera's zoom pivot (design-screen center). The ⏸ button is screen-
+ * anchored (scrollFactor 0) and counter-positioned/-scaled around this pivot
+ * every frame exactly like the touch pedals, so it holds a fixed on-screen
+ * spot as the play camera zooms (see layoutPauseButton). Mirrors pedals.ts. */
+const PAUSE_BUTTON_PIVOT: Vec2 = { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
+
+/** Fixed on-screen point (design space) the ⏸ button's center holds — one
+ * margin in from the top-left corner. */
+const PAUSE_BUTTON_SCREEN: Vec2 = {
+  x: PAUSE.buttonMarginPx + PAUSE.buttonSizePx / 2,
+  y: PAUSE.buttonMarginPx + PAUSE.buttonSizePx / 2,
+};
+
 /** The scene keeps at most this reference set of live handles; everything
  * is destroyed + recreated by scene.restart() on fail (see failLevel). */
 export class GameScene extends Phaser.Scene {
@@ -124,6 +138,17 @@ export class GameScene extends Phaser.Scene {
    * SHUTDOWN handler — same per-run lifecycle as gameInput/bike/terrain, so
    * scene.restart() can't leak Zones or pointer listeners. */
   private pedals: PedalsHandle | undefined;
+  /** ⏸ pause button (PLAN-03 task 5): a small always-visible HUD tap target,
+   * top-left, that opens the pause menu. scrollFactor 0 + DEPTHS.hud like the
+   * pedals, laid out every update() with the same zoom-compensation so it
+   * holds its screen spot as the camera zooms. Recreated every create() and
+   * destroyed in SHUTDOWN — same per-run lifecycle as gameInput/pedals. */
+  private pauseButton: Phaser.GameObjects.Container | undefined;
+  /** Esc / P desktop pause keys (PLAN-03 task 5). Added in create(), polled
+   * with JustDown in update(); cleared by Phaser's KeyboardPlugin on shutdown
+   * (same as the dev debugKey), reassigned each create(). */
+  private escKey: Phaser.Input.Keyboard.Key | undefined;
+  private pKey: Phaser.Input.Keyboard.Key | undefined;
   /** Y below which the bike counts as fallen off the world (lowest terrain
    * surface point + FAIL.worldBottomMarginPx). */
   private worldBottomY = 0;
@@ -188,6 +213,19 @@ export class GameScene extends Phaser.Scene {
     // there). Must come AFTER gameInput exists — the pedals drive it.
     this.pedals = createPedals(this, this.gameInput);
 
+    // ⏸ pause button (PLAN-03 task 5): a small HUD tap target, top-left,
+    // always visible on desktop AND touch (unlike the pedals, which are
+    // touch-only). Opens the pause menu on tap/click; Esc/P do the same on
+    // desktop. Laid out every update() with the pedals' zoom-compensation
+    // helpers so it holds its screen spot as the camera zooms.
+    this.pauseButton = this.createPauseButton();
+
+    // Esc / P both pause on desktop. JustDown-polled in update(). No conflict
+    // with gameplay keys (arrows/WASD via gameInput) or the dev debug toggle
+    // (backtick). Cleared on shutdown by Phaser's KeyboardPlugin (like debugKey).
+    this.escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.pKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+
     // Dev-only debug overlay (PLAN-02 task 5): FPS, speed, airborne state,
     // cumulative airborne rotation, crashed flag, Matter body count —
     // toggled with the backtick/tilde key (` — the D key is now gas as of
@@ -242,11 +280,30 @@ export class GameScene extends Phaser.Scene {
       // desktop). Same ownership as gameInput above.
       this.pedals?.destroy();
       this.pedals = undefined;
+      // ⏸ button is a plain GameObject (Container) — always safe to destroy
+      // (no Matter world dependency). Destroying it removes its input
+      // registration + pointer listeners so a restart can't leak. The Esc/P
+      // Keys are cleared by Phaser's KeyboardPlugin on shutdown (same as the
+      // dev debugKey), so they need no explicit teardown here.
+      this.pauseButton?.destroy();
+      this.pauseButton = undefined;
     });
   }
 
   update(): void {
     if (!this.bike || !this.terrain) return;
+
+    // Esc / P → pause (desktop). JustDown fires once per physical press.
+    // pauseGame() no-ops if the run already ended or the scene isn't the
+    // active one, so this is safe here; return so we don't also drive the
+    // bike/camera on the frame we hand off to the pause menu.
+    if (
+      (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey)) ||
+      (this.pKey && Phaser.Input.Keyboard.JustDown(this.pKey))
+    ) {
+      this.pauseGame();
+      return;
+    }
 
     // Merged keyboard+touch pedals for THIS frame (input.ts OR-merges every
     // gas/brake source — see mergePedals). The this.ended gate forces both
@@ -277,6 +334,11 @@ export class GameScene extends Phaser.Scene {
     // zoom. After updateCamera() so it reads the freshest zoom. No-op on
     // desktop (inert handle). See PedalsHandle.layout / zoomCompensatedPosition.
     this.pedals?.layout(this.cameras.main.zoom);
+
+    // Keep the ⏸ button screen-fixed under the camera's speed-zoom, using the
+    // SAME zoom-compensation helpers/pivot as the pedals. After updateCamera()
+    // so it reads the freshest zoom.
+    this.layoutPauseButton(this.cameras.main.zoom);
 
     // Dev-only debug overlay (PLAN-02 task 5). Inlined here (rather than
     // delegated to a private method) on purpose: `import.meta.env.DEV` is
@@ -397,5 +459,98 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(FAIL.overlayDurationMs, () => {
       this.scene.restart({ level: this.level });
     });
+  }
+
+  // --------------------------------------------------------------- pause
+  /** Builds the ⏸ HUD button: a chunky pixel face (shadow + outlined cream
+   * face + two dark bars) in a Container, made interactive over a generous
+   * (>= UI_MIN_TOUCH_PX) hit rectangle. scrollFactor 0 + DEPTHS.hud so it's a
+   * fixed HUD control; layoutPauseButton() pins it under camera zoom. A
+   * tap/click opens the pause menu (pauseGame). */
+  private createPauseButton(): Phaser.GameObjects.Container {
+    const size = PAUSE.buttonSizePx;
+
+    const shadow = this.add
+      .rectangle(0, PAUSE.shadowOffsetPx, size, size, PALETTE.outline)
+      .setOrigin(0.5);
+    const face = this.add
+      .rectangle(0, 0, size, size, PALETTE.cream)
+      .setOrigin(0.5)
+      .setStrokeStyle(PAUSE.outlineWidthPx, PALETTE.outline);
+
+    // The two vertical bars (⏸) in one Graphics, centered on (0,0) so the
+    // pressed-state shift just nudges its y. Dark plum for contrast on the
+    // cream face — placeholder art (real glyph: PLAN-10), same style as pedals.
+    const bars = this.add.graphics();
+    bars.fillStyle(PALETTE.plum, 1);
+    const barCenter = PAUSE.glyphBarGapPx / 2 + PAUSE.glyphBarWidthPx / 2;
+    const barLeft = -PAUSE.glyphBarWidthPx / 2;
+    const barTop = -PAUSE.glyphBarHeightPx / 2;
+    bars.fillRect(-barCenter + barLeft, barTop, PAUSE.glyphBarWidthPx, PAUSE.glyphBarHeightPx);
+    bars.fillRect(barCenter + barLeft, barTop, PAUSE.glyphBarWidthPx, PAUSE.glyphBarHeightPx);
+
+    const container = this.add.container(0, 0, [shadow, face, bars]);
+    container.setScrollFactor(0).setDepth(DEPTHS.hud);
+
+    // Interactive on the CONTAINER with a STATIC hit rectangle in local space
+    // (concentric, sized to the >= 88px touch target). Never setSize() an
+    // interactive container (ui.ts gotcha: a non-zero size shifts the hit rect
+    // by half its size). The face/glyph move on press but the hit rect (on the
+    // container) does not, so a press can't drop the pointer. layoutPauseButton
+    // re-scales the container every frame; Phaser transforms this hit rect by
+    // that scale, so the tap target tracks the art under zoom exactly like the
+    // pedals' Zone.
+    const hitHalf = PAUSE.hitSizePx / 2;
+    container.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-hitHalf, -hitHalf, PAUSE.hitSizePx, PAUSE.hitSizePx),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
+
+    const restore = (): void => {
+      face.setFillStyle(PALETTE.cream);
+      face.y = 0;
+      bars.y = 0;
+    };
+    container.on('pointerover', () => face.setFillStyle(PALETTE.sunshine));
+    container.on('pointerout', restore);
+    container.on('pointerdown', () => {
+      face.y = PAUSE.shadowOffsetPx;
+      bars.y = PAUSE.shadowOffsetPx;
+    });
+    container.on('pointerup', () => {
+      restore();
+      this.pauseGame();
+    });
+
+    // Place once at native zoom (the camera starts at CAMERA.zoomMax = 1) so it
+    // renders in the right spot on the very first frame, before update() runs.
+    container.setPosition(PAUSE_BUTTON_SCREEN.x, PAUSE_BUTTON_SCREEN.y);
+    return container;
+  }
+
+  /** Re-position + re-scale the ⏸ button so it holds its fixed on-screen point
+   * and size under the current camera `zoom` — identical math to the pedals
+   * (imported zoomCompensated* helpers + shared PAUSE_BUTTON_PIVOT). */
+  private layoutPauseButton(zoom: number): void {
+    if (!this.pauseButton) return;
+    const p = zoomCompensatedPosition(PAUSE_BUTTON_SCREEN, PAUSE_BUTTON_PIVOT, zoom);
+    this.pauseButton.setPosition(p.x, p.y);
+    this.pauseButton.setScale(zoomCompensatedScale(zoom));
+  }
+
+  /** Open the pause menu: freeze THIS scene (scene.pause() stops GameScene's
+   * update → the Matter world + bike freeze) and launch PauseScene in parallel
+   * on top (active for input). Shared by the ⏸ button and Esc/P.
+   *
+   * No-op if the run already ended (this.ended — never pause a crash/finish
+   * transition) or GameScene isn't the active scene (guards double-pause /
+   * pausing while the menu is already up: a paused scene's input is paused too,
+   * so the button can't fire then, but Esc/P polling + defensiveness make the
+   * guard explicit). */
+  private pauseGame(): void {
+    if (this.ended || !this.scene.isActive()) return;
+    this.scene.pause();
+    this.scene.launch(SCENE_KEYS.pause, { level: this.level });
   }
 }

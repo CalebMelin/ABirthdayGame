@@ -537,6 +537,55 @@ export function snapFontSize(sizePx: number): number {
 /** Minimum touch-target size in pixels per project quality bar. */
 export const UI_MIN_TOUCH_PX = 88;
 
+/** Pause menu + HUD pause-button tuning (PLAN-03 task 5 — see
+ * src/scenes/PauseScene.ts and GameScene's ⏸ button). All lengths are px at
+ * the 1280x720 DESIGN scale.
+ *
+ * The ⏸ button is a screen-anchored HUD control (scrollFactor 0) that must
+ * hold a FIXED on-screen spot while the play camera zooms
+ * (CAMERA.zoomMin..zoomMax); GameScene counter-positions/-scales it every
+ * frame with the SAME zoomCompensated* helpers the touch pedals use (a
+ * scrollFactor-0 object otherwise drifts inward/shrinks as the camera zooms
+ * out). Keep the FACE small (a corner glyph, not a pedal) but the invisible
+ * hit target >= UI_MIN_TOUCH_PX so it's still a genuine tap target.
+ *
+ * The pause MENU itself lives on a separate PauseScene whose camera is plain
+ * zoom-1, so its title/buttons use design coords directly (no compensation). */
+export const PAUSE = {
+  /** Visible ⏸ button face size (a square), px. Small on purpose. */
+  buttonSizePx: 64,
+  /** Gap from the top-left screen corner to the button face's near edges, px.
+   * The dev-only debug overlay also anchors top-left (DEBUG_OVERLAY.marginPx)
+   * but is stripped from production, so a minor dev-build overlap is fine. */
+  buttonMarginPx: 16,
+  /** Invisible interactive hit-target size (a square), px — concentric with
+   * the smaller face so the corner control stays a full-size tap target. */
+  hitSizePx: UI_MIN_TOUCH_PX,
+  /** ⏸ glyph: width of each of the two vertical bars, px. */
+  glyphBarWidthPx: 10,
+  /** ⏸ glyph: height of each bar, px. */
+  glyphBarHeightPx: 34,
+  /** ⏸ glyph: gap between the two bars, px. */
+  glyphBarGapPx: 12,
+  /** Face outline stroke width, px (chunky pixel look, matches ui.ts/pedals). */
+  outlineWidthPx: 4,
+  /** Drop-shadow offset beneath the face AND the downward travel of the face+
+   * glyph while pressed, px — equal so a pressed face lands flush on its
+   * shadow (mirrors ui.ts's button press). */
+  shadowOffsetPx: 4,
+  /** Alpha (0-1) of the full-screen dim rectangle drawn over the frozen game
+   * behind the pause menu, so the paused scene still shows through. */
+  dimAlpha: 0.6,
+  /** Pause-menu title center Y, px (design space). */
+  titleY: 200,
+  /** Top (first) menu-button center Y, px; the three stack downward. */
+  firstButtonY: 348,
+  /** Vertical spacing between stacked menu-button centers, px. */
+  buttonSpacingY: 112,
+  /** Menu-button minimum face width, px, so the three read as a tidy stack. */
+  buttonMinWidth: 320,
+} as const;
+
 /** Total number of levels in the game. A locked fact from NORTH_STAR.md —
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
@@ -549,6 +598,7 @@ export const SCENE_KEYS = {
   characterCreation: 'CharacterCreationScene',
   levelSelect: 'LevelSelectScene',
   game: 'GameScene',
+  pause: 'PauseScene',
   levelComplete: 'LevelCompleteScene',
   party: 'PartyScene',
   credits: 'CreditsScene',

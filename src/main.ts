@@ -4,6 +4,7 @@ import { TitleScene } from './scenes/TitleScene';
 import { CharacterCreationScene } from './scenes/CharacterCreationScene';
 import { LevelSelectScene } from './scenes/LevelSelectScene';
 import { GameScene } from './scenes/GameScene';
+import { PauseScene } from './scenes/PauseScene';
 import { LevelCompleteScene } from './scenes/LevelCompleteScene';
 import { PartyScene } from './scenes/PartyScene';
 import { CreditsScene } from './scenes/CreditsScene';
@@ -35,6 +36,9 @@ const config: Phaser.Types.Core.GameConfig = {
     CharacterCreationScene,
     LevelSelectScene,
     GameScene,
+    // After GameScene so the pause overlay composites ON TOP of the paused
+    // game (scene render order = list order); launched over it by pauseGame().
+    PauseScene,
     LevelCompleteScene,
     PartyScene,
     CreditsScene,
