@@ -8,8 +8,15 @@ import {
   TEXTURE_KEYS,
 } from '../systems/constants';
 import { loadPixelFont } from '../systems/fonts';
+import { MARKERS } from '../systems/palette';
 
 type TextureName = keyof typeof TEXTURE_KEYS;
+
+/** Names this scene draws as a single solid-color placeholder rect (see
+ * TEXTURE_SPECS below). Excludes the PLAN-04 marker-composite base
+ * textures (gabbyBase / bikeBase), which need SEVERAL differently-colored
+ * regions rather than one solid fill — see generateMarkerBaseTextures. */
+type SolidTextureName = Exclude<TextureName, 'gabbyBase' | 'bikeBase'>;
 
 /** Placeholder colored-rectangle sizes for each generated texture.
  * PLACEHOLDER ONLY — real pixel art replaces this table in PLAN-10; the
@@ -17,7 +24,7 @@ type TextureName = keyof typeof TEXTURE_KEYS;
  * depend on those names, but these size/color literals don't outlive this
  * scene's placeholder era, so they stay local. */
 const TEXTURE_SPECS: Record<
-  TextureName,
+  SolidTextureName,
   { width: number; height: number; color: number }
 > = {
   bike: {
@@ -41,6 +48,33 @@ const TEXTURE_SPECS: Record<
   balloon: { width: 24, height: 32, color: PALETTE.white },
 };
 
+/** Region layout for the PLAN-04 marker-composite rider base texture (see
+ * generateGabbyBaseTexture). PLACEHOLDER ONLY — same caveat as
+ * TEXTURE_SPECS above; PLAN-10 replaces the actual art, not these call
+ * sites. Sized against TEXTURE_SPECS.gabby (24x48): a hairHeight-tall
+ * MARKERS.hair band, then a faceHeight-tall skin-toned face band (with two
+ * MARKERS.eyes squares inset), then MARKERS.suit fills the remainder
+ * (torso/legs). Every region is non-trivial so a marker swap is visibly
+ * obvious. */
+const GABBY_BASE_LAYOUT = {
+  hairHeight: 10,
+  faceHeight: 12,
+  eyeSize: 3,
+  leftEyeX: 6,
+  rightEyeX: 15,
+  eyeInsetY: 5,
+} as const;
+
+/** Region layout for the PLAN-04 marker-composite bike base texture (see
+ * generateBikeBaseTexture). PLACEHOLDER ONLY. Sized against
+ * TEXTURE_SPECS.bike (96x28, i.e. BIKE_TUNING.chassisWidth/chassisHeight):
+ * a thin dark outline band at outlineBandY so the mostly-MARKERS.bikeBody
+ * fill reads as a bike, not a pure green slab. */
+const BIKE_BASE_LAYOUT = {
+  outlineBandY: 20,
+  outlineBandHeight: 4,
+} as const;
+
 /**
  * Boot scene: draws a pixel-styled progress bar while assets load, then
  * registers placeholder textures and hands off to TitleScene once the pixel
@@ -57,6 +91,7 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     this.generatePlaceholderTextures();
+    this.generateMarkerBaseTextures();
 
     void loadPixelFont().then(() => {
       this.scene.start(SCENE_KEYS.title);
@@ -117,12 +152,12 @@ export class BootScene extends Phaser.Scene {
   }
 
   /** Generates a placeholder colored-rectangle texture for each
-   * TEXTURE_KEYS entry (skipping any that already exist, so restarting
+   * TEXTURE_SPECS entry (skipping any that already exist, so restarting
    * this scene doesn't warn about duplicate texture keys). Real art
    * replaces this in PLAN-10 without call sites changing, since they only
    * ever reference the TEXTURE_KEYS name. */
   private generatePlaceholderTextures(): void {
-    (Object.keys(TEXTURE_SPECS) as TextureName[]).forEach((name) => {
+    (Object.keys(TEXTURE_SPECS) as SolidTextureName[]).forEach((name) => {
       const key = TEXTURE_KEYS[name];
       if (this.textures.exists(key)) {
         return;
@@ -135,5 +170,94 @@ export class BootScene extends Phaser.Scene {
       gfx.generateTexture(key, width, height);
       gfx.destroy();
     });
+  }
+
+  /** PLAN-04 task 1: marker-composite placeholder base textures for the
+   * palette-swap engine (src/systems/palette.ts). Unlike TEXTURE_SPECS'
+   * single-solid-fill placeholders above, each of these carries SEVERAL
+   * differently-colored regions drawn with real MARKERS.* colors — pixels
+   * `recolorTexture` can later exact-RGB-swap into a player's chosen
+   * colors. The pre-existing solid tex-gabby/tex-bike/tex-wheel
+   * placeholders above are UNCHANGED and still generated — task 4 retires
+   * the raw-render path in favor of these *-base textures; until then both
+   * sets coexist. */
+  private generateMarkerBaseTextures(): void {
+    this.generateGabbyBaseTexture();
+    this.generateBikeBaseTexture();
+  }
+
+  /** 24x48 — MUST match the existing tex-gabby placeholder size (read
+   * structurally off TEXTURE_SPECS.gabby, never re-hardcoded): bike.ts's
+   * rider offset math (BIKE_TUNING.riderOffsetY etc.) assumes a 48px-tall
+   * rider. Crude but clearly-separated marker regions, top to bottom: a
+   * MARKERS.hair band, a skin-toned face with two MARKERS.eyes squares, and
+   * a MARKERS.suit torso/legs region. Exactly ONE suit region — every
+   * PLAN-04 outfit is a colorway of this SAME base art, recolored via this
+   * one red region (real per-design art is PLAN-10). Skips generation if
+   * the key already exists (restart-safety, matching
+   * generatePlaceholderTextures). */
+  private generateGabbyBaseTexture(): void {
+    const key = TEXTURE_KEYS.gabbyBase;
+    if (this.textures.exists(key)) {
+      return;
+    }
+
+    const { width, height } = TEXTURE_SPECS.gabby;
+    const { hairHeight, faceHeight, eyeSize, leftEyeX, rightEyeX, eyeInsetY } =
+      GABBY_BASE_LAYOUT;
+
+    const gfx = this.add.graphics();
+
+    // Hair band across the top.
+    gfx.fillStyle(MARKERS.hair, 1);
+    gfx.fillRect(0, 0, width, hairHeight);
+
+    // Face: a fixed warm skin tone — NOT a marker color, so it's never
+    // touched by a palette swap.
+    gfx.fillStyle(PALETTE.skin, 1);
+    gfx.fillRect(0, hairHeight, width, faceHeight);
+
+    // Eyes: two small marker squares within the face band.
+    gfx.fillStyle(MARKERS.eyes, 1);
+    gfx.fillRect(leftEyeX, hairHeight + eyeInsetY, eyeSize, eyeSize);
+    gfx.fillRect(rightEyeX, hairHeight + eyeInsetY, eyeSize, eyeSize);
+
+    // Torso/legs: the ONE suit region every outfit colorway recolors.
+    gfx.fillStyle(MARKERS.suit, 1);
+    gfx.fillRect(0, hairHeight + faceHeight, width, height - hairHeight - faceHeight);
+
+    gfx.generateTexture(key, width, height);
+    gfx.destroy();
+  }
+
+  /** 96x28 — MUST match the existing tex-bike placeholder size (read
+   * structurally off TEXTURE_SPECS.bike, in turn
+   * BIKE_TUNING.chassisWidth/chassisHeight). Mostly MARKERS.bikeBody with a
+   * thin dark outline band so it silhouettes as a bike, not a green slab.
+   * Wheels are NOT part of this texture/marker scheme — they stay
+   * TEXTURE_KEYS.wheel, never recolored. Skips generation if the key
+   * already exists (restart-safety, matching generatePlaceholderTextures). */
+  private generateBikeBaseTexture(): void {
+    const key = TEXTURE_KEYS.bikeBase;
+    if (this.textures.exists(key)) {
+      return;
+    }
+
+    const { width, height } = TEXTURE_SPECS.bike;
+    const { outlineBandY, outlineBandHeight } = BIKE_BASE_LAYOUT;
+
+    const gfx = this.add.graphics();
+
+    // Body: mostly MARKERS.bikeBody so a swap is unmistakable.
+    gfx.fillStyle(MARKERS.bikeBody, 1);
+    gfx.fillRect(0, 0, width, height);
+
+    // A thin dark band (never recolored — not a marker) so it silhouettes
+    // as a bike rather than a pure green slab.
+    gfx.fillStyle(PALETTE.outline, 1);
+    gfx.fillRect(0, outlineBandY, width, outlineBandHeight);
+
+    gfx.generateTexture(key, width, height);
+    gfx.destroy();
   }
 }

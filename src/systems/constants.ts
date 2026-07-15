@@ -18,6 +18,11 @@ export const PALETTE = {
   grass: 0xb8e6a0,
   white: 0xfbfbfb,
   outline: 0x2a1820,
+  /** Warm placeholder skin tone for Gabby's face on the PLAN-04
+   * marker-composite rider base texture (see palette.ts / BootScene's
+   * tex-gabby-base). Deliberately NOT a MARKERS.* value — the face must
+   * never be recolored by a palette swap. */
+  skin: 0xffcf9c,
 } as const;
 
 /** Convert 0xRRGGBB hex color to CSS '#rrggbb' string.
@@ -607,11 +612,18 @@ export const SCENE_KEYS = {
 /** Centralized texture keys for generated (placeholder, then real pixel-art)
  * textures. BootScene registers these; every later plan references them by
  * key instead of string literals, so swapping placeholder rectangles for
- * real art in PLAN-10 touches only the generator, not call sites. */
+ * real art in PLAN-10 touches only the generator, not call sites.
+ *
+ * `gabbyBase` / `bikeBase` (PLAN-04 task 1) are the marker-composite BASE
+ * textures the palette-swap engine (src/systems/palette.ts) recolors —
+ * separate from the solid-color `gabby` / `bike` placeholders above, which
+ * stay in place until PLAN-04 task 4 retires the raw-render path. */
 export const TEXTURE_KEYS = {
   bike: 'tex-bike',
+  bikeBase: 'tex-bike-base',
   wheel: 'tex-wheel',
   gabby: 'tex-gabby',
+  gabbyBase: 'tex-gabby-base',
   caleb: 'tex-caleb',
   car: 'tex-car',
   policeCar: 'tex-police-car',
