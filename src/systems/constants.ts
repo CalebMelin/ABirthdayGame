@@ -595,6 +595,27 @@ export const PAUSE = {
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
 
+/** Min/max level length (px), authored per level in src/levels/*.ts and
+ * checked by src/levels/types.ts's validateLevels. Bounds keep play time
+ * inside NORTH_STAR's 20-45s window AND the ground collision chain under
+ * NORTH_STAR §8's <100-physics-bodies budget.
+ *
+ * Why 16000 specifically: terrain.ts's buildGroundBodies chains one
+ * collision body per stride = round(TERRAIN.segmentTargetPx /
+ * TERRAIN.sampleSpacingPx) = round(160/24) = 7 heightmap samples, i.e. one
+ * body per 7*24 = 168px of level length. At lengthMaxPx (16000) that works
+ * out to 96 ground bodies + 3 bike bodies (chassis compound + 2 wheels) =
+ * 99, just under the <100 budget. (Sanity check against a real measured
+ * number: the same formula at the PLAN-02 TEST_LEVEL's 15000px gives 90
+ * ground + 3 bike = 93 — exactly the body count PROGRESS.md recorded from
+ * an actual browser run.) lengthMinPx (8000) keeps the shortest level long
+ * enough for a gas-only run to reach real speed while still comfortably
+ * finishing inside the 45s ceiling. */
+export const LEVEL = {
+  lengthMinPx: 8000,
+  lengthMaxPx: 16000,
+} as const;
+
 /** Centralized scene keys — all scenes and transitions reference these
  * instead of string literals. See NORTH_STAR.md §4 for the scene flow. */
 export const SCENE_KEYS = {
