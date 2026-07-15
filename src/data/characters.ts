@@ -21,29 +21,34 @@ import type { CharacterConfig } from '../systems/save';
 
 /** One hair/eye/bike-color swatch: a stable saved id, a human label for the
  * swatch button, and a color that is BOTH the swatch's own display color
- * AND the color its matching MARKERS region recolors to. */
+ * AND the color its matching MARKERS region recolors to. Fields are
+ * `readonly` on purpose: `resolveOption` hands back the LIVE array element
+ * (via `.find()`), so a caller doing `resolveHair(id).color = X` would
+ * otherwise corrupt the shared HAIR_OPTIONS entry for the page's lifetime. */
 export interface SwatchOption {
   /** Stable id — the exact string persisted in CharacterConfig. Never
    * rename an existing id once saved games can contain it. */
-  id: string;
+  readonly id: string;
   /** Human-readable label for the swatch button (PLAN-04 task 3 UI). */
-  label: string;
+  readonly label: string;
   /** 0xRRGGBB — swatch-display color AND the palette-swap target. */
-  color: number;
+  readonly color: number;
 }
 
 /** One outfit (racing-suit) design. `id` IS the design id — PLAN-10 will
  * select real per-design art by it — and `suitColor` is that design's ONE
- * fixed base colorway: outfit choice is a DESIGN, not design x color. */
+ * fixed base colorway: outfit choice is a DESIGN, not design x color.
+ * Fields are `readonly` for the same reason as SwatchOption (resolveOutfit
+ * returns the live OUTFIT_OPTIONS element). */
 export interface OutfitOption {
   /** Stable id — the exact string persisted in CharacterConfig.outfit, and
    * (later, PLAN-10) the key selecting this design's real art. */
-  id: string;
+  readonly id: string;
   /** Human-readable label for the swatch button. */
-  label: string;
+  readonly label: string;
   /** 0xRRGGBB — this design's fixed base colorway; what MARKERS.suit
    * recolors to when this outfit is selected. */
-  suitColor: number;
+  readonly suitColor: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +59,10 @@ export interface OutfitOption {
 // ---------------------------------------------------------------------------
 
 /** Hair swatches (6). `blonde` is DEFAULT — Gabby is blonde (NORTH_STAR §4) —
- * and must stay first/present regardless of future reordering. */
+ * and must stay PRESENT regardless of future reordering (resolution is
+ * by-id via `.find()`, never by array index, so its position is NOT a
+ * code-enforced invariant — the leading slot is just UI-layout guidance for
+ * Task 3's swatch row). */
 export const HAIR_OPTIONS: readonly SwatchOption[] = [
   { id: 'blonde', label: 'Blonde', color: 0xf2d16b },
   { id: 'brown', label: 'Brown', color: 0x6b4423 },
@@ -109,13 +117,29 @@ export const OUTFIT_OPTIONS: readonly OutfitOption[] = [
  * `bikeColor: 'pink'` is the default even though `yellow` must also be in
  * the list (yellow feeds the level-11 easter egg but is deliberately NOT
  * the default). Every id here must exist in its matching options array —
- * enforced by tests/characters.test.ts. */
-export const DEFAULT_CHARACTER: CharacterConfig = {
+ * enforced by tests/characters.test.ts.
+ *
+ * `Readonly` on purpose: this is a SHARED singleton. Callers that MUTATE a
+ * working copy (Task 3 flips one field per swatch tap) must start from
+ * `defaultCharacter()` (a fresh copy) — mutating this object directly would
+ * silently corrupt the default for the page's lifetime and could leak into
+ * a real save. Same hazard `save.ts`'s `defaultProgress()` factory guards
+ * against for level progress. */
+export const DEFAULT_CHARACTER: Readonly<CharacterConfig> = {
   hairColor: 'blonde',
   eyeColor: 'blue',
   bikeColor: 'pink',
   outfit: 'classic',
 };
+
+/** A FRESH, mutable copy of DEFAULT_CHARACTER — the safe starting point for
+ * any caller that mutates its config in place (e.g. Task 3's
+ * `this.character = save.loadCharacter() ?? defaultCharacter()`, then
+ * flipping one field per swatch tap). Mirrors `save.ts`'s `defaultProgress()`
+ * intent: never hand out the shared singleton to a mutator. */
+export function defaultCharacter(): CharacterConfig {
+  return { ...DEFAULT_CHARACTER };
+}
 
 // ---------------------------------------------------------------------------
 // Total resolvers — a corrupt/unknown saved id must NEVER crash rendering.
@@ -128,7 +152,13 @@ export const DEFAULT_CHARACTER: CharacterConfig = {
  * call site below ever triggers, since each always passes a fallbackId
  * drawn from DEFAULT_CHARACTER (itself asserted present in every options
  * array by tests/characters.test.ts) — falls back to `options[0]` so this
- * stays total rather than returning `undefined`. */
+ * stays total rather than returning `undefined`.
+ *
+ * PRECONDITION: `options` must be non-empty. The `options[0]` final
+ * fallback is typed `T` but is actually `undefined` on an empty array; no
+ * caller here passes an empty array (the four option arrays are all
+ * hardcoded non-empty), so this is a documented contract, not a runtime
+ * guard. */
 export function resolveOption<T extends { id: string }>(
   options: readonly T[],
   id: string,

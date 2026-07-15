@@ -7,6 +7,7 @@ import {
   OUTFIT_OPTIONS,
   bikeRemap,
   bikeVariantKey,
+  defaultCharacter,
   resolveBike,
   resolveEyes,
   resolveHair,
@@ -111,6 +112,28 @@ describe('DEFAULT_CHARACTER', () => {
     expect(resolveEyes(DEFAULT_CHARACTER.eyeColor).id).toBe(DEFAULT_CHARACTER.eyeColor);
     expect(resolveBike(DEFAULT_CHARACTER.bikeColor).id).toBe(DEFAULT_CHARACTER.bikeColor);
     expect(resolveOutfit(DEFAULT_CHARACTER.outfit).id).toBe(DEFAULT_CHARACTER.outfit);
+  });
+});
+
+describe('defaultCharacter', () => {
+  it('returns a value deep-equal to DEFAULT_CHARACTER', () => {
+    expect(defaultCharacter()).toEqual(DEFAULT_CHARACTER);
+  });
+
+  it('returns a DISTINCT object each call (fresh copy, never the shared singleton)', () => {
+    // The whole point of the factory: Task 3 mutates its working copy per
+    // swatch tap; handing back the shared DEFAULT_CHARACTER would corrupt
+    // the default for the page's lifetime. Same guarantee save.ts's
+    // defaultProgress() gives for level progress.
+    expect(defaultCharacter()).not.toBe(DEFAULT_CHARACTER);
+    expect(defaultCharacter()).not.toBe(defaultCharacter());
+  });
+
+  it('produces an independently-mutable copy (mutating it does not touch the singleton)', () => {
+    const working = defaultCharacter();
+    working.hairColor = 'black';
+    expect(working.hairColor).toBe('black');
+    expect(DEFAULT_CHARACTER.hairColor).toBe('blonde');
   });
 });
 
