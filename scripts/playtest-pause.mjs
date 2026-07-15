@@ -35,6 +35,17 @@ const RESUME = { x: 640, y: 348 };
 const RESTART = { x: 640, y: 460 };
 const LEVEL_SELECT = { x: 640, y: 572 };
 
+// GAS pedal press point (design coords) for the TOUCH-context regression below.
+// In sync with pedals.ts/PEDALS (same point playtest-touch presses): face center
+// = edge margin(36) + half the 144px face = 108 from the right edge; y = 720 - 36
+// - 72 = 612. Bottom-right → (1172, 612).
+const GAS_XY = { x: DESIGN_W - 108, y: 612 };
+
+// A fresh CDP touch-point id per press (Chrome drops an id reused right after its
+// release — see playtest-touch.mjs). Only the touch regression uses this.
+let idSeq = 100;
+const nextId = () => idSeq++;
+
 // Zoom-stability expectations (mirror pedals check): the ⏸ button's screen
 // anchor is its design center (48,48); its on-screen face size is buttonSizePx.
 const PIVOT_X = DESIGN_W / 2; // 640 — camera zoom pivot (screen center)
@@ -144,6 +155,54 @@ async function tapKey(page, key) {
   await page.keyboard.up(key);
 }
 
+// ---- Touch-context helpers (regression section only) ----------------------
+
+/** Dispatch a CDP touch frame (a real finger — drives Phaser's TouchManager
+ * natively, not a synthetic shim). `points` is the FULL set of active points
+ * AFTER this event; touchEnd([]) releases all. Mirrors playtest-touch.mjs. */
+async function touch(cdp, box, type, points) {
+  await cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: points.map((p) => ({ x: vx(box, p.x), y: vy(box, p.y), id: p.id })),
+  });
+}
+
+/** Real touch tap at a design point (menu navigation in the touch context). */
+async function tapDesign(page, x, y) {
+  const box = await canvasBox(page);
+  await page.touchscreen.tap(vx(box, x), vy(box, y));
+}
+
+/** GameScene snapshot for the touch regression: the MERGED input sample() (with
+ * no keys down it reflects the touch pedals exactly, so it's a direct readout of
+ * touchGas/touchBrake) + live pedal Zone count. getScene stays valid while
+ * GameScene is paused; guard each field. */
+function readTouchState(page) {
+  return page.evaluate(() => {
+    const g = globalThis.__gabbyGame;
+    const s = g.scene.getScene('GameScene');
+    return {
+      active: g.scene.isActive('GameScene'),
+      bike: s && s.bike ? { x: s.bike.x, y: s.bike.y, speed: s.bike.speed } : null,
+      sample: s && s.gameInput ? s.gameInput.sample() : null,
+      zones: s && s.children ? s.children.list.filter((o) => o.type === 'Zone').length : 0,
+    };
+  });
+}
+
+/** Enter level 1 with real taps (touch context), so the touch-device gate is on
+ * and the pedals actually exist. Mirrors enterLevel1 but touch-native. */
+async function enterLevel1Touch(page) {
+  await waitForScene(page, 'TitleScene');
+  await tapDesign(page, 640, 400); // Title: Play
+  await waitForScene(page, 'CharacterCreationScene');
+  await tapDesign(page, 640, 400); // CharacterCreation: next ->
+  await waitForScene(page, 'LevelSelectScene');
+  await tapDesign(page, 265, 220); // LevelSelect: level 1 cell
+  await waitForScene(page, 'GameScene');
+  await page.waitForTimeout(600); // create() + let the bike settle
+}
+
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -154,6 +213,89 @@ async function main() {
   const pageErrors = [];
 
   try {
+    // ======================================================================
+    // 0) TOUCH-CONTEXT REGRESSION (the PLAN-03 cross-task bug): a touch GAS
+    //    pedal HELD into a pause must not resume STUCK-ON. While GameScene is
+    //    paused its InputPlugin stops dispatching pointer events
+    //    (Systems.canInput() is false), so a finger lifted off GAS while the
+    //    menu is up never fires pointerup → setTouchGas(false) never runs →
+    //    without the fix the bike resumes under phantom gas. GameScene.onResume
+    //    (the RESUME handler) clears it. Runs in a hasTouch+isMobile context so
+    //    the pedals exist; real touch via CDP Input.dispatchTouchEvent.
+    // ======================================================================
+    {
+      const touchCtx = await browser.newContext({
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: DESIGN_W, height: DESIGN_H },
+      });
+      const tpage = await touchCtx.newPage();
+      tpage.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
+      tpage.on('pageerror', (e) => pageErrors.push(String(e)));
+      const tcdp = await touchCtx.newCDPSession(tpage);
+
+      await tpage.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
+      await enterLevel1Touch(tpage);
+      const tbox = await canvasBox(tpage);
+
+      // Pedals must exist here (the regression is only meaningful on touch).
+      const preHold = await readTouchState(tpage);
+      checks.pauseTouch_pedalsExist = preHold.zones === 2;
+
+      // 1) Press + HOLD the GAS pedal (bottom-right) with a real CDP touch that
+      //    stays down (a CDP point persists until touchEnd — no re-press needed).
+      const gasId = nextId();
+      await touch(tcdp, tbox, 'touchStart', [{ ...GAS_XY, id: gasId }]);
+      await tpage.waitForTimeout(200);
+      const held = await readTouchState(tpage);
+      const resumeSpeedBaseline = held.bike?.speed ?? 0;
+
+      // 2) Open the pause menu via Esc WHILE the gas finger is still down.
+      await tapKey(tpage, 'Escape');
+      await waitPauseOpen(tpage);
+
+      // 3) Release the gas touch WHILE PAUSED. The paused GameScene's InputPlugin
+      //    won't dispatch the pointerup — WITHOUT the fix setTouchGas(false)
+      //    never runs and touchGas stays stuck true.
+      await touch(tcdp, tbox, 'touchEnd', []);
+      await tpage.waitForTimeout(200);
+
+      // 4) Resume via the Resume button. GameScene.onResume must clear the hold.
+      await tapDesign(tpage, RESUME.x, RESUME.y);
+      await waitGameResumed(tpage);
+
+      const resumed = await readTouchState(tpage);
+      const resumeX = resumed.bike?.x ?? 0;
+      // (b) With no finger down and no keys, sample nothing for a beat: under the
+      //     phantom hold the bike would keep being DRIVEN (speed climbs, big
+      //     advance); fixed, it coasts to a stop (speed → ~0).
+      await tpage.waitForTimeout(900);
+      const settled = await readTouchState(tpage);
+      const driftX = (settled.bike?.x ?? 0) - resumeX;
+      const settledSpeed = settled.bike?.speed ?? 0;
+
+      evidence.pauseTouch = {
+        pedalZoneCount: preHold.zones,
+        heldSample: held.sample,
+        resumedSample: resumed.sample,
+        speedAtHold: Math.round(resumeSpeedBaseline * 10) / 10,
+        resumeX: Math.round(resumeX),
+        driftAfterResumePx: Math.round(driftX),
+        settledSpeed: Math.round(settledSpeed * 10) / 10,
+      };
+      // Sanity: the pedal really registered while held (else the test proves nothing).
+      checks.pauseTouch_gasHeldReadsTrue = !!held.sample && held.sample.gas === true;
+      // (a) PRIMARY: merged input reports gas:false after resume — no phantom
+      //     hold. Momentum-independent; this is the direct red→green discriminator.
+      checks.pauseTouch_noPhantomGasOnResume =
+        !!resumed.sample && resumed.sample.gas === false;
+      // (b) BEHAVIOR: the bike is not being driven forward on resume — it comes
+      //     to rest (phantom gas would hold it near full speed / advance far).
+      checks.pauseTouch_bikeNotDrivenOnResume = settledSpeed < 1.5 && driftX < 120;
+
+      await touchCtx.close();
+    }
+
     const ctx = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
     const page = await ctx.newPage();
     page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
@@ -168,6 +310,28 @@ async function main() {
     evidence.pauseButtonAtEntry = enter.pauseButton
       ? { screenX: round2(PIVOT_X + (enter.pauseButton.x - PIVOT_X) * (enter.zoom ?? 1)), zoom: round3(enter.zoom ?? 1) }
       : null;
+
+    // ======================================================================
+    // 0b) Esc / P TOGGLE the menu (the resume polish): the key that OPENS the
+    //     menu also RESUMES it. Proven here distinctly from the Esc/P-OPENS
+    //     checks in sections 2-3 below (which still independently prove opening
+    //     after driving). At spawn, so no gas is held and the bike stays put.
+    //     waitPauseOpen/waitGameResumed throw on timeout, so a broken toggle
+    //     fails the run loudly; the explicit checks record it for the report.
+    // ======================================================================
+    await tapKey(page, 'Escape');
+    await waitPauseOpen(page);
+    checks.pause_escKeyOpens = (await readState(page)).pauseActive === true;
+    await tapKey(page, 'Escape');
+    await waitGameResumed(page);
+    checks.pause_escKeyResumes = (await readState(page)).gameActive === true;
+
+    await tapKey(page, 'p');
+    await waitPauseOpen(page);
+    checks.pause_pKeyOpens = (await readState(page)).pauseActive === true;
+    await tapKey(page, 'p');
+    await waitGameResumed(page);
+    checks.pause_pKeyResumes = (await readState(page)).gameActive === true;
 
     // ======================================================================
     // 1) ⏸ BUTTON pauses + freezes the bike (from a stationary spawn, zoom≈1).

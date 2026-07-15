@@ -29,6 +29,17 @@ export class PauseScene extends Phaser.Scene {
    * level. Received via init(data) (same LevelSceneData/normalizeLevel pattern
    * GameScene uses), passed in by GameScene.pauseGame(). */
   private level = 1;
+  /** Esc / P ALSO resume from the menu (they opened it, so the key toggles it
+   * shut). GameScene polls its OWN Esc/P to OPEN; a paused GameScene's update()
+   * is frozen, so the resume-side polling must live HERE. Added in create(),
+   * polled with JustDown in update(); Phaser clears them on this scene's
+   * shutdown (scene.stop on resume) and create() re-adds them next launch, so
+   * no stacking. The press that OPENED the menu can't bleed through to resume it
+   * instantly: GameScene owned that keydown and Phaser's KeyboardPlugin
+   * resetKeys() on PAUSE clears it, while THESE keys are added a frame later and
+   * never see it — only a fresh press resumes. */
+  private escKey: Phaser.Input.Keyboard.Key | undefined;
+  private pKey: Phaser.Input.Keyboard.Key | undefined;
 
   constructor() {
     super(SCENE_KEYS.pause);
@@ -64,13 +75,7 @@ export class PauseScene extends Phaser.Scene {
       y: PAUSE.firstButtonY,
       label: 'Resume',
       minWidth: PAUSE.buttonMinWidth,
-      onClick: () => {
-        // Continue the SAME run where it froze: un-pause GameScene, stop this
-        // menu. (resume acts on GameScene by key; stop() with no arg stops the
-        // caller — this PauseScene.)
-        this.scene.resume(SCENE_KEYS.game);
-        this.scene.stop();
-      },
+      onClick: () => this.resume(),
     });
 
     createPixelButton(this, {
@@ -100,5 +105,32 @@ export class PauseScene extends Phaser.Scene {
         this.scene.start(SCENE_KEYS.levelSelect);
       },
     });
+
+    // Esc / P toggle the menu shut (they opened it), matching how GameScene
+    // polls the same keys to OPEN. Same KeyCodes as GameScene for consistency.
+    // Polled in update() below; cleared by Phaser's KeyboardPlugin on this
+    // scene's shutdown (like GameScene's Esc/P), re-added next launch.
+    this.escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.pKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+  }
+
+  /** Poll Esc / P to resume (they toggle the menu shut). Runs every frame while
+   * this scene is active — GameScene's own update() is frozen while paused, so
+   * the resume-side key handling can't live there. */
+  update(): void {
+    if (
+      (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey)) ||
+      (this.pKey && Phaser.Input.Keyboard.JustDown(this.pKey))
+    ) {
+      this.resume();
+    }
+  }
+
+  /** Continue the SAME run where it froze: un-pause GameScene, stop this menu.
+   * Shared by the Resume button and the Esc/P keys. (resume acts on GameScene by
+   * key; stop() with no arg stops the caller — this PauseScene.) */
+  private resume(): void {
+    this.scene.resume(SCENE_KEYS.game);
+    this.scene.stop();
   }
 }

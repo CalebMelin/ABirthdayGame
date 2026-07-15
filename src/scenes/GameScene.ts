@@ -1,7 +1,8 @@
 // GameScene v1 (PLAN-02 tasks 3+4): terrain + bike + camera + finish flag
 // + soft-fail/restart loop, driven by a hardcoded test level. Real
-// per-level configs replace TEST_LEVEL in PLAN-05; the debug overlay
-// (PLAN-02 task 5) and touch pedals (PLAN-03) land later.
+// per-level configs replace TEST_LEVEL in PLAN-05. The dev debug overlay
+// (PLAN-02 task 5) and the touch pedals + ⏸ pause menu (PLAN-03) have since
+// landed here too.
 import Phaser from 'phaser';
 import {
   DESIGN_WIDTH,
@@ -250,6 +251,16 @@ export class GameScene extends Phaser.Scene {
 
     this.setUpCamera();
 
+    // Clear held touch/pedal state whenever the scene RESUMES from the pause
+    // menu. A paused scene's InputPlugin stops delivering pointer events
+    // (Systems.canInput() is false while paused), so a touch pedal released
+    // while the menu is up never fires its pointerup — the pedal would resume
+    // stuck-on (phantom gas). onResume() (a stable bound method so it can be
+    // removed) resets it. `on`, not `once` — every resume must clear — and it's
+    // removed in the SHUTDOWN handler below so scene.restart() (which re-runs
+    // create() on the SAME instance) can't stack duplicate RESUME listeners.
+    this.events.on(Phaser.Scenes.Events.RESUME, this.onResume, this);
+
     // Backstop teardown (see BikeHandle.destroy doc). In the normal
     // restart/transition path Phaser's Matter plugin has ALREADY destroyed
     // the entire world (bodies, constraints, world listeners) and nulled
@@ -287,6 +298,10 @@ export class GameScene extends Phaser.Scene {
       // dev debugKey), so they need no explicit teardown here.
       this.pauseButton?.destroy();
       this.pauseButton = undefined;
+      // Remove the RESUME listener registered in create() (see above). The
+      // Scene instance persists across scene.restart() and create() re-adds it,
+      // so without this off() the RESUME handlers would stack across restarts.
+      this.events.off(Phaser.Scenes.Events.RESUME, this.onResume, this);
     });
   }
 
@@ -552,5 +567,25 @@ export class GameScene extends Phaser.Scene {
     if (this.ended || !this.scene.isActive()) return;
     this.scene.pause();
     this.scene.launch(SCENE_KEYS.pause, { level: this.level });
+  }
+
+  /** Fired on scene RESUME (leaving the pause menu). Clears any held touch/pedal
+   * state so a resume can never start under a phantom-held pedal.
+   *
+   * WHY: while THIS scene is paused its InputPlugin stops dispatching pointer
+   * events (Systems.canInput() is false when paused), so a finger lifted off the
+   * touch GAS/BRAKE pedal WHILE the menu is up never delivers its pointerup —
+   * setTouchGas/Brake(false)/the pedal's release() never run and the bike would
+   * resume under phantom gas. Resetting on resume is the safe direction: a
+   * genuinely-still-held finger just needs a re-press (same already-accepted
+   * behavior as the fail/restart path). Clearing the input flags directly covers
+   * the desktop/no-pedal case (belt-and-suspenders); pedals.releaseAll() also
+   * fixes the pedal visuals. The orientation auto-pause path is untouched by
+   * this — it uses game.loop.sleep() (the scene stays RUNNING), so its DOM
+   * pointer events queue and drain normally and never emit a scene RESUME. */
+  private onResume(): void {
+    this.gameInput?.setTouchGas(false);
+    this.gameInput?.setTouchBrake(false);
+    this.pedals?.releaseAll();
   }
 }

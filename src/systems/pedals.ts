@@ -80,6 +80,17 @@ export interface PedalsHandle {
    * GameScene.update(), AFTER updateCamera() (freshest zoom). No-op on
    * desktop. */
   layout(zoom: number): void;
+  /** Force BOTH pedals back to unpressed: reset each pedal's visual (its
+   * release() logic) AND clear the touch input flags (setTouchGas/Brake(false)).
+   * WHY this exists: while a Phaser scene is PAUSED its InputPlugin stops
+   * dispatching pointer events (Systems.canInput() is false), so a finger
+   * lifted off a pedal WHILE the pause menu is up never delivers its pointerup
+   * — setTouchGas/Brake(false) never runs and the pedal would resume stuck-on
+   * (phantom gas). GameScene calls this from its RESUME handler so a resume can
+   * never start under a held pedal; a genuinely-still-held finger just needs a
+   * re-press (the same already-accepted behavior as the fail/restart path).
+   * No-op on desktop (inert handle). */
+  releaseAll(): void;
   /** Destroy both pedals' Zones + visuals (and their listeners). Safe to
    * call once per run from the scene's SHUTDOWN handler. No-op on desktop. */
   destroy(): void;
@@ -117,9 +128,13 @@ interface PedalConfig {
   onUp: () => void;
 }
 
-/** One built pedal: a layout(zoom) that keeps it screen-fixed, and destroy. */
+/** One built pedal: a layout(zoom) that keeps it screen-fixed, a release()
+ * that forces its visual back to unpressed, and destroy. */
 interface Pedal {
   layout(zoom: number): void;
+  /** Reset this pedal's visual to unpressed (face fill + glyph offset). Used by
+   * the handle's releaseAll() on resume — see PedalsHandle.releaseAll. */
+  release(): void;
   destroy(): void;
 }
 
@@ -217,6 +232,9 @@ function buildPedal(scene: Phaser.Scene, cfg: PedalConfig): Pedal {
       place(visual, cfg.faceCenter, zoom);
       place(zone, cfg.hitCenter, zoom);
     },
+    // Visual-only reset (no input side effect) — the handle's releaseAll clears
+    // the input flags itself. See PedalsHandle.releaseAll for WHY this is needed.
+    release,
     destroy(): void {
       // Destroying removes the objects' input registration + listeners too.
       zone.destroy();
@@ -240,9 +258,10 @@ function buildPedal(scene: Phaser.Scene, cfg: PedalConfig): Pedal {
  */
 export function createPedals(scene: Phaser.Scene, input: GameInput): PedalsHandle {
   if (!isTouchDevice()) {
-    // Pure desktop: inert — no Zones, no visuals, no pointers added. Both
-    // handle methods are no-ops so GameScene wires them unconditionally.
-    return { layout: () => {}, destroy: () => {} };
+    // Pure desktop: inert — no Zones, no visuals, no pointers added. All
+    // handle methods are no-ops so GameScene wires them unconditionally
+    // (releaseAll included: there's no pedal or touch flag to clear here).
+    return { layout: () => {}, releaseAll: () => {}, destroy: () => {} };
   }
 
   // Guarantee >= 3 concurrent pointers so both pedals can be held at once and
@@ -290,6 +309,16 @@ export function createPedals(scene: Phaser.Scene, input: GameInput): PedalsHandl
     layout(zoom: number): void {
       gas.layout(zoom);
       brake.layout(zoom);
+    },
+    releaseAll(): void {
+      // Reset both faces (visual), then clear both touch flags directly. Calling
+      // the input setters here (rather than each pedal's onUp, which also clears
+      // input) keeps the input reset explicit and matches GameScene.onResume's
+      // belt-and-suspenders clear. See PedalsHandle.releaseAll for WHY.
+      gas.release();
+      brake.release();
+      input.setTouchGas(false);
+      input.setTouchBrake(false);
     },
     destroy(): void {
       gas.destroy();
