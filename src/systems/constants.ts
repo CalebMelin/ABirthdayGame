@@ -23,6 +23,30 @@ export const PALETTE = {
    * tex-gabby-base). Deliberately NOT a MARKERS.* value — the face must
    * never be recolored by a palette swap. */
   skin: 0xffcf9c,
+
+  // ------------------------------------------------------- theme colors
+  // Added for the PLAN-05 task-2 per-theme backdrop system
+  // (src/systems/themes.ts) — extra pastel tones the original 12-color
+  // palette didn't cover (greys, water/steel/brick tones, a dusk indigo),
+  // needed so all 15 THEME_IDS read as visibly distinct across the city
+  // arc. Reused across multiple themes where it fits, same as the
+  // original colors above.
+  /** Cool grey overcast sky (downtown, highway upper, construction, billboardRow). */
+  overcast: 0xc9d3da,
+  /** Mid-grey concrete/building silhouette (downtown, highway, bridge deck, billboardRow, boulevard ground). */
+  slate: 0x8b96a3,
+  /** Dusty construction tan-orange (also an old-town accent). */
+  dustyTan: 0xd9a97c,
+  /** Riverside blue-green water/bank tone. */
+  riverTeal: 0x8fd8cc,
+  /** Bridge structural blue. */
+  steelBlue: 0x7fabd1,
+  /** Old-town warm brick/terracotta. */
+  brickRed: 0xcf8a70,
+  /** Sunset horizon glow (orange-coral). */
+  sunsetGlow: 0xffa877,
+  /** Final-dusk deep indigo night sky/ground (the party arrival theme). */
+  duskIndigo: 0x3d3170,
 } as const;
 
 /** Convert 0xRRGGBB hex color to CSS '#rrggbb' string.
