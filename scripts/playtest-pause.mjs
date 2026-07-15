@@ -127,7 +127,7 @@ async function enterLevel1(page) {
   await waitForScene(page, 'TitleScene');
   await clickDesign(page, 640, 400); // Title: Play
   await waitForScene(page, 'CharacterCreationScene');
-  await clickDesign(page, 640, 400); // CharacterCreation: next ->
+  await clickDesign(page, 820, 660); // CharacterCreation: Let's ride! -> (PLAN-04 task 3)
   await waitForScene(page, 'LevelSelectScene');
   await clickDesign(page, 265, 220); // LevelSelect: level 1 cell
   await waitForScene(page, 'GameScene');
@@ -196,7 +196,7 @@ async function enterLevel1Touch(page) {
   await waitForScene(page, 'TitleScene');
   await tapDesign(page, 640, 400); // Title: Play
   await waitForScene(page, 'CharacterCreationScene');
-  await tapDesign(page, 640, 400); // CharacterCreation: next ->
+  await tapDesign(page, 820, 660); // CharacterCreation: Let's ride! -> (PLAN-04 task 3)
   await waitForScene(page, 'LevelSelectScene');
   await tapDesign(page, 265, 220); // LevelSelect: level 1 cell
   await waitForScene(page, 'GameScene');

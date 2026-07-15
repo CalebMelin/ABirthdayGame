@@ -89,9 +89,9 @@ async function waitForScene(page, key, timeout = 20_000) {
 /** Click through Title -> CharacterCreation -> LevelSelect -> level 1. */
 async function enterLevel1(page) {
   await waitForScene(page, 'TitleScene');
-  await designClick(page, 640, 400);
+  await designClick(page, 640, 400); // Title: Play
   await waitForScene(page, 'CharacterCreationScene');
-  await designClick(page, 640, 400);
+  await designClick(page, 820, 660); // CharacterCreation: Let's ride! -> (PLAN-04 task 3)
   await waitForScene(page, 'LevelSelectScene');
   await designClick(page, 265, 220);
   await waitForScene(page, 'GameScene');

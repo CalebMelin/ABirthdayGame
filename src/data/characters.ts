@@ -248,3 +248,38 @@ export function bikeVariantKey(config: CharacterConfig): string {
   const bike = resolveBike(config.bikeColor);
   return `tex-bike|${bike.id}`;
 }
+
+// ---------------------------------------------------------------------------
+// Randomize (PLAN-04 task 3's "Randomize 🎲" button).
+// ---------------------------------------------------------------------------
+
+/** Picks one option's `id` from `options` using a single `rand()` call
+ * (`rand` returning its usual [0, 1) range). `Math.floor(rand() * length)`
+ * is clamped into [0, length-1] so a pathological `rand` that returns
+ * exactly 1 (Math.random() itself never does, but an injected test stub
+ * could) can't index past the end of the array and throw. PRECONDITION:
+ * `options` is non-empty — true for all four call sites below (the option
+ * arrays are hardcoded and non-empty, asserted by the "has exactly N
+ * options" tests above). */
+function randomOptionId<T extends { id: string }>(options: readonly T[], rand: () => number): string {
+  const raw = Math.floor(rand() * options.length);
+  const index = Math.min(Math.max(raw, 0), options.length - 1);
+  return options[index].id;
+}
+
+/** Builds a fully random CharacterConfig — one option per dimension,
+ * picked via `rand`. Defaults to `Math.random` for real use (the
+ * Randomize button); tests inject a stub `rand` for determinism, since a
+ * Scene-free pure function is easy to unit-test while "click Randomize and
+ * see SOME swatch light up" is not. Calls `rand()` exactly once per
+ * dimension, in hairColor/eyeColor/bikeColor/outfit order (pinned by
+ * tests/characters.test.ts) — that order is this function's own contract,
+ * not mandated elsewhere, chosen to match CharacterConfig's field order. */
+export function randomCharacterConfig(rand: () => number = Math.random): CharacterConfig {
+  return {
+    hairColor: randomOptionId(HAIR_OPTIONS, rand),
+    eyeColor: randomOptionId(EYE_OPTIONS, rand),
+    bikeColor: randomOptionId(BIKE_OPTIONS, rand),
+    outfit: randomOptionId(OUTFIT_OPTIONS, rand),
+  };
+}

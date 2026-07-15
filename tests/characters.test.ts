@@ -8,6 +8,7 @@ import {
   bikeRemap,
   bikeVariantKey,
   defaultCharacter,
+  randomCharacterConfig,
   resolveBike,
   resolveEyes,
   resolveHair,
@@ -366,5 +367,72 @@ describe('rider and bike variant keys never collide', () => {
   it('produces disjoint keys for the same config', () => {
     const config: CharacterConfig = { hairColor: 'blonde', eyeColor: 'blue', bikeColor: 'pink', outfit: 'classic' };
     expect(riderVariantKey(config)).not.toBe(bikeVariantKey(config));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// randomCharacterConfig (PLAN-04 task 3's Randomize button) — deterministic
+// given an injected `rand`, so the Randomize button's outcome is testable in
+// plain Node without a real Math.random or a Scene.
+// ---------------------------------------------------------------------------
+
+describe('randomCharacterConfig', () => {
+  it('defaults to Math.random and produces ids that are valid members of each option array', () => {
+    const config = randomCharacterConfig();
+    expect(HAIR_OPTIONS.some((option) => option.id === config.hairColor)).toBe(true);
+    expect(EYE_OPTIONS.some((option) => option.id === config.eyeColor)).toBe(true);
+    expect(BIKE_OPTIONS.some((option) => option.id === config.bikeColor)).toBe(true);
+    expect(OUTFIT_OPTIONS.some((option) => option.id === config.outfit)).toBe(true);
+  });
+
+  it('is deterministic given a stub rand: one rand() call per dimension, in hair/eye/bike/outfit order, rand()=0 picks each array\'s first entry', () => {
+    const rand = (): number => 0;
+    const config = randomCharacterConfig(rand);
+    expect(config).toEqual({
+      hairColor: HAIR_OPTIONS[0]?.id,
+      eyeColor: EYE_OPTIONS[0]?.id,
+      bikeColor: BIKE_OPTIONS[0]?.id,
+      outfit: OUTFIT_OPTIONS[0]?.id,
+    });
+  });
+
+  it('rand() just under 1 picks each array\'s LAST entry', () => {
+    const rand = (): number => 0.9999999;
+    const config = randomCharacterConfig(rand);
+    expect(config).toEqual({
+      hairColor: HAIR_OPTIONS[HAIR_OPTIONS.length - 1]?.id,
+      eyeColor: EYE_OPTIONS[EYE_OPTIONS.length - 1]?.id,
+      bikeColor: BIKE_OPTIONS[BIKE_OPTIONS.length - 1]?.id,
+      outfit: OUTFIT_OPTIONS[OUTFIT_OPTIONS.length - 1]?.id,
+    });
+  });
+
+  it('never throws / never picks an out-of-range index even if rand() returns exactly 1 (pathological rand)', () => {
+    const rand = (): number => 1;
+    expect(() => randomCharacterConfig(rand)).not.toThrow();
+    const config = randomCharacterConfig(rand);
+    expect(config).toEqual({
+      hairColor: HAIR_OPTIONS[HAIR_OPTIONS.length - 1]?.id,
+      eyeColor: EYE_OPTIONS[EYE_OPTIONS.length - 1]?.id,
+      bikeColor: BIKE_OPTIONS[BIKE_OPTIONS.length - 1]?.id,
+      outfit: OUTFIT_OPTIONS[OUTFIT_OPTIONS.length - 1]?.id,
+    });
+  });
+
+  it('two different rand sequences produce configs whose ids all resolve (total resolvers agree, not just array membership)', () => {
+    const randLow = (): number => 0.1;
+    const randHigh = (): number => 0.85;
+    for (const config of [randomCharacterConfig(randLow), randomCharacterConfig(randHigh)]) {
+      expect(resolveHair(config.hairColor).id).toBe(config.hairColor);
+      expect(resolveEyes(config.eyeColor).id).toBe(config.eyeColor);
+      expect(resolveBike(config.bikeColor).id).toBe(config.bikeColor);
+      expect(resolveOutfit(config.outfit).id).toBe(config.outfit);
+    }
+  });
+
+  it('produces a CharacterConfig usable by riderRemap/bikeRemap without throwing', () => {
+    const config = randomCharacterConfig(() => 0.42);
+    expect(() => riderRemap(config)).not.toThrow();
+    expect(() => bikeRemap(config)).not.toThrow();
   });
 });

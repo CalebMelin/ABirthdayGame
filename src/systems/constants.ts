@@ -631,3 +631,142 @@ export const TEXTURE_KEYS = {
   tulip: 'tex-tulip',
   balloon: 'tex-balloon',
 } as const;
+
+/** Region layout for the PLAN-04 marker-composite rider base texture
+ * (BootScene's generateGabbyBaseTexture draws tex-gabby-base — 24x48,
+ * matching TEXTURE_SPECS.gabby there): a hairHeight-tall MARKERS.hair
+ * band, then a faceHeight-tall skin-toned face band (with two MARKERS.eyes
+ * squares inset), then MARKERS.suit fills the remainder (torso/legs).
+ * Lives here (not BootScene-local) because CharacterCreationScene's
+ * live-preview blink overlay (PLAN-04 task 3) also needs the exact eye
+ * position for its eyelid rect — sharing one definition means the two can
+ * never silently drift apart the way two independently-hardcoded copies
+ * could. PLACEHOLDER ONLY — PLAN-10 replaces the actual art, not
+ * necessarily this shape. */
+export const GABBY_BASE_LAYOUT = {
+  hairHeight: 10,
+  faceHeight: 12,
+  eyeSize: 3,
+  leftEyeX: 6,
+  rightEyeX: 15,
+  eyeInsetY: 5,
+} as const;
+
+/** Character-creation live-preview + swatch-row layout & idle-animation
+ * tuning (PLAN-04 task 3 — see src/scenes/CharacterCreationScene.ts). All
+ * lengths are px at the 1280x720 DESIGN scale. This is a static menu scene
+ * at camera zoom 1 (like Title/LevelSelect), so — unlike GameScene's HUD —
+ * NONE of this needs zoom-compensation.
+ *
+ * THUMB-FRIENDLY BUDGET (NORTH_STAR §8: touch targets >= 88px): the BIKE
+ * row (8 swatches) is the tightest fit. swatchHitSizePx is decoupled from
+ * swatchVisibleSizePx exactly like pedals.ts's visible-face-vs-hit-Zone
+ * pattern: a small visible swatch face keeps the row from looking
+ * crowded, while the (much bigger, invisible) hit area stays >=
+ * UI_MIN_TOUCH_PX and hit areas never overlap (centers spaced
+ * swatchCenterSpacingPx apart). Budget check for the 8-swatch BIKE row:
+ * rowStartX + 7*swatchCenterSpacingPx + swatchHitSizePx/2
+ * = 590 + 630 + 44 = 1264, inside DESIGN_WIDTH (1280). */
+export const CHARACTER_CREATE = {
+  // ------------------------------------------------------------ preview
+  /** Preview bike-chassis anchor x, px — rider/wheels are positioned
+   * relative to it using the SAME BIKE_TUNING offsets the real in-game rig
+   * uses (bike.ts), scaled by previewScale, so the preview is faithful to
+   * actual gameplay geometry, just blown up to read as a large preview. */
+  previewCenterX: 220,
+  /** Preview bike-chassis anchor y, px. */
+  previewCenterY: 380,
+  /** Uniform scale applied to the bike/wheel/rider sprites AND their
+   * BIKE_TUNING-derived offsets in the preview. The placeholder art (bike
+   * 96x28, rider 24x48) would read tiny at native size; this blows the
+   * whole rig up into a large preview while keeping every part's relative
+   * position identical to bike.ts's real rig. */
+  previewScale: 3.5,
+
+  // -------------------------------------------------------- swatch rows
+  /** Visible swatch face size (a square), px. Deliberately smaller than
+   * swatchHitSizePx — see the block doc comment's thumb-friendly budget. */
+  swatchVisibleSizePx: 56,
+  /** Extra px (each side) the selection-highlight halo extends past the
+   * visible face. */
+  swatchHighlightPadPx: 8,
+  /** Swatch face outline stroke width, px. */
+  swatchOutlineWidthPx: 3,
+  /** Invisible interactive hit-area size (a square), px. MUST equal
+   * UI_MIN_TOUCH_PX (NORTH_STAR §8) — kept as its own named field (rather
+   * than inlining UI_MIN_TOUCH_PX at each call site) so every "why 88"
+   * reference lives in one obvious spot. */
+  swatchHitSizePx: UI_MIN_TOUCH_PX,
+  /** Center-to-center spacing between adjacent swatches in a row, px.
+   * > swatchHitSizePx so adjacent 88px hit areas never touch/overlap (a
+   * ~2px gutter at 90). */
+  swatchCenterSpacingPx: 90,
+  /** Row label center x, px — shared by all four row labels (HAIR / EYES
+   * / BIKE / SUIT — all <= 4 characters). */
+  rowLabelX: 480,
+  /** Row label font size, px (snapped to the 8px pixel-font grid by
+   * createPixelText's snapFontSize). */
+  rowLabelFontSizePx: 24,
+  /** First (leftmost) swatch's center x, px — shared by all four rows.
+   * See the block doc comment above for the 8-swatch BIKE-row budget this
+   * value was chosen to satisfy. */
+  rowStartX: 590,
+  /** HAIR row center y, px. */
+  hairRowY: 185,
+  /** EYES row center y, px. */
+  eyesRowY: 300,
+  /** BIKE row center y, px. */
+  bikeRowY: 415,
+  /** SUIT row center y, px (row label for CharacterConfig.outfit — "SUIT"
+   * reads better as a 4-letter row label alongside HAIR/EYES/BIKE). */
+  suitRowY: 530,
+
+  // ----------------------------------------------------- action buttons
+  /** "Randomize" button center x, px. */
+  randomizeButtonX: 460,
+  /** "Let's ride!" button center x, px. */
+  letsRideButtonX: 820,
+  /** Shared center y, px, for both action buttons. */
+  actionButtonY: 660,
+
+  // ------------------------------------------------ idle animation: bounce
+  /** Vertical bounce amplitude, px — how far the preview container rises
+   * on each yoyo half-cycle. Subtle on purpose: an idle tell, not
+   * attention-grabbing motion. */
+  bounceAmplitudePx: 6,
+  /** Duration, ms, of ONE half of the bounce (up OR down) — with
+   * `yoyo: true` a full up-down cycle takes 2x this. Gentle/slow on
+   * purpose. */
+  bouncePeriodMs: 1400,
+
+  // ---------------------------------------------------- idle animation: blink
+  /** Minimum time, ms, between the start of one blink and the next. */
+  blinkMinIntervalMs: 2500,
+  /** Maximum time, ms, between the start of one blink and the next (the
+   * actual gap is randomized in [blinkMinIntervalMs, blinkMaxIntervalMs)). */
+  blinkMaxIntervalMs: 3500,
+  /** How long the eyelid stays down (visible) per blink, ms. */
+  blinkDurationMs: 120,
+  /** Rider-sprite-LOCAL (unscaled, relative to the rider Image's own
+   * center — default origin 0.5/0.5) vertical offset of the eye band the
+   * blink eyelid rect sits over, px. Derived from GABBY_BASE_LAYOUT (the
+   * actual marker positions baked into tex-gabby-base) plus the rider base
+   * texture's documented 48px height (see BIKE_TUNING.riderOffsetY's doc
+   * comment for the same "48px tall" fact — not promoted to a shared
+   * constant since the rider has no physics body, so nothing besides this
+   * cosmetic overlay needs it): the eye squares span y
+   * [hairHeight+eyeInsetY, +eyeSize] in TEXTURE space (y=0 at top), and the
+   * sprite's own vertical center sits at height/2 = 24. */
+  eyeBandOffsetY:
+    GABBY_BASE_LAYOUT.hairHeight + GABBY_BASE_LAYOUT.eyeInsetY + GABBY_BASE_LAYOUT.eyeSize / 2 - 24,
+  /** Rider-sprite-LOCAL horizontal offset of the eye band, px. Exactly 0:
+   * GABBY_BASE_LAYOUT's two eye squares (leftEyeX..rightEyeX+eyeSize =
+   * 6..18) are symmetric about the 24px-wide sprite's own center (12), by
+   * construction. */
+  eyeBandOffsetX: 0,
+  /** Eyelid rect size, rider-sprite-LOCAL unscaled px — a little larger
+   * than the raw 12x3 span covering both eye marker squares + the gap
+   * between them, so it fully covers both with a small margin. */
+  eyeBandWidthPx: 16,
+  eyeBandHeightPx: 6,
+} as const;

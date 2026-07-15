@@ -102,9 +102,9 @@ function readState(page) {
 
 async function enterLevel1(page, nav) {
   await waitForScene(page, 'TitleScene');
-  await nav(page, 640, 400);
+  await nav(page, 640, 400); // Title: Play
   await waitForScene(page, 'CharacterCreationScene');
-  await nav(page, 640, 400);
+  await nav(page, 820, 660); // CharacterCreation: Let's ride! -> (PLAN-04 task 3)
   await waitForScene(page, 'LevelSelectScene');
   await nav(page, 265, 220);
   await waitForScene(page, 'GameScene');

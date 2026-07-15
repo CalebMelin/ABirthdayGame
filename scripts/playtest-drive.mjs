@@ -79,11 +79,11 @@ async function main() {
     await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
 
     // Fresh context => empty localStorage => first-launch path:
-    // Title "Play" -> CharacterCreation "next ->" -> LevelSelect -> level 1.
+    // Title "Play" -> CharacterCreation "Let's ride! ->" -> LevelSelect -> level 1.
     await waitForScene(page, 'TitleScene');
     await designClick(page, 640, 400); // Title: Play
     await waitForScene(page, 'CharacterCreationScene');
-    await designClick(page, 640, 400); // CharacterCreation: next ->
+    await designClick(page, 820, 660); // CharacterCreation: Let's ride! -> (PLAN-04 task 3)
     await waitForScene(page, 'LevelSelectScene');
     await designClick(page, 265, 220); // LevelSelect: level 1 cell
     await waitForScene(page, 'GameScene');

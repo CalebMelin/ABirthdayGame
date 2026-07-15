@@ -3,6 +3,7 @@ import {
   BIKE_TUNING,
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
+  GABBY_BASE_LAYOUT,
   PALETTE,
   SCENE_KEYS,
   TEXTURE_KEYS,
@@ -47,23 +48,6 @@ const TEXTURE_SPECS: Record<
   tulip: { width: 16, height: 24, color: PALETTE.grass },
   balloon: { width: 24, height: 32, color: PALETTE.white },
 };
-
-/** Region layout for the PLAN-04 marker-composite rider base texture (see
- * generateGabbyBaseTexture). PLACEHOLDER ONLY — same caveat as
- * TEXTURE_SPECS above; PLAN-10 replaces the actual art, not these call
- * sites. Sized against TEXTURE_SPECS.gabby (24x48): a hairHeight-tall
- * MARKERS.hair band, then a faceHeight-tall skin-toned face band (with two
- * MARKERS.eyes squares inset), then MARKERS.suit fills the remainder
- * (torso/legs). Every region is non-trivial so a marker swap is visibly
- * obvious. */
-const GABBY_BASE_LAYOUT = {
-  hairHeight: 10,
-  faceHeight: 12,
-  eyeSize: 3,
-  leftEyeX: 6,
-  rightEyeX: 15,
-  eyeInsetY: 5,
-} as const;
 
 /** Region layout for the PLAN-04 marker-composite bike base texture (see
  * generateBikeBaseTexture). PLACEHOLDER ONLY. Sized against
