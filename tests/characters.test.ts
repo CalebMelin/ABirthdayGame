@@ -8,6 +8,7 @@ import {
   bikeRemap,
   bikeVariantKey,
   defaultCharacter,
+  normalizeCharacterConfig,
   randomCharacterConfig,
   resolveBike,
   resolveEyes,
@@ -434,5 +435,59 @@ describe('randomCharacterConfig', () => {
     const config = randomCharacterConfig(() => 0.42);
     expect(() => riderRemap(config)).not.toThrow();
     expect(() => bikeRemap(config)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeCharacterConfig — a loaded CharacterConfig can contain a
+// well-typed-but-unresolvable id (isCharacterConfig only checks the fields
+// are strings, e.g. hand-edited/corrupted localStorage, or an id retired by
+// a later swatch-list change). Every resolver already falls back safely for
+// RENDERING, but PLAN-04 task 3's swatch-row selection HIGHLIGHT compares
+// raw ids directly — an unresolved id would match no real option and show
+// no swatch highlighted in that row. normalizeCharacterConfig closes that
+// gap by running each field through its resolver up front.
+// ---------------------------------------------------------------------------
+
+describe('normalizeCharacterConfig', () => {
+  it('passes a fully-valid config through unchanged (by value)', () => {
+    const config: CharacterConfig = { hairColor: 'ginger', eyeColor: 'hazel', bikeColor: 'teal', outfit: 'cafe' };
+    expect(normalizeCharacterConfig(config)).toEqual(config);
+  });
+
+  it('replaces an unresolvable id with the matching DEFAULT_CHARACTER id, leaving valid fields untouched', () => {
+    const config: CharacterConfig = {
+      hairColor: 'not-a-real-id',
+      eyeColor: 'green',
+      bikeColor: 'purple',
+      outfit: 'party',
+    };
+    expect(normalizeCharacterConfig(config)).toEqual({
+      hairColor: DEFAULT_CHARACTER.hairColor,
+      eyeColor: 'green',
+      bikeColor: 'purple',
+      outfit: 'party',
+    });
+  });
+
+  it('replaces unresolvable ids in every field at once', () => {
+    const config: CharacterConfig = { hairColor: 'x', eyeColor: 'x', bikeColor: 'x', outfit: 'x' };
+    expect(normalizeCharacterConfig(config)).toEqual(DEFAULT_CHARACTER);
+  });
+
+  it('is idempotent: normalizing an already-normalized config returns an equal result', () => {
+    const config: CharacterConfig = { hairColor: 'garbage', eyeColor: 'blue', bikeColor: 'red', outfit: 'classic' };
+    const once = normalizeCharacterConfig(config);
+    const twice = normalizeCharacterConfig(once);
+    expect(twice).toEqual(once);
+  });
+
+  it('every field of the result is a REAL option id (so a highlight-by-id comparison always matches something)', () => {
+    const config: CharacterConfig = { hairColor: 'a', eyeColor: 'b', bikeColor: 'c', outfit: 'd' };
+    const normalized = normalizeCharacterConfig(config);
+    expect(HAIR_OPTIONS.some((o) => o.id === normalized.hairColor)).toBe(true);
+    expect(EYE_OPTIONS.some((o) => o.id === normalized.eyeColor)).toBe(true);
+    expect(BIKE_OPTIONS.some((o) => o.id === normalized.bikeColor)).toBe(true);
+    expect(OUTFIT_OPTIONS.some((o) => o.id === normalized.outfit)).toBe(true);
   });
 });

@@ -283,3 +283,25 @@ export function randomCharacterConfig(rand: () => number = Math.random): Charact
     outfit: randomOptionId(OUTFIT_OPTIONS, rand),
   };
 }
+
+/** Normalizes a CharacterConfig so every field is a REAL, resolvable option
+ * id — running each field through its resolver and taking the resolved
+ * id back out. `isCharacterConfig` (save.ts) only checks that the four
+ * fields are strings, so a loaded config can carry an id that LOOKS valid
+ * but isn't a real option anymore (hand-edited/corrupted localStorage, or
+ * an id retired by a later swatch-list change); every resolver already
+ * falls back safely for RENDERING that id, but a UI that compares raw ids
+ * directly (PLAN-04 task 3's swatch-row selection highlight) would then
+ * match no real option and show nothing selected in that row. Callers that
+ * need "this id is always a real option" (not just "this id always renders
+ * something reasonable") should normalize once, e.g. right after loading a
+ * save, rather than re-resolving on every read. Idempotent: normalizing an
+ * already-normalized config returns an equal result. */
+export function normalizeCharacterConfig(config: CharacterConfig): CharacterConfig {
+  return {
+    hairColor: resolveHair(config.hairColor).id,
+    eyeColor: resolveEyes(config.eyeColor).id,
+    bikeColor: resolveBike(config.bikeColor).id,
+    outfit: resolveOutfit(config.outfit).id,
+  };
+}

@@ -25,6 +25,7 @@ import {
   HAIR_OPTIONS,
   OUTFIT_OPTIONS,
   defaultCharacter,
+  normalizeCharacterConfig,
   randomCharacterConfig,
 } from '../data/characters';
 import { buildCharacterTextures } from '../systems/characterTextures';
@@ -70,7 +71,13 @@ export class CharacterCreationScene extends Phaser.Scene {
     // elsewhere). defaultCharacter() returns a FRESH mutable copy —
     // DEFAULT_CHARACTER itself is a shared Readonly singleton that must
     // never be mutated (see its doc comment in data/characters.ts).
-    this.config = getSave().loadCharacter() ?? defaultCharacter();
+    // normalizeCharacterConfig guards a corrupted/legacy save (a saved id
+    // that no longer matches a real option): every resolver already
+    // renders it safely, but the swatch-row highlight below compares raw
+    // ids directly, so an un-normalized bad id would show NO swatch
+    // selected in its row. Normalizing here keeps the working config's ids
+    // always real from the start.
+    this.config = normalizeCharacterConfig(getSave().loadCharacter() ?? defaultCharacter());
     this.swatchRows = [];
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
