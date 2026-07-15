@@ -638,6 +638,48 @@ export const TOTAL_LEVELS = 22;
 export const LEVEL = {
   lengthMinPx: 8000,
   lengthMaxPx: 16000,
+  /** Bike spawn x (px). Inside every level's {0, 700} spawn flat zone, with
+   * room behind for the camera's world-start bounds clamp to settle. Was
+   * GameScene's module-local SPAWN_X before PLAN-05 ST-4 made terrain
+   * config-driven; promoted here since it's now shared level-flow tuning
+   * (every level spawns here), not one test level's data. */
+  spawnXPx: 250,
+  /** How far back from the terrain's far end the finish flag sits (px):
+   * finishX = terrain.worldLength - this. Lands inside every level's
+   * {length - 900, length} finish flat zone, leaving runway past it so
+   * crossing at speed never runs out of world before the LevelComplete
+   * hand-off. Was GameScene's module-local FINISH_X (14500 = 15000 - 500). */
+  finishMarginPx: 500,
+} as const;
+
+/** Level-start intro banner tuning (PLAN-05 ST-4 — GameScene.showIntroBanner).
+ * The banner shows the level name + optional one-liner (config.introText),
+ * screen-anchored (scrollFactor 0) at DEPTHS.overlay over a cream backing
+ * panel, holds briefly, then fades out and destroys itself — non-blocking
+ * (gameplay runs the whole time). Suppressed on a fail-restart so a crash
+ * doesn't re-show it every attempt. All lengths are px at the 1280x720 DESIGN
+ * scale; the camera sits at CAMERA.zoomMax (1.0) at level start while the bike
+ * is stationary, so a scrollFactor-0 banner needs no zoom compensation. */
+export const LEVEL_INTRO = {
+  /** Fully-visible hold before the fade begins, ms — long enough to read at a
+   * glance, short enough not to make an eager player wait. */
+  holdMs: 1800,
+  /** Fade-out tween duration, ms. */
+  fadeMs: 600,
+  /** Title (level name) font size, px (snapped to the 8px pixel grid). */
+  titleFontSizePx: 40,
+  /** Subtitle (introText one-liner) font size, px. */
+  subtitleFontSizePx: 16,
+  /** Title center Y (design space), px — upper third, clear of the bike/road
+   * at level start. */
+  titleY: 200,
+  /** Subtitle center Y offset below the title, px. */
+  subtitleGapPx: 56,
+  /** Cream backing-panel padding around the text, each side, px — the panel
+   * keeps the plum pixel-text legible over ANY theme backdrop (light or dark),
+   * matching the game's cream-face/plum-text dialog look. */
+  paddingXPx: 44,
+  paddingYPx: 28,
 } as const;
 
 /** Centralized scene keys — all scenes and transitions reference these

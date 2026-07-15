@@ -1,8 +1,13 @@
-// GameScene v1 (PLAN-02 tasks 3+4): terrain + bike + camera + finish flag
-// + soft-fail/restart loop, driven by a hardcoded test level. Real
-// per-level configs replace TEST_LEVEL in PLAN-05. The dev debug overlay
-// (PLAN-02 task 5) and the touch pedals + ⏸ pause menu (PLAN-03) have since
-// landed here too.
+// GameScene (PLAN-02 tasks 3+4 -> PLAN-05 ST-4): terrain + bike + camera +
+// finish flag + soft-fail/restart loop, now DATA-DRIVEN by the real per-level
+// LevelConfig. PLAN-05 ST-4 replaced PLAN-02's single hardcoded TEST_LEVEL with
+// getLevelConfig(level) and added, additively: the theme parallax backdrop,
+// ambient decoration placeholders, the scripted-event dispatch stub, and the
+// level-start intro banner. The feel-critical rig — bike, camera
+// (setUpCamera/updateCamera/CAMERA), input/pedals, pause menu, fail/restart —
+// is UNCHANGED from PLAN-02/03; only the terrain SOURCE moved to config. The
+// dev debug overlay (PLAN-02 task 5) and the touch pedals + ⏸ pause menu
+// (PLAN-03) live here too.
 import Phaser from 'phaser';
 import {
   DESIGN_WIDTH,
@@ -14,12 +19,14 @@ import {
   TERRAIN,
   CAMERA,
   FAIL,
+  LEVEL,
+  LEVEL_INTRO,
   DEBUG_OVERLAY,
   PAUSE,
 } from '../systems/constants';
-import { createPixelText } from '../systems/ui';
+import { createPixelText, createPixelPanel } from '../systems/ui';
 import { createTerrain } from '../systems/terrain';
-import type { TerrainHandle, TerrainSpec } from '../systems/terrain';
+import type { TerrainHandle } from '../systems/terrain';
 import { createBike, bikeSpawnY } from '../systems/bike';
 import type { BikeHandle } from '../systems/bike';
 import { createGameInput } from '../systems/input';
@@ -29,84 +36,25 @@ import type { PedalsHandle, Vec2 } from '../systems/pedals';
 import { getSave } from '../systems/save';
 import { defaultCharacter } from '../data/characters';
 import { buildCharacterTextures } from '../systems/characterTextures';
+import { getLevelConfig } from '../levels';
+import { getLevelTerrainSpec } from '../levels/types';
+import type { LevelConfig } from '../levels/types';
+import { THEMES, createBackdrop } from '../systems/themes';
+import type { BackdropHandle } from '../systems/themes';
+import { createDecorations } from '../systems/decorations';
+import type { DecorationsHandle } from '../systems/decorations';
+import { dispatchLevelEvents } from '../levels/events';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
-// ---------------------------------------------------------------------------
-// Hardcoded test level (PLAN-02 only — PLAN-05 replaces this with real
-// per-level LevelConfigs; until then EVERY level number plays this terrain).
-// These are level-config values, not global tunables, so they live here
-// rather than in constants.ts (CLAUDE.md: tunables live in constants.ts OR
-// in level configs).
-// ---------------------------------------------------------------------------
-
-/** Gentle rolling test terrain: flat spawn zone, hilliness well under the
- * cap, two authored jump ramps (the backflip opportunities task 6's tuning
- * pass needs), and a flat end zone holding the finish flag. Length chosen
- * so a full-gas run lands in NORTH_STAR's 20-45s window (browser-verified:
- * ~30s), while keeping the ground collision chain + bike inside NORTH_STAR
- * §8's <100-bodies budget (90 ground segments + 3 bike bodies = 93,
- * browser-verified via scripts/playtest-drive.mjs). */
-export const TEST_LEVEL: TerrainSpec = {
-  seed: 220222, // Gabby is 22 on 2/22 — any fixed seed works, this one's cute
-  length: 15000,
-  hilliness: 0.45,
-  jumps: [
-    // Two deliberately different ramps (browser-tested in the task-6
-    // feel-tuning pass):
-    // - 5200: low + wide "hop" ramp — a short, safe pop that lands clean
-    //   with gas held (accidental-flip-proof by airtime alone).
-    // - 10584: the trick ramp ("kicker"). Its geometry is deliberately
-    //   aligned to the physics collision-chain grid (chain nodes sit
-    //   every 168px — the segmentTargetPx/sampleSpacingPx stride — so
-    //   base/peak/end land exactly on the nodes 10584/10752/10920): the
-    //   chain renders the raised cosine as a clean TRIANGLE kicker, and
-    //   the bike launches off the peak at the up-chord's angle with real
-    //   upward velocity (~0.55-1.0s of air, browser-measured). A wider
-    //   ramp puts a flat-top chord across the crest and the bike launches
-    //   FLAT with half the airtime — do not "fix" this by making it
-    //   bigger (browser-tested: a 140x700 ramp gave LESS air than this).
-    //   Height 106 is the max the 45-degree maxJumpSlope cap allows at
-    //   width 336 without auto-widening (which would break the node
-    //   alignment). Gas-only over it is safe (browser-measured: +16deg
-    //   rotation at landing, no crash): held-from-ground pedals get little
-    //   pitch authority (bike.ts airPitchAuthority) and the stabilization
-    //   assist fills the rest. CAUTION for bigger jumps: that guarantee is
-    //   coupled to airtime — past BIKE_TUNING.heldPitchDelaySteps (0.7s)
-    //   held pedals start gaining authority, and past delay+ramp (~1.2s)
-    //   they have FULL authority, so a huge jump can make a gas-holding
-    //   non-gamer flip. Re-verify gas-only survival per level (see the
-    //   heldPitchDelaySteps doc in constants.ts).
-    // Placement is seed-aware (also browser-tested): a ramp stacked on a
-    // hill crest whose back side falls away turns into a launch cliff —
-    // an earlier x=9800 spot did exactly that and full-gas runs crashed
-    // on landing every time. Both sites below have flat-to-rising ground
-    // after the ramp so the hop lands predictably.
-    { x: 5200, width: 520, height: 55 },
-    { x: 10584, width: 336, height: 106 },
-  ],
-  flatZones: [
-    { start: 0, end: 700 }, // spawn runway (visual == physics on flats — see bikeSpawnY doc)
-    // Flat RUN-UP before the trick kicker: the rolling bumps that would
-    // otherwise precede it made approach speed (and therefore flip
-    // airtime) vary ~8% run-to-run — enough to drop a marginal backflip
-    // under 360. A flat approach makes the launch reproducible. NOTE the
-    // zone must end at least TERRAIN.flatBlendPx (160) BEFORE the ramp
-    // base (10584): flat zones are stamped AFTER jumps, so a blend region
-    // overlapping the ramp would squash its face. Reusable level-design
-    // pattern for every trick ramp in PLAN-05.
-    { start: 10000, end: 10424 },
-    { start: 14200, end: 15000 }, // finish-flag zone
-  ],
-};
-
-/** Bike spawn x, inside the spawn flat zone with room behind for the
- * camera's world-start clamp to settle. */
-const SPAWN_X = 250;
-
-/** Finish-flag x, inside the end flat zone with runway left after it so
- * crossing at speed never runs out of world before the transition. */
-const FINISH_X = 14500;
+// Terrain, spawn x, and finish x are all DATA-DRIVEN now (PLAN-05 ST-4). The
+// hardcoded PLAN-02 TEST_LEVEL and the SPAWN_X/FINISH_X module constants were
+// removed: create() builds terrain from getLevelConfig(level) via
+// getLevelTerrainSpec, spawns at LEVEL.spawnXPx, and places the finish at
+// terrain.worldLength - LEVEL.finishMarginPx (every level config reserves a
+// {0,700} spawn flat zone and a {length-900,length} finish flat zone sized for
+// exactly these). The old trick-kicker geometry (x=10584) now lives only in the
+// PLAN-05 level configs / their authoring notes.
 
 /** EXACT soft-fail copy from NORTH_STAR §4 — verbatim personal content,
  * never paraphrase (CLAUDE.md Rule 4). */
@@ -129,7 +77,23 @@ const PAUSE_BUTTON_SCREEN: Vec2 = {
  * is destroyed + recreated by scene.restart() on fail (see failLevel). */
 export class GameScene extends Phaser.Scene {
   private level = 1;
+  /** True when this run began as a fail-restart (failLevel passes fromFail:true
+   * on scene.restart). Set from init data every init(); gates the intro banner
+   * in create() so re-reading the one-liner after every crash is suppressed. A
+   * fresh entry from LevelSelect/LevelComplete carries no fromFail, so it shows. */
+  private fromFail = false;
   private terrain: TerrainHandle | undefined;
+  /** Theme parallax backdrop (PLAN-05 ST-4): sky bands + far/near silhouette
+   * layers at DEPTHS.background. Plain Graphics/Rectangles — NOT Matter — so it's
+   * created every create() and destroyed in SHUTDOWN OUTSIDE the matter-world
+   * guard (same lifecycle as pedals/pauseButton, NOT bike/terrain). update() is
+   * called per frame (currently a no-op — see BackdropHandle). */
+  private backdrop: BackdropHandle | undefined;
+  /** Ambient decoration placeholders (PLAN-05 ST-4): signs/billboards/balloons/
+   * streamers sitting on the ground surface. Purely visual, NO Matter bodies (so
+   * they never touch NORTH_STAR §8's <100-body budget). Same non-Matter teardown
+   * as backdrop — destroyed in SHUTDOWN outside the matter-world guard. */
+  private decorations: DecorationsHandle | undefined;
   private bike: BikeHandle | undefined;
   /** Unified keyboard+touch pedals (PLAN-03 task 1). NOT named `input` —
    * that's already Phaser.Scene's InputPlugin. Recreated every create() and
@@ -156,6 +120,10 @@ export class GameScene extends Phaser.Scene {
   /** Y below which the bike counts as fallen off the world (lowest terrain
    * surface point + FAIL.worldBottomMarginPx). */
   private worldBottomY = 0;
+  /** Finish-flag world x. Derived in create() as
+   * terrain.worldLength - LEVEL.finishMarginPx (config-driven now, replacing
+   * the removed module-const FINISH_X). Read in update()'s finish check. */
+  private finishX = 0;
   /** Current smoothed camera lookahead offset, px (see updateCamera). */
   private lookaheadPx = 0;
   /** Latched once the run is over (crashed, fell, or finished) so the fail
@@ -181,6 +149,10 @@ export class GameScene extends Phaser.Scene {
 
   init(data: LevelSceneData): void {
     this.level = normalizeLevel(data.level);
+    // Set every (re)start, since fields persist across scene.restart() on the
+    // same instance: a fail-restart passes fromFail:true (suppresses the intro
+    // banner); a fresh entry from LevelSelect/LevelComplete omits it (shows it).
+    this.fromFail = data.fromFail === true;
   }
 
   create(): void {
@@ -189,12 +161,34 @@ export class GameScene extends Phaser.Scene {
     this.ended = false;
     this.lookaheadPx = 0;
 
-    // Simple sky fill for now — parallax backdrops/themes are PLAN-05/06.
-    this.cameras.main.setBackgroundColor(PALETTE.sky);
+    // Resolve this level's config (TOTAL function — clamps/defaults a bad id).
+    const config = getLevelConfig(this.level);
 
-    this.terrain = createTerrain(this, TEST_LEVEL);
+    // Theme sky as the camera base fill: the parallax backdrop draws its own sky
+    // bands + silhouette layers over this at DEPTHS.background (replaces the flat
+    // PALETTE.sky fill). sky.bottom so any un-painted edge matches the lower band.
+    this.cameras.main.setBackgroundColor(THEMES[config.theme].sky.bottom);
+
+    // Config-driven terrain (ST-4): the level's own TerrainSpec (via the
+    // getLevelTerrainSpec seam) + the theme's ground colors, replacing PLAN-02's
+    // single hardcoded TEST_LEVEL.
+    this.terrain = createTerrain(this, getLevelTerrainSpec(config), THEMES[config.theme].ground);
     this.worldBottomY =
       Math.max(...this.terrain.points.map((p) => p.y)) + FAIL.worldBottomMarginPx;
+    // Finish x from the terrain length minus the level's reserved finish flat
+    // zone margin (config convention: every level ends with a {length-900,
+    // length} flat zone). Stored so update()'s finish check sources it.
+    this.finishX = this.terrain.worldLength - LEVEL.finishMarginPx;
+
+    // Parallax theme backdrop (sky bands + far/near silhouette layers) at
+    // DEPTHS.background, over the base sky fill. NOT Matter — torn down outside
+    // the matter-world guard in SHUTDOWN (see below).
+    this.backdrop = createBackdrop(this, config.theme, this.terrain.worldLength);
+
+    // Ambient scenery placeholders (signs/billboards/balloons/streamers) sitting
+    // on the ground surface. Purely visual — NO Matter bodies. Also torn down
+    // outside the matter-world guard.
+    this.decorations = createDecorations(this, config, this.terrain);
 
     // Build the in-game bike+rider textures through the SAME one-source-of-
     // truth path CharacterCreationScene's live preview uses (PLAN-04 task 4):
@@ -207,7 +201,7 @@ export class GameScene extends Phaser.Scene {
     const character = getSave().loadCharacter() ?? defaultCharacter();
     const { riderTextureKey, bikeTextureKey } = buildCharacterTextures(this, character);
 
-    this.bike = createBike(this, SPAWN_X, bikeSpawnY(this.terrain.heightAt(SPAWN_X)), {
+    this.bike = createBike(this, LEVEL.spawnXPx, bikeSpawnY(this.terrain.heightAt(LEVEL.spawnXPx)), {
       onCrash: () => this.failLevel(),
       // `wheel` intentionally left unset — stays bike.ts's default
       // (TEXTURE_KEYS.wheel). Only the motorcycle BODY color is a player
@@ -215,11 +209,18 @@ export class GameScene extends Phaser.Scene {
       textures: { bike: bikeTextureKey, rider: riderTextureKey },
     });
 
-    // Finish flag stands ON the terrain surface (origin at its base).
+    // Finish flag stands ON the terrain surface (origin at its base), at the
+    // config-derived finish x.
     this.add
-      .image(FINISH_X, this.terrain.heightAt(FINISH_X), TEXTURE_KEYS.flag)
+      .image(this.finishX, this.terrain.heightAt(this.finishX), TEXTURE_KEYS.flag)
       .setOrigin(0.5, 1)
       .setDepth(DEPTHS.props);
+
+    // Scripted-event dispatch (ST-4 stub): iterates config.events and dispatches
+    // each as a documented no-op (traffic/police/pickup/wheelie/billboard land
+    // in PLAN-06/07). Never throws, renders nothing yet — so a special-event
+    // level (7/11/12/15/18) enters cleanly today.
+    dispatchLevelEvents(this, config);
 
     // Unified input (PLAN-03 task 1): keyboard (Right/Up/W/D = gas,
     // Left/Down/S/A = brake) merged with the touch pedals (task 2 feeds
@@ -269,6 +270,15 @@ export class GameScene extends Phaser.Scene {
 
     this.setUpCamera();
 
+    // Intro one-liner banner (ST-4): the level name + optional introText,
+    // screen-anchored over a cream panel, held briefly then faded out — see
+    // showIntroBanner. Non-blocking (gameplay runs immediately). Suppressed on a
+    // fail-restart (fromFail) so a crash doesn't re-show it every attempt; a
+    // fresh entry from LevelSelect/LevelComplete carries no fromFail, so it shows.
+    if (!this.fromFail) {
+      this.showIntroBanner(config);
+    }
+
     // Clear held touch/pedal state whenever the scene RESUMES from the pause
     // menu. A paused scene's InputPlugin stops delivering pointer events
     // (Systems.canInput() is false while paused), so a touch pedal released
@@ -298,6 +308,16 @@ export class GameScene extends Phaser.Scene {
       }
       this.bike = undefined;
       this.terrain = undefined;
+      // Backdrop + decorations are plain Graphics/Rectangles/Images, NOT Matter,
+      // so — like input/pedals/pauseButton below — they're destroyed OUTSIDE the
+      // matter-world guard above. They hold no Matter bodies, so their teardown
+      // must run on EVERY shutdown regardless of whether the physics world
+      // survived; putting them INSIDE the guard would leak them on the normal
+      // shutdown path (where matter.world is already nulled).
+      this.backdrop?.destroy();
+      this.backdrop = undefined;
+      this.decorations?.destroy();
+      this.decorations = undefined;
       // Input is DOM/keyboard, not Matter — always safe to tear down (no
       // world-null guard needed). Removes the Keys it registered so restart
       // can't leak or double-register (see GameInput.destroy).
@@ -354,13 +374,19 @@ export class GameScene extends Phaser.Scene {
       this.failLevel();
     }
 
-    if (!this.ended && this.bike.x >= FINISH_X) {
+    if (!this.ended && this.bike.x >= this.finishX) {
       this.ended = true;
       this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
       return;
     }
 
     this.updateCamera();
+
+    // Per-frame backdrop hook. Currently a documented NO-OP (parallax is
+    // Phaser-native scrollFactor, reprojected every frame with no help from us)
+    // — called anyway so future animated-backdrop work has a driver. After
+    // updateCamera() so any future camera-derived motion reads the fresh scroll.
+    this.backdrop?.update();
 
     // Keep the touch pedals visually fixed on screen despite the camera's
     // speed-zoom: layout() counter-scales/positions them for THIS frame's
@@ -489,8 +515,74 @@ export class GameScene extends Phaser.Scene {
 
     // The bike stays limp/tumbling under the overlay (see bike.ts crash
     // handling) until the restart — friendlier than freezing the world.
+    // fromFail:true so the restarted run SUPPRESSES the intro banner (re-reading
+    // the one-liner after every crash is annoying — see init()/showIntroBanner).
     this.time.delayedCall(FAIL.overlayDurationMs, () => {
-      this.scene.restart({ level: this.level });
+      this.scene.restart({ level: this.level, fromFail: true });
+    });
+  }
+
+  // --------------------------------------------------------------- intro
+  /** Level-start intro banner (ST-4): the level name (title) + optional
+   * introText one-liner (subtitle), centered in the upper third on a cream
+   * backing panel, screen-anchored (scrollFactor 0) at DEPTHS.overlay. Holds
+   * for LEVEL_INTRO.holdMs, then fades over LEVEL_INTRO.fadeMs and destroys
+   * itself. Non-blocking — gameplay runs the whole time; the camera sits at
+   * CAMERA.zoomMax while the bike is stationary, so a scrollFactor-0 banner
+   * reads correctly and fades before speed/zoom build (no zoom compensation
+   * needed). The cream panel keeps the plum pixel-text legible over ANY theme
+   * backdrop. Only called when NOT a fail-restart (see create()/init()).
+   *
+   * No explicit teardown field: if the scene restarts mid-fade, Phaser's
+   * shutdown sweeps these GameObjects + the tween (same as the failLevel
+   * overlay); otherwise the tween's onComplete destroys them. */
+  private showIntroBanner(config: LevelConfig): void {
+    const centerX = DESIGN_WIDTH / 2;
+
+    const title = createPixelText(this, centerX, LEVEL_INTRO.titleY, config.name, LEVEL_INTRO.titleFontSizePx)
+      .setScrollFactor(0)
+      .setDepth(DEPTHS.overlay);
+    const texts: Phaser.GameObjects.Text[] = [title];
+
+    const topY = LEVEL_INTRO.titleY - title.height / 2;
+    let bottomY = LEVEL_INTRO.titleY + title.height / 2;
+    let maxTextWidth = title.width;
+
+    if (config.introText) {
+      const subtitleY = LEVEL_INTRO.titleY + LEVEL_INTRO.subtitleGapPx;
+      const subtitle = createPixelText(
+        this,
+        centerX,
+        subtitleY,
+        config.introText,
+        LEVEL_INTRO.subtitleFontSizePx
+      )
+        .setScrollFactor(0)
+        .setDepth(DEPTHS.overlay);
+      texts.push(subtitle);
+      bottomY = subtitleY + subtitle.height / 2;
+      maxTextWidth = Math.max(maxTextWidth, subtitle.width);
+    }
+
+    // Cream backing panel sized to fit the text, one depth BELOW it so the plum
+    // text always draws on top (added after the texts, but its lower depth wins
+    // Phaser's depth sort). Fades together with the text.
+    const panelWidth = maxTextWidth + LEVEL_INTRO.paddingXPx * 2;
+    const panelHeight = bottomY - topY + LEVEL_INTRO.paddingYPx * 2;
+    const panel = createPixelPanel(this, centerX, (topY + bottomY) / 2, panelWidth, panelHeight)
+      .setScrollFactor(0)
+      .setDepth(DEPTHS.overlay - 1);
+
+    const targets: Phaser.GameObjects.GameObject[] = [panel, ...texts];
+    this.tweens.add({
+      targets,
+      alpha: 0,
+      delay: LEVEL_INTRO.holdMs,
+      duration: LEVEL_INTRO.fadeMs,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        for (const obj of targets) obj.destroy();
+      },
     });
   }
 
