@@ -134,14 +134,27 @@ export function recolorTexture(
     return variantKey;
   }
 
+  // Guard a missing baseKey: scene.textures.get() on an unregistered key
+  // SILENTLY returns Phaser's internal __MISSING texture (no throw, no
+  // warn), which would then be recolored and baked into the cache
+  // permanently under variantKey. Bail to baseKey instead — same "never
+  // hard-crash over a cosmetic recolor" spirit as the createCanvas-null
+  // fallback below.
+  if (!scene.textures.exists(baseKey)) {
+    return baseKey;
+  }
+
   const baseTexture = scene.textures.get(baseKey);
   const { width, height } = baseTexture.source[0];
 
   const canvasTexture = scene.textures.createCanvas(variantKey, width, height);
   if (!canvasTexture) {
-    // Defensive fallback (task spec): canvas creation can theoretically
-    // fail — a render must never hard-crash over a cosmetic recolor, so
-    // fall back to the raw marker-colored base rather than throwing.
+    // Defensive fallback. Given the exists(variantKey) early-return above
+    // and variantKey being a string, createCanvas can only return null
+    // here for a falsy/empty variantKey (Phaser's checkKey rejects
+    // ''/non-string/already-registered keys). A render must never
+    // hard-crash over a cosmetic recolor, so fall back to the raw
+    // marker-colored base rather than throwing.
     return baseKey;
   }
 

@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { MARKERS, remapColor, remapPixels } from '../src/systems/palette';
+import { describe, expect, it, vi } from 'vitest';
+import { MARKERS, recolorTexture, remapColor, remapPixels } from '../src/systems/palette';
 import type { ColorRemap } from '../src/systems/palette';
+// Type-only: constructing a duck-typed fake scene for recolorTexture's
+// non-canvas branches, never importing the runtime Phaser module (keeps
+// this suite DOM-free — same import-safety contract as the module itself).
+import type Phaser from 'phaser';
 import { PALETTE } from '../src/systems/constants';
 
 /** Packs [r,g,b,a] pixel tuples into the flat Uint8ClampedArray shape
@@ -77,6 +81,16 @@ describe('remapPixels', () => {
     expect(Array.from(data)).toEqual([12, 34, 56, 255]);
   });
 
+  it('writes R, G, B channels in the correct order (fully asymmetric color)', () => {
+    // Every OTHER case here uses MARKER colors, and all four markers have
+    // <= 2 distinct byte values (e.g. 0xff00ff), so an R<->B read/write
+    // channel-swap bug would pass them all. A fully asymmetric from/to
+    // (all six bytes distinct) is the only input that pins channel order.
+    const data = pixels([0x11, 0x22, 0x33, 255]);
+    remapPixels(data, [{ from: 0x112233, to: 0x445566 }]);
+    expect(Array.from(data)).toEqual([0x44, 0x55, 0x66, 255]);
+  });
+
   it('is a no-op on an empty buffer', () => {
     const data = new Uint8ClampedArray(0);
     expect(() => remapPixels(data, remap)).not.toThrow();
@@ -95,5 +109,69 @@ describe('remapPixels', () => {
       1, 2, 3, 255,
       0xff, 0x00, 0xff, 0,
     ]);
+  });
+});
+
+// The canvas draw/getImageData/putImageData path of recolorTexture needs a
+// real DOM canvas (browser-verified separately), but its three early-exit
+// branches are pure control flow over a `scene.textures` handle — testable
+// here with a duck-typed fake, no DOM and no runtime Phaser import.
+describe('recolorTexture — control flow (no canvas)', () => {
+  /** Minimal stand-in for the slice of Phaser.Scene recolorTexture touches:
+   * just the three `textures` methods it calls. The `as unknown as
+   * Phaser.Scene` cast keeps this suite DOM/Phaser-free (we build a plain
+   * object; the Phaser import is type-only). Each method defaults to a
+   * spy/no-op and can be overridden per test. */
+  function fakeScene(overrides: {
+    exists?: (key: string) => boolean;
+    get?: ReturnType<typeof vi.fn>;
+    createCanvas?: ReturnType<typeof vi.fn>;
+  }): Phaser.Scene {
+    // A duck-typed fake exposing only the handful of `textures` methods
+    // recolorTexture calls; `as unknown as` (not `any`) bridges to the full
+    // Phaser.Scene type without pulling the runtime module into this suite.
+    return {
+      textures: {
+        exists: overrides.exists ?? ((): boolean => false),
+        get: overrides.get ?? vi.fn(),
+        createCanvas: overrides.createCanvas ?? vi.fn(),
+      },
+    } as unknown as Phaser.Scene;
+  }
+
+  it('returns the variantKey on a cache hit without reading or creating any texture', () => {
+    const get = vi.fn();
+    const createCanvas = vi.fn();
+    const scene = fakeScene({ exists: (key) => key === 'variant', get, createCanvas });
+
+    expect(recolorTexture(scene, 'base', 'variant', [])).toBe('variant');
+    // The whole point of the per-combination cache: no re-read, no re-draw.
+    expect(get).not.toHaveBeenCalled();
+    expect(createCanvas).not.toHaveBeenCalled();
+  });
+
+  it('falls back to baseKey (never throws) when the base texture is not registered', () => {
+    const get = vi.fn();
+    const createCanvas = vi.fn();
+    // variantKey uncached AND baseKey unregistered.
+    const scene = fakeScene({ exists: () => false, get, createCanvas });
+
+    expect(() => recolorTexture(scene, 'missing-base', 'variant', [])).not.toThrow();
+    expect(recolorTexture(scene, 'missing-base', 'variant', [])).toBe('missing-base');
+    // Must bail BEFORE .get() (which would silently hand back __MISSING) or
+    // any canvas creation.
+    expect(get).not.toHaveBeenCalled();
+    expect(createCanvas).not.toHaveBeenCalled();
+  });
+
+  it('falls back to baseKey (never throws) when createCanvas returns null', () => {
+    // variantKey uncached, baseKey registered, but the canvas can't be made.
+    const get = vi.fn(() => ({ source: [{ width: 24, height: 48 }] }));
+    const createCanvas = vi.fn(() => null);
+    const scene = fakeScene({ exists: (key) => key === 'base', get, createCanvas });
+
+    expect(() => recolorTexture(scene, 'base', 'variant', [])).not.toThrow();
+    expect(recolorTexture(scene, 'base', 'variant', [])).toBe('base');
+    expect(createCanvas).toHaveBeenCalled();
   });
 });

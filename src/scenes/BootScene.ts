@@ -206,6 +206,16 @@ export class BootScene extends Phaser.Scene {
     const { hairHeight, faceHeight, eyeSize, leftEyeX, rightEyeX, eyeInsetY } =
       GABBY_BASE_LAYOUT;
 
+    // Loud guard against silent layout drift: GABBY_BASE_LAYOUT's absolute
+    // offsets are hand-fitted to the 24x48 size. If a later edit shrank the
+    // texture below the hair+face bands, the suit region's computed height
+    // (height - hairHeight - faceHeight) would go <= 0 and the whole
+    // recolorable suit region would vanish silently — assert so it's loud.
+    console.assert(
+      hairHeight + faceHeight < height,
+      'gabby base layout (hair+face) exceeds texture height'
+    );
+
     const gfx = this.add.graphics();
 
     // Hair band across the top.
