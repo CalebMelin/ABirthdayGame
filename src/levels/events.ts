@@ -62,6 +62,15 @@ export interface EventContext {
   calebPickedUp: boolean;
   /** Shared persistent passenger; level 12's pickup calls passenger.activate(). */
   passenger: PassengerHandle;
+  /** Whether the run has ended (crashed / fell / finished). Lets a system
+   * OBSERVE a fail/finish it didn't cause — e.g. the police cop freezing its
+   * pursuit once the player is caught by something else, or a finale reacting
+   * to the finish. Note: GameScene stops calling handle.update() the instant
+   * the run ends, so this reads true only inside onFinish() or a stray same-
+   * frame call after another handle's softFail — a system must NOT rely on
+   * per-frame update() ticks after the run ends (drive finales from
+   * tweens/particles, not update()). */
+  isEnded(): boolean;
   /** Trigger a soft fail with a CUSTOM overlay message + instant restart. */
   softFail(message: string): void;
   /** Force the bike's pedal input for a cutscene (e.g. auto-brake). null =

@@ -388,11 +388,12 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
  *   completed, so this is effectively always true on 13-22 and on replays of
  *   >= 13 — but we read the real flag rather than assume it.
  *
- * `=== true` guards a malformed/short `completed` array (undefined → false),
- * matching save.ts's total-function philosophy. */
+ * `?.[11] === true` guards a malformed/absent/short `completed` array
+ * (undefined → false, never a throw), matching save.ts's total-function
+ * philosophy. */
 export function deriveCalebPickedUp(level: number, progress: LevelProgress): boolean {
   if (level < 13) return false;
-  return progress.completed[11] === true;
+  return progress.completed?.[11] === true;
 }
 
 let singleton: SaveSystem | undefined;

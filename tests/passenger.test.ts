@@ -51,4 +51,10 @@ describe('deriveCalebPickedUp', () => {
     expect(deriveCalebPickedUp(13, malformed)).toBe(false);
     expect(deriveCalebPickedUp(5, malformed)).toBe(false);
   });
+
+  it('tolerates an ABSENT completed array (optional-chaining guard → false, no throw)', () => {
+    const noArray = { highestUnlocked: 1 } as unknown as LevelProgress;
+    expect(() => deriveCalebPickedUp(13, noArray)).not.toThrow();
+    expect(deriveCalebPickedUp(13, noArray)).toBe(false);
+  });
 });

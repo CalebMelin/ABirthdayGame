@@ -19,6 +19,7 @@ import {
   TERRAIN,
   CAMERA,
   FAIL,
+  failOverlayFontSizePx,
   LEVEL,
   LEVEL_INTRO,
   DEBUG_OVERLAY,
@@ -257,6 +258,7 @@ export class GameScene extends Phaser.Scene {
       worldLength: this.terrain.worldLength,
       calebPickedUp,
       passenger: this.passenger,
+      isEnded: () => this.ended,
       softFail: (message) => this.failLevel(message),
       setInputOverride: (input) => {
         this.inputOverride = input;
@@ -436,12 +438,17 @@ export class GameScene extends Phaser.Scene {
       this.failLevel();
     }
 
-    // Drive the scripted-event handles ONLY while the run is live: once the run
-    // has ended (a soft fail — a handle may have called ctx.softFail — or the
-    // finish freeze) hazards must stop so nothing interrupts the fail/finish
-    // hold. A handle that calls softFail mid-loop flips this.ended; remaining
-    // handles this frame are inert today, and each real system early-returns on
-    // its own once ended.
+    // Drive the scripted-event handles ONLY while the run is live. The `!ended`
+    // gate is what actually stops hazards once a fail/finish fires — a handle's
+    // update() simply STOPS being called from that point on (it does NOT keep
+    // ticking and self-early-return). So any finish/fail finale a system wants
+    // to show MUST be self-driving (a tween/particle emitter started in
+    // onFinish()/softFail()), never a per-frame update(). Systems can observe an
+    // end they didn't cause via ctx.isEnded(). One caveat: if handle A's
+    // update() calls ctx.softFail() mid-loop, handles later in THIS iteration
+    // still get one final update() call this frame (ended is now true, but the
+    // loop was already entered) — harmless for the inert handles today, and a
+    // real system should treat a same-frame ctx.isEnded()===true as "stop".
     if (!this.ended) {
       for (const handle of this.eventHandles) handle.update();
     }
@@ -451,7 +458,10 @@ export class GameScene extends Phaser.Scene {
       // Let event handles play a finish finale (e.g. level 15's cop spin-out)
       // and hold the LevelComplete hand-off by the LONGEST delay any returns.
       // The run stays "ended" (input frozen) through the hold; the passenger +
-      // camera keep updating so the finale is visible.
+      // camera keep updating so the finale is visible. NOTE: handle.update() is
+      // NO LONGER called after this point (the !ended gate above skips it), so a
+      // finale started in onFinish() must animate itself via tweens/particles —
+      // it will NOT receive per-frame update() ticks during the delay window.
       let finishDelayMs = 0;
       for (const handle of this.eventHandles) {
         const delay = handle.onFinish?.();
@@ -597,8 +607,14 @@ export class GameScene extends Phaser.Scene {
       .rectangle(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, dimW, dimH, PALETTE.bgPink, 0.6)
       .setScrollFactor(0)
       .setDepth(DEPTHS.overlay);
-    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, message, 40)
+    // Size + word-wrap the toast so BOTH the short default and a long custom
+    // softFail message (e.g. level 15's verbatim ~50-char line) render fully
+    // inside the screen. The default short message is under the threshold and
+    // narrower than the wrap box, so it stays visually identical to before.
+    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, message, failOverlayFontSizePx(message))
       .setScrollFactor(0)
+      .setWordWrapWidth(DESIGN_WIDTH - FAIL.overlayWrapMarginPx * 2)
+      .setAlign('center')
       .setDepth(DEPTHS.overlay + 1);
 
     // The bike stays limp/tumbling under the overlay (see bike.ts crash

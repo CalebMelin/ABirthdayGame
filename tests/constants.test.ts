@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CHARACTER_CREATE,
   DESIGN_WIDTH,
+  FAIL,
+  failOverlayFontSizePx,
   hexToCss,
   PALETTE,
   PASTEL_BG_COLOR,
@@ -9,6 +11,36 @@ import {
   UI_MIN_TOUCH_PX,
 } from '../src/systems/constants';
 import { BIKE_OPTIONS } from '../src/data/characters';
+
+describe('failOverlayFontSizePx', () => {
+  it('keeps the full-size font for the SHORT default toast (visually unchanged)', () => {
+    // The pre-PLAN-06 default message must still render at the original 40px.
+    expect(failOverlayFontSizePx('Oops! Go again 💛')).toBe(FAIL.overlayFontSizePx);
+  });
+
+  it('drops to the smaller font for the LONG L7 / L15 verbatim toasts', () => {
+    // These are the exact custom softFail messages PLAN-06 events pass — both
+    // overflow DESIGN_WIDTH at 40px, so they must use the smaller wrapped size.
+    expect(failOverlayFontSizePx("They really don't see us!! Go again 💛")).toBe(
+      FAIL.overlayLongFontSizePx
+    );
+    expect(failOverlayFontSizePx("They got us!! ...let's pretend that didn't happen 🚔")).toBe(
+      FAIL.overlayLongFontSizePx
+    );
+  });
+
+  it('switches exactly at the threshold length', () => {
+    const atThreshold = 'x'.repeat(FAIL.overlayLongThresholdChars);
+    const overThreshold = 'x'.repeat(FAIL.overlayLongThresholdChars + 1);
+    expect(failOverlayFontSizePx(atThreshold)).toBe(FAIL.overlayFontSizePx);
+    expect(failOverlayFontSizePx(overThreshold)).toBe(FAIL.overlayLongFontSizePx);
+  });
+
+  it('the wrap box stays inside DESIGN_WIDTH', () => {
+    expect(DESIGN_WIDTH - FAIL.overlayWrapMarginPx * 2).toBeGreaterThan(0);
+    expect(FAIL.overlayWrapMarginPx * 2).toBeLessThan(DESIGN_WIDTH);
+  });
+});
 
 describe('hexToCss', () => {
   it('pads small values to 6 hex digits', () => {

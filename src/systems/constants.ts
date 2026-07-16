@@ -459,7 +459,40 @@ export const FAIL = {
   /** How long the "Oops! Go again 💛" overlay stays up before the level
    * restarts, ms. */
   overlayDurationMs: 350,
+
+  // ------------------------------------------------ overlay text sizing
+  // The soft-fail overlay shows a message that is usually the short default
+  // ("Oops! Go again 💛") but can be a much LONGER custom toast passed by a
+  // PLAN-06 event's softFail — e.g. level 15's verbatim
+  // "They got us!! ...let's pretend that didn't happen 🚔" (~50 chars). At the
+  // fixed 40px pixel font a string that long overflows DESIGN_WIDTH, so the
+  // overlay both word-wraps AND drops to a smaller size for long messages.
+  // (The text is scrollFactor-0 and scales with camera zoom; the tightest fit
+  // is at CAMERA.zoomMax = 1.0 — a fail at speed is zoomed OUT, giving more
+  // room — so the wrap width is sized against DESIGN_WIDTH, the zoom-1 case.)
+  /** Overlay font size for a SHORT message, px (the pre-PLAN-06 default —
+   * the short default toast keeps rendering exactly as before). */
+  overlayFontSizePx: 40,
+  /** Overlay font size for a LONG message (length > overlayLongThresholdChars),
+   * px — smaller so wrapped lines stay legible and fully on-screen. */
+  overlayLongFontSizePx: 24,
+  /** Message length (chars) above which the smaller overlay font is used.
+   * The short default ("Oops! Go again 💛") sits under this; the L7/L15
+   * custom toasts sit above it. */
+  overlayLongThresholdChars: 24,
+  /** Horizontal margin (each side) between the overlay text's word-wrap box
+   * and the DESIGN_WIDTH edges, px. Wrap width = DESIGN_WIDTH - 2*this. */
+  overlayWrapMarginPx: 100,
 } as const;
+
+/** Overlay font size for a soft-fail message — the smaller size once the
+ * message is long enough to risk overflow, else the default. Pure (no Phaser),
+ * exported so it's unit-testable in Node and GameScene has no inline magic. */
+export function failOverlayFontSizePx(message: string): number {
+  return message.length > FAIL.overlayLongThresholdChars
+    ? FAIL.overlayLongFontSizePx
+    : FAIL.overlayFontSizePx;
+}
 
 /** Debug overlay tuning (PLAN-02 task 5 — GameScene's dev-only debug
  * overlay, toggled with the backtick/tilde key; it moved off D in PLAN-03
