@@ -23,6 +23,12 @@ export const PALETTE = {
    * tex-gabby-base). Deliberately NOT a MARKERS.* value — the face must
    * never be recolored by a palette swap. */
   skin: 0xffcf9c,
+  /** Warm mid brown — Caleb's hair (NORTH_STAR §5: he is BROWN-haired, to read
+   * distinct from blonde Dom) + placeholder door/wood tone. Used by the level-12
+   * pickup props (src/systems/pickup.ts). The 12-color pastel set had no true
+   * brown; added alongside the theme tones below for the same "the art needs a
+   * color the palette lacks" reason. Distinct from every MARKERS.* swap color. */
+  brown: 0x6b4423,
 
   // ------------------------------------------------------- theme colors
   // Added for the PLAN-05 task-2 per-theme backdrop system
@@ -681,6 +687,42 @@ export const TRAFFIC = {
   /** 5 tints cycled across the pooled car sprites for variety (the tex-car
    * placeholder is a solid mint block). Cosmetic only. */
   tints: [PALETTE.coral, PALETTE.sky, PALETTE.sunshine, PALETTE.lavender, PALETTE.riverTeal],
+} as const;
+
+/** Level 12 "Picking Up Caleb" pickup-cutscene tuning (PLAN-06 Task 2 — see
+ * src/systems/pickup.ts). Level 12 stops mid-level at Caleb's house: as the bike
+ * reaches the pickup x it AUTO-BRAKES to a stop (via EventContext.setInputOverride
+ * — NOT a Matter force), Caleb runs over and hops on, then control returns and he
+ * rides pillion for the rest of the game. The whole beat is a GIFT, never a fail:
+ * the cutscene can never crash/soft-fail the player.
+ *
+ * The house/mailbox/standing-Caleb are plain non-Matter GameObjects (ZERO Matter
+ * bodies — NORTH_STAR §8 budget), with their placeholder DRAWING dimensions kept
+ * as local documented consts in pickup.ts (decorations.ts precedent); the GAMEPLAY
+ * tunables — trigger window, stop threshold, cutscene/particle/toast timing — live
+ * here. `stopWindowPx` is the DEFAULT; level12.ts's CalebPickupEvent may override it. */
+export const PICKUP = {
+  /** How near (px, to the LEFT of) the pickup x the bike must reach for the
+   * cutscene to begin auto-braking. Chosen so braking starts INSIDE level 12's
+   * {5750,6750} pickup flat zone (trigger at pickupX - this = 6250-380 = 5870)
+   * and the bike stops comfortably within it. */
+  stopWindowPx: 380,
+  /** Bike speed (px per physics STEP — matches BikeHandle.speed units) at/below
+   * which the auto-braked bike counts as "stopped" and the hop beat begins.
+   * Above the brake's tiny reverse-creep so the near-zero crossing is caught. */
+  stopSpeedPxPerStep: 2,
+  /** How long Caleb takes to run/slide to the bike and hop on, ms — the core of
+   * the ~1.5-2.5s beat. Control returns (passenger activated) when it elapses. */
+  hopDurationMs: 1800,
+  /** Tiny heart particle: how long it floats up + fades, ms. */
+  heartRiseMs: 900,
+  /** Tiny heart particle: how far it floats up, px. */
+  heartRisePx: 64,
+  /** "Caleb hopped on!!" toast: fully-visible hold before it fades, ms. Kept
+   * longer than hopDurationMs so the toast is still up when control returns. */
+  toastHoldMs: 2400,
+  /** "Caleb hopped on!!" toast: fade-out duration after the hold, ms. */
+  toastFadeMs: 600,
 } as const;
 
 /** Pixel font family (to be loaded in a later plan). */

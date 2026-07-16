@@ -22,6 +22,11 @@ export const level12: LevelConfig = {
       { start: 11600, end: 12500 }, // finish-flag zone
     ],
   },
-  events: [{ type: 'calebPickup', x: 6250 }],
+  // The pickup cutscene (src/systems/pickup.ts): as the bike reaches x=6250 the
+  // stop window (380px) begins the auto-brake at x=5870 — inside the {5750,6750}
+  // pickup flat zone — so the bike comes to rest in front of Caleb's house on
+  // real flat ground, Caleb hops on, then control returns and he rides pillion.
+  // See the PICKUP constants block for the cutscene/heart/toast timing.
+  events: [{ type: 'calebPickup', x: 6250, stopWindowPx: 380 }],
   introText: "Caleb's waiting outside...",
 };
