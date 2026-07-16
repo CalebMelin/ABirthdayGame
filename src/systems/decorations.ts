@@ -10,58 +10,27 @@
 // terrain.ts/bike.ts/themes.ts/traffic.ts/police.ts/wheelieRider.ts): it no
 // longer imports createPixelText from ui.ts (which DOES `import Phaser from
 // 'phaser'` at runtime — the thing that made this file test-unsafe pre-PLAN-07).
-// A local `pixelText` helper (below, mirroring police.ts's/pickup.ts's own copy)
-// replicates it from the shared font constants instead. This matters because
-// src/systems/billboard.ts (level 18's easter-egg billboard, PLAN-07 task 3)
-// imports this module's exported `drawBillboard` directly — the SAME function
-// createDecorations calls for every decoy billboard — so the egg and its decoys
-// can never visually drift apart (one shared drawer, one source of frame
-// pixels), and importing it must not drag real Phaser into events.ts's import
-// graph (which tests/events.test.ts imports under plain Node). The exported pure
-// `wrapBillboardText` helper is exercised directly by tests/decorations.test.ts;
-// `createDecorations`/`drawBillboard`/the other per-kind drawers only ever CALL
-// METHODS on the `scene` handle they're given, same contract as createTerrain.
+// It draws pixel text via the shared `pixelText` helper (./pixelText.ts — an
+// import-safe extraction of ui.ts's createPixelText's actual implementation,
+// pulled out by a PLAN-07 task 3 code-review fix once this module's own local
+// copy became the FOURTH near-identical replica across the codebase; see that
+// module's doc + DECISIONS.md) rather than a local copy of its own. This
+// matters because src/systems/billboard.ts (level 18's easter-egg billboard,
+// PLAN-07 task 3) imports this module's exported `drawBillboard` directly —
+// the SAME function createDecorations calls for every decoy billboard — so
+// the egg and its decoys can never visually drift apart (one shared drawer,
+// one source of frame pixels), and importing it must not drag real Phaser
+// into events.ts's import graph (which tests/events.test.ts imports under
+// plain Node). The exported pure `wrapBillboardText` helper is exercised
+// directly by tests/decorations.test.ts; `createDecorations`/`drawBillboard`/
+// the other per-kind drawers only ever CALL METHODS on the `scene` handle
+// they're given, same contract as createTerrain.
 import type Phaser from 'phaser';
-import {
-  DEPTHS,
-  TEXTURE_KEYS,
-  PALETTE,
-  BILLBOARD,
-  FONT_STACK_PIXEL,
-  TEXT_COLOR,
-  snapFontSize,
-} from './constants';
+import { DEPTHS, TEXTURE_KEYS, PALETTE, BILLBOARD } from './constants';
+import { pixelText } from './pixelText';
 import { THEMES } from './themes';
 import type { LevelConfig, DecorationSpec } from '../levels/types';
 import type { TerrainHandle } from './terrain';
-
-/**
- * Centered pixel-font text, replicating ui.ts's createPixelText from the
- * shared font constants — inlined so this module needs no runtime ui.ts/Phaser
- * import (keeping `wrapBillboardText` Node-testable; same discipline as
- * police.ts's/pickup.ts's own local `pixelText` helper). `lineSpacingPx`
- * (default 0) sets Phaser's Text style `lineSpacing` — used by drawBillboard's
- * multi-line (word-wrapped) labels; single-line callers (drawSign, and
- * drawBillboard's own single-line case) simply don't need it.
- */
-function pixelText(
-  scene: Phaser.Scene,
-  x: number,
-  y: number,
-  text: string,
-  sizePx: number,
-  lineSpacingPx = 0
-): Phaser.GameObjects.Text {
-  return scene.add
-    .text(Math.round(x), Math.round(y), text, {
-      fontFamily: FONT_STACK_PIXEL,
-      fontSize: `${snapFontSize(sizePx)}px`,
-      color: TEXT_COLOR,
-      align: 'center',
-      lineSpacing: lineSpacingPx,
-    })
-    .setOrigin(0.5);
-}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -97,7 +66,7 @@ const SIGN_BOARD_HEIGHT_PX = 44;
 const SIGN_BOARD_MIN_WIDTH_PX = 120;
 /** Horizontal padding each side between the sign text and the board edge. */
 const SIGN_TEXT_PAD_PX = 16;
-/** Sign text size, px (snapped to the 8px pixel grid by the local pixelText). */
+/** Sign text size, px (snapped to the 8px pixel grid by the shared pixelText). */
 const SIGN_TEXT_SIZE_PX = 12;
 const SIGN_OUTLINE_PX = 4;
 /** Height of the accent-colored strip along the top of the sign board. */
@@ -111,7 +80,7 @@ const SIGN_STRIP_HEIGHT_PX = 8;
 // mandate), not just decorative fluff — see that block's doc comment.
 const BILLBOARD_POST_WIDTH_PX = 16;
 const BILLBOARD_POST_HEIGHT_PX = 190;
-/** Billboard text size, px (bigger than a sign — snapped by the local pixelText). */
+/** Billboard text size, px (bigger than a sign — snapped by the shared pixelText). */
 const BILLBOARD_TEXT_SIZE_PX = 20;
 /** Billboard frame stroke width, px (drawn in the theme accent color). */
 const BILLBOARD_OUTLINE_PX = 6;

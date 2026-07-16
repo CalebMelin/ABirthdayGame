@@ -1,14 +1,17 @@
 // Tiny pixel-art UI kit shared by every menu scene.
 // Three helpers only — see CLAUDE.md: no premature options-explosion.
+//
+// This file keeps a RUNTIME `import Phaser from 'phaser'` (below) — needed
+// only by createPixelButton's `Phaser.Geom.Rectangle` hit-area construction —
+// so it can never be imported by a module that must stay Node/Vitest-safe.
+// createPixelText's own implementation lives in ./pixelText.ts (an
+// import-safe extraction, PLAN-07 task 3 code-review fix) precisely so OTHER
+// modules can reuse it without inheriting that runtime Phaser dependency;
+// this function is now a thin delegating wrapper that keeps its own exported
+// name/signature stable for existing callers.
 import Phaser from 'phaser';
-import {
-  PALETTE,
-  FONT_STACK_PIXEL,
-  TEXT_COLOR,
-  UI_MIN_TOUCH_PX,
-  DEPTHS,
-  snapFontSize,
-} from './constants';
+import { PALETTE, UI_MIN_TOUCH_PX, DEPTHS } from './constants';
+import { pixelText } from './pixelText';
 
 /** Drop-shadow offset for the chunky pixel button/panel look, and the
  * distance a button's face travels when pressed onto its shadow. */
@@ -25,7 +28,9 @@ const BUTTON_PADDING_X_PX = 32;
  *
  * Press Start 2P is designed on an 8px grid, so `sizePx` is clamped/rounded
  * to the nearest multiple of 8 (minimum 8) via snapFontSize — this keeps
- * glyphs crisp instead of blurry at odd sizes.
+ * glyphs crisp instead of blurry at odd sizes. Delegates to the shared
+ * ./pixelText helper (identical rendering: no lineSpacing override, matching
+ * this function's own pre-extraction behavior).
  */
 export function createPixelText(
   scene: Phaser.Scene,
@@ -34,14 +39,7 @@ export function createPixelText(
   text: string,
   sizePx = 24
 ): Phaser.GameObjects.Text {
-  return scene.add
-    .text(Math.round(x), Math.round(y), text, {
-      fontFamily: FONT_STACK_PIXEL,
-      fontSize: `${snapFontSize(sizePx)}px`,
-      color: TEXT_COLOR,
-      align: 'center',
-    })
-    .setOrigin(0.5);
+  return pixelText(scene, x, y, text, sizePx);
 }
 
 /** Options for {@link createPixelButton}. */
