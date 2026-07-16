@@ -5,11 +5,10 @@
 // crosses the finish flag (onFinish, e.g. level 15's cop spin-out finale).
 //
 // Task A wired the SEAM; the per-event systems land per later PLAN-06 task.
-// Level 7 traffic (task B) and level 12's Caleb pickup (task C) are now REAL —
-// the `traffic` case constructs createTraffic (src/systems/traffic.ts) and the
-// `calebPickup` case constructs createPickup (src/systems/pickup.ts). Police
-// (task D) still pushes an INERT handle (`{ update(){}, destroy(){} }`) until it
-// lands — see the TODO breadcrumb marking where createPolice goes. The level-11
+// Level 7 traffic (task B), level 12's Caleb pickup (task C), and level 15's
+// police chase (task D) are now REAL — the `traffic`/`calebPickup`/`police`
+// cases construct createTraffic (src/systems/traffic.ts) / createPickup
+// (src/systems/pickup.ts) / createPolice (src/systems/police.ts). The level-11
 // wheelieRider + level-18 billboard cases stay PLAN-07 no-op stubs (they push no
 // handle). This never throws.
 //
@@ -27,6 +26,7 @@ import type { TerrainHandle } from '../systems/terrain';
 import type { PassengerHandle } from '../systems/passenger';
 import { createTraffic } from '../systems/traffic';
 import { createPickup } from '../systems/pickup';
+import { createPolice } from '../systems/police';
 
 // ---------------------------------------------------------------------------
 // Public seam types (PLAN-06 Task A — the contract every event system + the
@@ -86,26 +86,11 @@ export interface EventContext {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-/** An inert handle for an event whose real system hasn't been built yet
- * (traffic/police/pickup, PLAN-06 tasks B/C/D). Holds no state and renders
- * nothing — a fresh one per event so a later task can swap in a real handle
- * at exactly that push site without touching the others. */
-function inertHandle(): LevelEventHandle {
-  return {
-    update() {
-      // no-op until the real system lands
-    },
-    destroy() {
-      // no-op — nothing was created
-    },
-  };
-}
-
 /**
  * Dispatches each of `config.events` (none if absent), returning the live
- * handles GameScene drives. Traffic constructs a real system; police/pickup
- * return inert handles and wheelieRider/billboard push nothing — see the
- * module comment. Never throws.
+ * handles GameScene drives. Traffic/pickup/police each construct a real system;
+ * wheelieRider/billboard push nothing (PLAN-07 stubs) — see the module comment.
+ * Never throws.
  *
  * @param scene runtime handle to Phaser's factories, for the PLAN-06
  *   implementations that spawn cars/play cutscenes (referenced today only in a
@@ -138,10 +123,12 @@ export function dispatchLevelEvents(
         handles.push(createTraffic(scene, event, ctx));
         break;
       case 'police':
-        // TODO(PLAN-06 task D): handles.push(createPolice(scene, event, ctx))
-        // — level 15's chase (rubber-band pursuer; caught → ctx.softFail(...);
-        // onFinish() plays the cop spin-out + "WOOHOO!" and delays the hand-off).
-        handles.push(inertHandle());
+        // Level 15's chase (PLAN-06 task D): a single non-Matter cop rubber-bands
+        // from behind — holding gas always pulls away (copMaxSpeedFrac < 1), only
+        // stopping/crashing lets it close; caught soft-fails with the verbatim
+        // "They got us!! ...let's pretend that didn't happen 🚔" + instant restart,
+        // and onFinish() plays the cop spin-out + "WOOHOO!" and holds the hand-off.
+        handles.push(createPolice(scene, event, ctx));
         break;
       case 'calebPickup':
         // Level 12's mid-level stop at Caleb's house (PLAN-06 task C): as the

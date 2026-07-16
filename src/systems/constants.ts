@@ -725,6 +725,57 @@ export const PICKUP = {
   toastFadeMs: 600,
 } as const;
 
+/** Level 15 "City Boulevard" police-chase tuning (PLAN-06 Task 3 — see
+ * src/systems/police.ts). A single plain Image cop (ZERO Matter bodies —
+ * NORTH_STAR §8 budget) pursues from behind with a RUBBER-BAND speed law: each
+ * fixed 60 Hz step the cop advances toward the bike at
+ * min(recent-player-forward-speed + catchupBonus, hardCap), where
+ * hardCap = copMaxSpeedFrac x the bike's full-gas FLAT top speed
+ * (BIKE_TUNING.maxWheelAngularVelocity x wheelRadius = 10.8 px/step). For the
+ * EASY mandate ("the cop can NEVER catch a gas-holding player") the hard cap must
+ * sit below the level's *sustained gas-only cruise on its actual rolling terrain*
+ * — which is well under the flat top speed (browser-measured ~7.9 px/step on
+ * level 15, dipping to ~5.9 on climbs) — so copMaxSpeedFrac is tuned per level
+ * accordingly (0.45 here), NOT merely < 1. Then HOLDING GAS always out-runs the
+ * cop even mid-climb; only stopping/crashing/long-slow lets it close. Caught =
+ * within catchDistancePx CONTINUOUSLY for > catchTimeMs → a friendly verbatim
+ * soft-fail + instant restart.
+ *
+ * This block holds the FEEL/timing knobs shared across any police level; the
+ * per-chase PURSUIT tunables (startBehindPx, catchDistancePx, catchTimeMs,
+ * copMaxSpeedFrac, catchupBonusPxPerFrame) are authored per-level in
+ * level15.ts's PoliceEvent (police.ts supplies a default for any omitted one).
+ * The cop/lights/puff placeholder DRAWING dimensions stay as local documented
+ * consts in police.ts (decorations.ts / pickup.ts precedent). Speeds are px per
+ * fixed 60 Hz step; times are ms. */
+export const POLICE = {
+  /** Fixed physics/step rate used to convert the rolling-average WINDOW and the
+   * per-step cop displacement to/from wall-clock time. Matches the 60 Hz tick
+   * (see DEBUG_OVERLAY.physicsStepsPerSecond) so cop motion is refresh-
+   * independent — identical wall-clock behavior at 30/60/120 Hz. */
+  fps: 60,
+  /** Window (ms) of the rolling average the rubber-band tracks the player's
+   * forward speed over. ~0.5s smooths gentle-hill/bump speed ripple without
+   * lagging so far that a genuine stop is ignored. */
+  speedAvgWindowMs: 500,
+  /** Alternating red/blue light-bar flash half-period, ms (~250 → the two
+   * lights swap ~4x/s, a classic siren blink). Cosmetic only. */
+  lightFlashPeriodMs: 250,
+  /** Escape finale (onFinish): ms GameScene holds AFTER the bike crosses the
+   * finish before the LevelComplete hand-off, so the spin-out + "WOOHOO!" toast
+   * are visible. Comfortably longer than every finale animation below. */
+  finaleHoldMs: 1200,
+  /** Cop spin-out tween duration, ms — the cop rotates + drifts as it loses
+   * you. Self-driving (a tween): update() is NOT called after finish. */
+  finaleSpinMs: 700,
+  /** "WOOHOO!" toast: fully-visible hold before it fades, ms. */
+  finaleToastHoldMs: 700,
+  /** "WOOHOO!" toast: fade-out duration after the hold, ms. */
+  finaleToastFadeMs: 400,
+  /** Spin-out puff burst: how long it expands + fades, ms. */
+  finalePuffMs: 800,
+} as const;
+
 /** Pixel font family (to be loaded in a later plan). */
 export const FONT_FAMILY_PIXEL = 'Press Start 2P';
 
