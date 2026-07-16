@@ -1135,7 +1135,10 @@ export const LEVEL = {
   kickerMinHeightPx: 90,
   /** Maximum kicker ramp height, px. Above the proven 106 the gas-only hold's
    * airtime grows past where the held-pedal assist reliably lands it upright
-   * (BIKE_TUNING.heldPitchDelaySteps caveat) — keep kickers modest. */
+   * (BIKE_TUNING.heldPitchDelaySteps caveat) — keep kickers modest. NOTE: this
+   * 112 ceiling is only reachable at a WIDER kicker (>= 672px); at the minimum
+   * 336px width the no-auto-widen slope cap (height*pi/width <= maxJumpSlope)
+   * binds height to <= ~106px, which is exactly the proven size. */
   kickerMaxHeightPx: 112,
 } as const;
 

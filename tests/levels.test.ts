@@ -127,15 +127,15 @@ describe('flip-capable kickers on jump-heavy levels (PLAN-07 task 4)', () => {
     // guard is its own independent oracle against an editor mangling the em dash
     // or emoji (CLAUDE.md Rule 4).
     const expected =
-      'Big jump ahead ' + '—' + ' try holding GAS in the air to flip! ' + '\u{1F337}';
+      'Big jump ahead ' + '\u{2014}' + ' try holding GAS in the air to flip! ' + '\u{1F337}';
     const level2 = LEVELS.find((l) => l.id === 2);
     const sign = (level2!.decorations ?? []).find((d) => d.kind === 'sign');
     expect(sign).toBeDefined();
     expect(sign!.text).toBe(expected);
     // Belt-and-suspenders on the two non-ASCII glyphs specifically (so a mangled
     // em dash / emoji can't slip through even if the literal above were changed).
-    expect(sign!.text).toContain('—'); // em dash
-    expect(sign!.text).toContain('\u{1F337}'); // tulip
+    expect(sign!.text).toContain('\u{2014}'); // em dash U+2014
+    expect(sign!.text).toContain('\u{1F337}'); // tulip U+1F337
   });
 
   it("level 2's tutorial sign sits BEFORE the first kicker (teaches before it asks)", () => {

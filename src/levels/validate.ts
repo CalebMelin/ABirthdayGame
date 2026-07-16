@@ -110,9 +110,10 @@ export function validateJumpSafety(configs: readonly LevelConfig[]): string[] {
             `${label}: not aligned to the ${TERRAIN_COLLISION_GRID_PX}px collision grid (x must be a multiple of ${TERRAIN_COLLISION_GRID_PX}, width a multiple of ${2 * TERRAIN_COLLISION_GRID_PX})`
           );
         }
-        if (raisedCosinePeakSlope(height, width) > TERRAIN.maxJumpSlope) {
+        const peakSlope = raisedCosinePeakSlope(height, width);
+        if (peakSlope > TERRAIN.maxJumpSlope) {
           problems.push(
-            `${label}: peak slope ${raisedCosinePeakSlope(height, width).toFixed(3)} exceeds TERRAIN.maxJumpSlope (${TERRAIN.maxJumpSlope}) — terrain.ts would auto-widen it off the grid`
+            `${label}: peak slope ${peakSlope.toFixed(3)} exceeds TERRAIN.maxJumpSlope (${TERRAIN.maxJumpSlope}) — terrain.ts would auto-widen it off the grid`
           );
         }
       } else {

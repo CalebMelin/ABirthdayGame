@@ -4,10 +4,10 @@
 // screenshots to playtest-out/, gates the process exit code). Requires
 // `npm run dev` running on :5173.
 //
-// Proves the things the task requires of the tulip system TODAY — no
-// flip-capable kicker exists until PLAN-07 task 4, so the POSITIVE award path
-// (a real landed flip) is deliberately out of scope here; task 4's harness
-// extends coverage to it. What this one gates:
+// Proves the NEGATIVE award path (no false positives) + the HUD/persistence.
+// The POSITIVE award path (a real landed flip) is proven by PLAN-07 task 4's
+// flip harness (scripts/playtest-tricks.mjs flip) off level 2's kickers, not
+// here; this harness deliberately never taps gas mid-air. What it gates:
 //   (a) BOUQUET HUD: with gabby22.tulips seeded to 0 / 3 / 12 (via
 //       localStorage before load), entering a level renders the bouquet in the
 //       TOP-RIGHT corner at the correct growth stage (single tulip / 3-tulip
@@ -17,9 +17,9 @@
 //       play camera's speed-zoom actually varies mid-drive (the pedals/⏸
 //       zoom-compensation contract);
 //   (c) NO FALSE POSITIVES (acceptance criterion): a full gas-only drive over
-//       level 2's hills + hop — plenty of real airborne phases — awards ZERO
-//       tulips (airborne-only accumulation never crosses the 330-degree
-//       threshold from rolling terrain), the HUD stays at the seeded count,
+//       level 2's hills + kickers — plenty of real airborne phases — awards ZERO
+//       tulips (a gas-only hold clears the kickers upright, so airborne rotation
+//       never crosses the 330-degree threshold), the HUD stays at the seeded count,
 //       and gabby22.tulips is byte-unchanged;
 //   (d) SESSION PERSISTENCE: reloading the page (fresh Phaser game, real save
 //       path) re-renders the same count — after seeding AND after the drive;
@@ -236,7 +236,7 @@ async function sampleZoomPin(page) {
 }
 
 /** The NEGATIVE award path (acceptance criterion): drive level 2 gas-only to
- * completion — real hills + the authored hop, so genuine airborne phases —
+ * completion — real hills + the authored kickers, so genuine airborne phases —
  * and prove zero tulips are ever awarded while the HUD count holds. */
 async function driveGasOnlyNegative(page) {
   const start = Date.now();
@@ -334,7 +334,7 @@ async function main() {
 
     hud.seed0 = await checkSeededHud(page, STAGE_FOR_COUNT[0], problems);
 
-    // (c): the negative award path over level 2's real hills + hop.
+    // (c): the negative award path over level 2's real hills + kickers.
     const negative = await driveGasOnlyNegative(page);
     if (!negative.finished) problems.push('gas-only level 2 drive did not finish');
     if (negative.restarts > 0) problems.push(`gas-only drive restarted ${negative.restarts}x (unexpected crash)`);
