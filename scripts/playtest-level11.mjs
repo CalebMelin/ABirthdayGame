@@ -9,8 +9,12 @@
 //       === 1), it first appears BEHIND the player (rider.x < bike.x at/soon
 //       after spawn), it overtakes (rider.x crosses bike.x while both are
 //       moving), it exits ahead and DESPAWNS (its GameObjects are actually gone
-//       from the display list, not just a self-reported flag), and the level
-//       still finishes gas-only with NO crash-restarts;
+//       from the display list, not just a self-reported flag -- probed
+//       MID-RUN, at the first poll where `despawned` is freshly true AND
+//       GameScene is still active, since a post-loop check would run after
+//       the scene has already moved on to LevelComplete and vacuously read
+//       "not found" either way), and the level still finishes gas-only with
+//       NO crash-restarts;
 //   (b) a screenshot mid-overtake, for a human to visually confirm: all-black
 //       rider + helmet, yellow bike, front wheel up (the wheelie), dust;
 //   (c) ZERO physics interference — the Matter body count during the pass
@@ -76,11 +80,33 @@ async function startLevel(page, level) {
 }
 
 /** Atomic in-page read of the level-11 wheelie-rider state (off the DEV
- * __wheelieRider snapshot). */
+ * __wheelieRider snapshot), INCLUDING a live display-list probe for the
+ * rider's own two texture keys -- read in this SAME evaluate() round-trip so
+ * the "GameObjects gone" check is never one poll stale relative to
+ * `despawned`. The drive loop below captures this probe at the FIRST poll
+ * where `despawned` is freshly true AND the scene is still `active`: that is
+ * the only valid window to prove a real leak, because a check made AFTER the
+ * drive loop exits (in the success path, once `complete` is true) would run
+ * against an already-stopped GameScene, where "texture not found" is true
+ * regardless of whether anything actually leaked. */
 const READ_L11 = () => {
   const g = globalThis.__gabbyGame;
   const s = g.scene.getScene('GameScene');
   const wr = s.__wheelieRider;
+
+  // Flatten one level of Container.list -- the rig's Images live inside a
+  // Container, not as top-level scene children. Cheap to always compute;
+  // only ever consulted below via `wr` (which is undefined once the scene
+  // has shut down, so a stale/empty list here can't produce a false result).
+  const list = s.children && s.children.list ? s.children.list : [];
+  const flat = [];
+  for (const obj of list) {
+    flat.push(obj);
+    if (Array.isArray(obj.list)) flat.push(...obj.list);
+  }
+  const hasImageTexture = (key) =>
+    key != null && flat.some((o) => o.type === 'Image' && o.texture && o.texture.key === key);
+
   return {
     complete: g.scene.isActive('LevelCompleteScene'),
     active: g.scene.isActive('GameScene'),
@@ -93,28 +119,10 @@ const READ_L11 = () => {
     triggerX: wr ? wr.triggerX : null,
     bikeTextureKey: wr ? wr.bikeTextureKey : null,
     riderTextureKey: wr ? wr.riderTextureKey : null,
+    bikeTexturePresent: wr ? hasImageTexture(wr.bikeTextureKey) : null,
+    riderTexturePresent: wr ? hasImageTexture(wr.riderTextureKey) : null,
   };
 };
-
-/** Whether the scene's display list still contains a visible Image using
- * `textureKey` — the concrete "GameObjects destroyed" cross-check (not just
- * trusting the self-reported `despawned()` flag). */
-function hasImageWithTexture(page, textureKey) {
-  return page.evaluate((key) => {
-    const g = globalThis.__gabbyGame;
-    if (!g.scene.isActive('GameScene')) return false; // scene moved on (finished) -- nothing to find either way
-    const s = g.scene.getScene('GameScene');
-    const list = s.children && s.children.list ? s.children.list : [];
-    // The rig's Images live inside a Container, not as top-level scene
-    // children -- walk one level of container.list too.
-    const flat = [];
-    for (const obj of list) {
-      flat.push(obj);
-      if (Array.isArray(obj.list)) flat.push(...obj.list);
-    }
-    return flat.some((o) => o.type === 'Image' && o.texture && o.texture.key === key);
-  }, textureKey);
-}
 
 /** Drive level 11 GAS-ONLY to completion, observing the whole wheelie-rider
  * pass: spawn (exactly once, behind the player), overtake (crosses bike.x),
@@ -136,6 +144,10 @@ async function driveLevel11(page) {
   let bodiesDuringPass = null;
   let screenshotTaken = false;
   let textureKeys = null;
+  // Captured at the FIRST poll where despawned is freshly true AND GameScene
+  // is still active -- see READ_L11's doc comment for why this must happen
+  // mid-run rather than after the drive loop exits.
+  let despawnProbe = null;
 
   while (Date.now() - start < GASONLY_TIMEOUT_MS) {
     await page.keyboard.down('ArrowRight');
@@ -166,7 +178,18 @@ async function driveLevel11(page) {
       }
     }
 
-    if (st.despawned) sawDespawnedFlag = true;
+    if (st.despawned) {
+      sawDespawnedFlag = true;
+      // Only the FIRST such observation counts, and only while the scene is
+      // still genuinely running -- a later poll (or one caught after the
+      // scene has moved on) is not a valid window for the leak check.
+      if (despawnProbe === null && st.active) {
+        despawnProbe = {
+          bikeTexturePresent: st.bikeTexturePresent,
+          riderTexturePresent: st.riderTexturePresent,
+        };
+      }
+    }
 
     if (st.complete) {
       finished = true;
@@ -176,15 +199,15 @@ async function driveLevel11(page) {
   }
   await page.keyboard.up('ArrowRight');
 
-  // Concrete "GameObjects destroyed" cross-check, not just the self-reported
-  // flag: neither the yellow-bike nor the bespoke rider texture should still
-  // be present anywhere in the display list once despawned.
-  let objectsGoneAfterDespawn = null;
-  if (sawDespawnedFlag && textureKeys) {
-    const stillHasBike = await hasImageWithTexture(page, textureKeys.bike);
-    const stillHasRider = await hasImageWithTexture(page, textureKeys.rider);
-    objectsGoneAfterDespawn = !stillHasBike && !stillHasRider;
-  }
+  // "GameObjects destroyed" is proven by despawnProbe -- captured MID-RUN,
+  // while GameScene was still active (see READ_L11's doc comment) -- never by
+  // a post-loop re-check: by the time the loop exits in the success path,
+  // GameScene has already transitioned to LevelComplete, so querying the
+  // display list AFTER the loop would vacuously read "not found" whether or
+  // not a real leak occurred (the bug an earlier version of this harness had).
+  const objectsGoneAfterDespawn = despawnProbe
+    ? !despawnProbe.bikeTexturePresent && !despawnProbe.riderTexturePresent
+    : null;
 
   return {
     finished,
@@ -271,7 +294,7 @@ async function main() {
   if (!p.sawCrossed) problems.push('rider was never observed overtaking (crossing bike.x)');
   if (!p.sawDespawnedFlag) problems.push('rider never despawned');
   if (p.objectsGoneAfterDespawn === null) {
-    problems.push('could not verify GameObjects were destroyed after despawn (missing texture keys)');
+    problems.push('could not verify GameObjects were destroyed after despawn (no mid-run probe captured while the scene was active)');
   } else if (!p.objectsGoneAfterDespawn) {
     problems.push('wheelie-rider GameObjects (bike/rider textures) are still present in the scene after despawn');
   }

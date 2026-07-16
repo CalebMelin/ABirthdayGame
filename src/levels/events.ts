@@ -91,13 +91,14 @@ export interface EventContext {
 
 /**
  * Dispatches each of `config.events` (none if absent), returning the live
- * handles GameScene drives. Traffic/pickup/police each construct a real system;
- * wheelieRider/billboard push nothing (PLAN-07 stubs) — see the module comment.
- * Never throws.
+ * handles GameScene drives. Traffic/pickup/police/wheelieRider each construct
+ * a real system; billboard still pushes nothing (the one remaining PLAN-07
+ * stub) — see the module comment. Never throws.
  *
- * @param scene runtime handle to Phaser's factories, for the PLAN-06
- *   implementations that spawn cars/play cutscenes (referenced today only in a
- *   dev-only breadcrumb so it stays live for those tasks).
+ * @param scene runtime handle to Phaser's factories — passed straight through
+ *   to createTraffic/createPickup/createPolice/createWheelieRider, each of
+ *   which spawns cars/plays cutscenes/builds its own GameObjects directly off
+ *   it (also used for the dev-only breadcrumb below).
  * @param ctx the shared {@link EventContext} the real systems will consume.
  */
 export function dispatchLevelEvents(

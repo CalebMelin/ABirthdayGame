@@ -57,8 +57,12 @@ export function resolveWheelieRiderTriggerX(eventX: number | undefined, worldLen
  * is grounded AND is moving (at/above a small "not parked" threshold).
  * Guarding on grounded+moving (rather than firing the instant x is crossed)
  * is what keeps "guaranteed" true without ever surprising a bounced/airborne
- * player — the bike only ever moves forward, so once bikeX >= triggerX holds
- * it stays true until the egg fires (typically within a step or two). Pure.
+ * player. The predicate is simply re-evaluated every fixed step by the caller
+ * (see createWheelieRider) — even if the bike briefly rolled backward below
+ * `triggerX` again (reverse-creep, rolling back down a hill), it would just
+ * re-arm and fire on the next forward pass; in practice a level-11 player is
+ * always moving comfortably forward at x=6500, so it fires within a step or
+ * two of first reaching it. Pure.
  */
 export function shouldTriggerWheelieRider(
   bikeX: number,
