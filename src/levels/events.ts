@@ -4,11 +4,11 @@
 // (update), tears down on shutdown (destroy), and can consult when the bike
 // crosses the finish flag (onFinish, e.g. level 15's cop spin-out finale).
 //
-// Task A wires the SEAM only. The real per-event systems land in later PLAN-06
-// tasks: level 7 traffic (task B), level 12 Caleb pickup (task C), level 15
-// police chase (task D). Until those land, traffic/police/pickup push an INERT
-// handle (`{ update(){}, destroy(){} }`) — see the TODO breadcrumbs marking
-// where createTraffic/createPickup/createPolice will be constructed. The
+// Task A wired the SEAM; the per-event systems land per later PLAN-06 task.
+// Level 7 traffic (task B) is now REAL — the `traffic` case constructs
+// createTraffic (src/systems/traffic.ts). Police (task D) and pickup (task C)
+// still push an INERT handle (`{ update(){}, destroy(){} }`) until they land —
+// see the TODO breadcrumbs marking where createPolice/createPickup go. The
 // level-11 wheelieRider + level-18 billboard cases stay PLAN-07 no-op stubs
 // (they push no handle). This never throws.
 //
@@ -24,6 +24,7 @@ import type { LevelConfig } from './types';
 import type { BikeHandle } from '../systems/bike';
 import type { TerrainHandle } from '../systems/terrain';
 import type { PassengerHandle } from '../systems/passenger';
+import { createTraffic } from '../systems/traffic';
 
 // ---------------------------------------------------------------------------
 // Public seam types (PLAN-06 Task A — the contract every event system + the
@@ -100,9 +101,9 @@ function inertHandle(): LevelEventHandle {
 
 /**
  * Dispatches each of `config.events` (none if absent), returning the live
- * handles GameScene drives. Currently traffic/police/pickup return inert
- * handles and wheelieRider/billboard push nothing — see the module comment.
- * Never throws.
+ * handles GameScene drives. Traffic constructs a real system; police/pickup
+ * return inert handles and wheelieRider/billboard push nothing — see the
+ * module comment. Never throws.
  *
  * @param scene runtime handle to Phaser's factories, for the PLAN-06
  *   implementations that spawn cars/play cutscenes (referenced today only in a
@@ -129,10 +130,10 @@ export function dispatchLevelEvents(
   for (const event of events) {
     switch (event.type) {
       case 'traffic':
-        // TODO(PLAN-06 task B): handles.push(createTraffic(scene, event, ctx))
-        // — level 7's oncoming "invisible cars" (drift into Gabby's lane;
-        // collision → ctx.softFail("They really don't see us!! Go again 💛")).
-        handles.push(inertHandle());
+        // Level 7's oncoming "invisible cars" (PLAN-06 task B): cars drift into
+        // Gabby's near lane and must be braked past; a hit soft-fails with the
+        // verbatim "They really don't see us!! Go again 💛" + instant restart.
+        handles.push(createTraffic(scene, event, ctx));
         break;
       case 'police':
         // TODO(PLAN-06 task D): handles.push(createPolice(scene, event, ctx))

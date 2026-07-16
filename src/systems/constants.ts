@@ -604,6 +604,76 @@ export const PASSENGER = {
   depth: DEPTHS.rider - 1,
 } as const;
 
+/** Level 7 "invisible cars" traffic tuning (PLAN-06 Task 1 — see
+ * src/systems/traffic.ts). The FEEL/geometry of the hazard lives here; the
+ * per-encounter LAYOUT (how many cars, how fast, where the encounters sit,
+ * telegraph time) is authored per-level in level07.ts's TrafficEvent so the
+ * one traffic level can be tuned without touching this block.
+ *
+ * MODEL (see traffic.ts / PLAN06 design brief): cars are pooled plain Images
+ * with ZERO Matter bodies. Each car is assigned a fixed world "encounter
+ * centre"; it travels LEFT toward Gabby, harmless in the FAR (oncoming) lane
+ * until it nears the centre, DRIFTS DOWN into the player's NEAR lane across a
+ * window, then drifts back OUT and continues past. Collision is a MANUAL JS
+ * overlap: only while the car is descended into the near lane (lane fraction
+ * >= collisionLaneThreshold) AND horizontally within collisionHalfWidthPx of
+ * the bike. The danger is therefore anchored to a fixed stretch of road, so
+ * the player can ALWAYS hang back (brake) left of it and let the car sweep
+ * through, or punch through before it drops — every encounter is avoidable.
+ * All lengths px at the 1280x720 DESIGN scale; per-frame speeds are px per
+ * render frame (the config's carSpeedPxPerFrame). */
+export const TRAFFIC = {
+  /** Half-width (px) of a car's near-lane window around its encounter centre:
+   * the car is (partly) in the near lane while within this of the centre. */
+  zoneHalfPx: 260,
+  /** Drift band width (px) at each edge of the window over which a car eases
+   * between the far and near lane (lane fraction ramps 0->1 across it). A car
+   * within zoneHalfPx - driftPx of the centre is FULLY in the near lane. */
+  driftPx: 130,
+  /** Manual-collision half-width (px): a hit needs |car.x - bike.x| within
+   * this. Deliberately narrower than the summed sprite half-widths (car 55 +
+   * bike 48 = 103) so a near miss doesn't kill — the EASY mandate. */
+  collisionHalfWidthPx: 70,
+  /** Minimum lane fraction (0 far .. 1 near) at which a car can hit. 0.5 =
+   * only once it's at least halfway down into the near lane, so a car merely
+   * grazing the fringe of the drift band is harmless. */
+  collisionLaneThreshold: 0.5,
+  /** How far before an encounter centre (px) the bike must reach for that
+   * encounter's car to spawn. Chosen with carSpeed/telegraph so a constant
+   * full-gas player CROSSES the near lane while the car is in it (level 7 is
+   * the one level gas-only doesn't clear — you brake to dodge), while a player
+   * who hangs back always clears it. */
+  triggerLeadPx: 2100,
+  /** Extra px added past the telegraph distance when spawning a car to the
+   * right of its encounter, so it comfortably starts fully off in the far
+   * lane before the >=3s telegraph begins. */
+  spawnBufferPx: 100,
+  /** A car is recycled (returned to the pool, hidden) once it has travelled
+   * this far LEFT past the bike, px — well off the left of the screen. */
+  recycleBehindPx: 1300,
+  /** Fixed sprite pool size. Cars recycle through it; sized comfortably above
+   * the worst-case simultaneously-active count (~3 near an encounter with the
+   * level07 spacing) so a spawn never has to be dropped. */
+  poolSize: 5,
+  /** Near-lane car-centre height above the ground surface, px (down on the
+   * road, in the bike's path). */
+  nearLaneOffsetPx: 34,
+  /** Far-lane (oncoming/telegraph) car-centre height above the surface, px —
+   * higher up / further back so the two lanes read as distinct. */
+  farLaneOffsetPx: 150,
+  /** Sprite alpha in the far lane (dimmed = "further away", the telegraph). */
+  farLaneAlpha: 0.55,
+  /** Sprite alpha once fully in the near lane (solid = in your lane). */
+  nearLaneAlpha: 1,
+  /** Physics/render frame rate used to convert the config's telegraph time
+   * (ms) into a spawn distance at carSpeedPxPerFrame. Matches the fixed 60 Hz
+   * tick (see DEBUG_OVERLAY.physicsStepsPerSecond). */
+  fps: 60,
+  /** 5 tints cycled across the pooled car sprites for variety (the tex-car
+   * placeholder is a solid mint block). Cosmetic only. */
+  tints: [PALETTE.coral, PALETTE.sky, PALETTE.sunshine, PALETTE.lavender, PALETTE.riverTeal],
+} as const;
+
 /** Pixel font family (to be loaded in a later plan). */
 export const FONT_FAMILY_PIXEL = 'Press Start 2P';
 

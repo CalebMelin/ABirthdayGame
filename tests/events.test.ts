@@ -1,19 +1,52 @@
 // Seam tests for dispatchLevelEvents (PLAN-06 Task A). events.ts has NO runtime
-// Phaser import (its `import type` lines are erased), and the inert handles it
-// returns today never touch `scene`/`ctx`, so the dispatcher runs in plain Node
-// with minimal stand-ins. These lock the seam's shape so later tasks (B/C/D)
-// that swap inert handles for real systems keep the same handle-count contract.
+// Phaser import (its `import type` lines are erased), so the dispatcher runs in
+// plain Node. The `traffic` case now constructs a REAL system (PLAN-06 task B,
+// src/systems/traffic.ts — itself import-safe: no runtime Phaser, no ui.ts), so
+// the stand-ins below are functional stubs rich enough for createTraffic to
+// build its sprite pool + run a frame without a real Phaser (police/pickup are
+// still inert and ignore them). These lock the seam's handle-count contract.
 import { describe, expect, it } from 'vitest';
 import { dispatchLevelEvents } from '../src/levels/events';
 import type { EventContext } from '../src/levels/events';
 import type { LevelConfig, LevelEvent } from '../src/levels/types';
 
-// Minimal stand-ins — dispatch only reads scene.scene.key (dev breadcrumb) and
-// passes ctx straight through to the (inert) handles, which ignore it.
-const fakeScene = { scene: { key: 'GameScene' } } as unknown as Parameters<
-  typeof dispatchLevelEvents
->[0];
-const fakeCtx = { calebPickedUp: false } as unknown as EventContext;
+/** A chainable Phaser.GameObjects.Image stub — every setter returns itself. */
+function stubImage(): Record<string, () => unknown> {
+  const image: Record<string, () => unknown> = {};
+  for (const method of [
+    'setDepth',
+    'setVisible',
+    'setOrigin',
+    'setFlipX',
+    'setAlpha',
+    'setPosition',
+    'setTint',
+    'setScale',
+    'destroy',
+  ]) {
+    image[method] = () => image;
+  }
+  return image;
+}
+
+// Scene stub: dispatch reads scene.scene.key (dev breadcrumb); createTraffic
+// calls scene.add.image(...) to build its pool.
+const fakeScene = {
+  scene: { key: 'GameScene' },
+  add: { image: () => stubImage() },
+} as unknown as Parameters<typeof dispatchLevelEvents>[0];
+
+// Ctx stub: createTraffic's update() reads isEnded/bike.x/terrain.heightAt and
+// may call softFail. With bike.x at 0 no encounter triggers, so update() is a
+// safe no-op here.
+const fakeCtx = {
+  calebPickedUp: false,
+  bike: { x: 0 },
+  terrain: { heightAt: () => 500 },
+  isEnded: () => false,
+  softFail: () => {},
+  setInputOverride: () => {},
+} as unknown as EventContext;
 
 function configWith(events: LevelEvent[]): LevelConfig {
   return {
