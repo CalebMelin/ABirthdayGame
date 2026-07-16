@@ -370,6 +370,31 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Derived (never stored) game facts.
+// ---------------------------------------------------------------------------
+
+/** Whether Caleb is already riding pillion when a level SPAWNS, DERIVED from
+ * progress + level number — never a stored boolean (PLAN-06 Task A). Pure and
+ * total (no Phaser, no storage), so GameScene can call it read-only and tests
+ * can exercise it in plain Node.
+ *
+ * Rules (NORTH_STAR §5 story consistency):
+ * - level < 12  → false (Gabby solo, always).
+ * - level == 12 → false at spawn; level 12's pickup cutscene flips Caleb on
+ *   mid-level via passenger.activate() (so he is NOT aboard at spawn here).
+ * - level 13..22 → true iff level 12 is completed (progress.completed[11]).
+ *   Because levels unlock sequentially, reaching 13+ guarantees 12 was
+ *   completed, so this is effectively always true on 13-22 and on replays of
+ *   >= 13 — but we read the real flag rather than assume it.
+ *
+ * `=== true` guards a malformed/short `completed` array (undefined → false),
+ * matching save.ts's total-function philosophy. */
+export function deriveCalebPickedUp(level: number, progress: LevelProgress): boolean {
+  if (level < 13) return false;
+  return progress.completed[11] === true;
+}
+
 let singleton: SaveSystem | undefined;
 
 /** Lazily-created shared SaveSystem for scenes. Does not touch

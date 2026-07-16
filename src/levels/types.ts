@@ -88,16 +88,42 @@ export interface DecorationSpec {
 // on `type` today; fields may be refined once those plans land.
 // ---------------------------------------------------------------------------
 
-/** Level 7's "invisible cars" oncoming traffic. Density/spawn params are
- * refined in PLAN-06 — no fields yet beyond the discriminant. */
+/** Level 7's "invisible cars" oncoming traffic (NORTH_STAR §5). All spawn/
+ * density fields below are OPTIONAL config-tunables (the traffic system —
+ * PLAN-06 task B — supplies a sensible default for any omitted field), so
+ * existing configs keep compiling. The discriminant stays `type: 'traffic'`. */
 export interface TrafficEvent {
   type: 'traffic';
+  /** How many oncoming cars the encounter run spawns/pools. */
+  carCount?: number;
+  /** Leftward travel speed of each car, px per render frame. */
+  carSpeedPxPerFrame?: number;
+  /** World x of the first car spawn (later cars follow at `spacingPx`). */
+  firstSpawnX?: number;
+  /** Horizontal spacing between successive car spawns, px. */
+  spacingPx?: number;
+  /** How long a car is telegraphed in the far (harmless) lane before it
+   * drifts down into the player's near lane, ms. */
+  laneDropTelegraphMs?: number;
 }
 
-/** Level 15's police chase. Speed/trigger params are refined in PLAN-06 —
- * no fields yet beyond the discriminant. */
+/** Level 15's police chase (NORTH_STAR §5). All pursuit fields below are
+ * OPTIONAL config-tunables (the police system — PLAN-06 task D — defaults any
+ * omitted field); the discriminant stays `type: 'police'`. */
 export interface PoliceEvent {
   type: 'police';
+  /** How far behind the bike the cop starts, px. */
+  startBehindPx?: number;
+  /** Gap (px) within which the cop counts as "on" the bike (see catchTimeMs). */
+  catchDistancePx?: number;
+  /** Continuous time within catchDistancePx before the player is caught, ms. */
+  catchTimeMs?: number;
+  /** Cop hard-cap speed as a FRACTION of the bike's full-gas top speed —
+   * MUST be < 1 so holding gas always pulls away (the EASY mandate). */
+  copMaxSpeedFrac?: number;
+  /** Small rubber-band bonus added to the cop's tracked player-speed target,
+   * px per render frame, so a stopped/crashed player gets closed on. */
+  catchupBonusPxPerFrame?: number;
 }
 
 /** Level 12's mid-level stop at Caleb's house (pickup cutscene; from here
@@ -107,6 +133,9 @@ export interface CalebPickupEvent {
   /** Distance along the level where the stop happens, px. Required:
    * position is the whole point of this event. */
   x: number;
+  /** How near `x` (px) the bike must be for the pickup cutscene to trigger.
+   * OPTIONAL — the pickup system (PLAN-06 task C) defaults it. */
+  stopWindowPx?: number;
 }
 
 /** Level 11's guaranteed, non-interactive easter egg: an all-black rider

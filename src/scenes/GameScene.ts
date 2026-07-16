@@ -33,7 +33,7 @@ import { createGameInput } from '../systems/input';
 import type { GameInput } from '../systems/input';
 import { createPedals, zoomCompensatedPosition, zoomCompensatedScale } from '../systems/pedals';
 import type { PedalsHandle, Vec2 } from '../systems/pedals';
-import { getSave } from '../systems/save';
+import { getSave, deriveCalebPickedUp } from '../systems/save';
 import { defaultCharacter } from '../data/characters';
 import { buildCharacterTextures } from '../systems/characterTextures';
 import { getLevelConfig } from '../levels';
@@ -43,7 +43,10 @@ import { THEMES, createBackdrop } from '../systems/themes';
 import type { BackdropHandle } from '../systems/themes';
 import { createDecorations } from '../systems/decorations';
 import type { DecorationsHandle } from '../systems/decorations';
+import { createPassenger } from '../systems/passenger';
+import type { PassengerHandle } from '../systems/passenger';
 import { dispatchLevelEvents } from '../levels/events';
+import type { EventContext, LevelEventHandle } from '../levels/events';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -94,6 +97,22 @@ export class GameScene extends Phaser.Scene {
    * they never touch NORTH_STAR §8's <100-body budget). Same non-Matter teardown
    * as backdrop — destroyed in SHUTDOWN outside the matter-world guard. */
   private decorations: DecorationsHandle | undefined;
+  /** Persistent Caleb pillion sprite (PLAN-06 Task A). Cosmetic ONLY — no
+   * Matter body — so, like backdrop/decorations, it's created every create()
+   * and destroyed in SHUTDOWN OUTSIDE the matter-world guard. Visible from
+   * spawn on levels where Caleb is aboard (derived, see deriveCalebPickedUp),
+   * else hidden until level 12's pickup cutscene calls passenger.activate(). */
+  private passenger: PassengerHandle | undefined;
+  /** Live scripted-event handles (PLAN-06 Task A seam) — one per real event in
+   * config.events. Driven each update() (while the run is live), consulted for
+   * finish-delays via onFinish(), and destroyed in SHUTDOWN (non-Matter, so
+   * outside the matter-world guard). Reset to [] on teardown. */
+  private eventHandles: LevelEventHandle[] = [];
+  /** Cutscene pedal override (PLAN-06 Task A). When non-null, GameScene feeds
+   * THIS to bike.update() instead of the sampled pedals (e.g. level 12's
+   * auto-brake stop); null = player back in control. Set via the EventContext's
+   * setInputOverride. Reset to null on teardown. */
+  private inputOverride: { gas: boolean; brake: boolean } | null = null;
   private bike: BikeHandle | undefined;
   /** Unified keyboard+touch pedals (PLAN-03 task 1). NOT named `input` —
    * that's already Phaser.Scene's InputPlugin. Recreated every create() and
@@ -160,6 +179,7 @@ export class GameScene extends Phaser.Scene {
     // per-run state resets here.
     this.ended = false;
     this.lookaheadPx = 0;
+    this.inputOverride = null;
 
     // Resolve this level's config (TOTAL function — clamps/defaults a bad id).
     const config = getLevelConfig(this.level);
@@ -216,11 +236,33 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(DEPTHS.props);
 
-    // Scripted-event dispatch (ST-4 stub): iterates config.events and dispatches
-    // each as a documented no-op (traffic/police/pickup/wheelie/billboard land
-    // in PLAN-06/07). Never throws, renders nothing yet — so a special-event
-    // level (7/11/12/15/18) enters cleanly today.
-    dispatchLevelEvents(this, config);
+    // Persistent passenger (PLAN-06 Task A): Caleb rides pillion once picked up
+    // (level 12) and thereafter (13-22, DERIVED from save progress — never a
+    // stored flag). Cosmetic sprite only (ZERO Matter bodies). Read-only save:
+    // GameScene must never WRITE progress here. Created AFTER the bike so it can
+    // pin to bike.chassis every frame; visible from spawn iff Caleb is aboard.
+    const calebPickedUp = deriveCalebPickedUp(this.level, getSave().loadProgress());
+    this.passenger = createPassenger(this, this.bike, { active: calebPickedUp });
+
+    // Scripted-event dispatch (PLAN-06 Task A seam): each event returns a handle
+    // GameScene drives per-frame (update), tears down (destroy), and can consult
+    // for a finish-hold (onFinish). Traffic/police/pickup behavior lands in
+    // later PLAN-06 tasks (inert handles today); wheelie/billboard are PLAN-07
+    // no-ops. Never throws — a special-event level (7/11/12/15/18) enters
+    // cleanly. Built AFTER bike + terrain + finishX + passenger exist.
+    const ctx: EventContext = {
+      bike: this.bike,
+      terrain: this.terrain,
+      finishX: this.finishX,
+      worldLength: this.terrain.worldLength,
+      calebPickedUp,
+      passenger: this.passenger,
+      softFail: (message) => this.failLevel(message),
+      setInputOverride: (input) => {
+        this.inputOverride = input;
+      },
+    };
+    this.eventHandles = dispatchLevelEvents(this, config, ctx);
 
     // Unified input (PLAN-03 task 1): keyboard (Right/Up/W/D = gas,
     // Left/Down/S/A = brake) merged with the touch pedals (task 2 feeds
@@ -318,6 +360,17 @@ export class GameScene extends Phaser.Scene {
       this.backdrop = undefined;
       this.decorations?.destroy();
       this.decorations = undefined;
+      // Passenger + scripted-event handles are plain GameObjects, NO Matter
+      // bodies — so, like backdrop/decorations above, they're torn down OUTSIDE
+      // the matter-world guard (their teardown must run on EVERY shutdown
+      // regardless of whether the physics world survived). Reset the fields so
+      // scene.restart() (which re-runs create() on the SAME instance) starts
+      // clean and can't leak handles or a stale cutscene input override.
+      this.passenger?.destroy();
+      this.passenger = undefined;
+      for (const handle of this.eventHandles) handle.destroy();
+      this.eventHandles = [];
+      this.inputOverride = null;
       // Input is DOM/keyboard, not Matter — always safe to tear down (no
       // world-null guard needed). Removes the Keys it registered so restart
       // can't leak or double-register (see GameInput.destroy).
@@ -358,26 +411,61 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Merged keyboard+touch pedals for THIS frame (input.ts OR-merges every
-    // gas/brake source — see mergePedals). The this.ended gate forces both
-    // pedals false the instant the run is over (crashed/fell/finished),
-    // exactly as before, so bike.update can't be driven during the
-    // fail/finish freeze.
-    const { gas, brake } = this.gameInput
-      ? this.ended
-        ? { gas: false, brake: false }
-        : this.gameInput.sample()
-      : { gas: false, brake: false };
+    // Pedals for THIS frame. The run being over (crashed/fell/finished) forces
+    // both pedals false — exactly as before, so bike.update can't be driven
+    // during the fail/finish freeze. While live, a cutscene inputOverride (e.g.
+    // level 12's auto-brake, set via EventContext.setInputOverride) WINS over
+    // the sampled pedals; otherwise the merged keyboard+touch pedals drive
+    // (input.ts OR-merges every gas/brake source — see mergePedals).
+    let gas = false;
+    let brake = false;
+    if (!this.ended) {
+      if (this.inputOverride) {
+        ({ gas, brake } = this.inputOverride);
+      } else if (this.gameInput) {
+        ({ gas, brake } = this.gameInput.sample());
+      }
+    }
     this.bike.update({ gas, brake });
+
+    // Persistent passenger pins to the bike every frame — including during the
+    // crash tumble (cosmetic, so it follows Gabby regardless of run state).
+    this.passenger?.update();
 
     if (!this.ended && this.bike.y > this.worldBottomY) {
       this.failLevel();
     }
 
+    // Drive the scripted-event handles ONLY while the run is live: once the run
+    // has ended (a soft fail — a handle may have called ctx.softFail — or the
+    // finish freeze) hazards must stop so nothing interrupts the fail/finish
+    // hold. A handle that calls softFail mid-loop flips this.ended; remaining
+    // handles this frame are inert today, and each real system early-returns on
+    // its own once ended.
+    if (!this.ended) {
+      for (const handle of this.eventHandles) handle.update();
+    }
+
     if (!this.ended && this.bike.x >= this.finishX) {
       this.ended = true;
-      this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
-      return;
+      // Let event handles play a finish finale (e.g. level 15's cop spin-out)
+      // and hold the LevelComplete hand-off by the LONGEST delay any returns.
+      // The run stays "ended" (input frozen) through the hold; the passenger +
+      // camera keep updating so the finale is visible.
+      let finishDelayMs = 0;
+      for (const handle of this.eventHandles) {
+        const delay = handle.onFinish?.();
+        if (typeof delay === 'number' && delay > finishDelayMs) finishDelayMs = delay;
+      }
+      const goToComplete = (): void => {
+        this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
+      };
+      if (finishDelayMs > 0) {
+        this.time.delayedCall(finishDelayMs, goToComplete);
+      } else {
+        goToComplete();
+        return;
+      }
     }
 
     this.updateCamera();
@@ -495,7 +583,7 @@ export class GameScene extends Phaser.Scene {
    * SHUTDOWN backstop above tear down every body/listener/game-object in
    * one well-defined sweep, which is what makes the "no leaks after 3
    * restarts" criterion hold by construction. */
-  private failLevel(): void {
+  private failLevel(message: string = FAIL_OVERLAY_TEXT): void {
     if (this.ended) return;
     this.ended = true;
 
@@ -509,7 +597,7 @@ export class GameScene extends Phaser.Scene {
       .rectangle(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, dimW, dimH, PALETTE.bgPink, 0.6)
       .setScrollFactor(0)
       .setDepth(DEPTHS.overlay);
-    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, FAIL_OVERLAY_TEXT, 40)
+    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, message, 40)
       .setScrollFactor(0)
       .setDepth(DEPTHS.overlay + 1);
 

@@ -542,6 +542,35 @@ export const DEPTHS = {
   overlay: 120,
 } as const;
 
+/** Persistent passenger (Caleb) tuning (PLAN-06 Task A — see
+ * src/systems/passenger.ts). Caleb rides pillion BEHIND Gabby once picked up
+ * (level 12) and thereafter (13-22, derived from save progress). He is a
+ * PURELY COSMETIC sprite — ZERO Matter bodies, no mass/handling change
+ * (NORTH_STAR §8 body budget + PLAN-06 "handling must not get harder"). Each
+ * frame the sprite is pinned to a chassis-local offset rotated into world
+ * space (mirroring bike.ts syncSprites' rider block) plus a small independent
+ * vertical bob. Offsets are px in the chassis' LOCAL frame (rotate with it).
+ *
+ * `offsetX` is more negative than BIKE_TUNING.riderOffsetX (-4) so Caleb sits
+ * FURTHER BACK than Gabby; `depth` is DEPTHS.rider - 1 so Gabby (on
+ * DEPTHS.rider) overlaps/draws in front of him — she's the one driving. */
+export const PASSENGER = {
+  /** Caleb sprite center x relative to chassis center, px (local frame).
+   * Behind Gabby (more negative than riderOffsetX). */
+  offsetX: -24,
+  /** Caleb sprite center y relative to chassis center, px (local frame).
+   * Negative = above the chassis; slightly lower than Gabby's -38 so her
+   * head reads above his. */
+  offsetY: -34,
+  /** Vertical bob amplitude, px — a subtle independent sway so the pillion
+   * reads as alive, not welded on. Small on purpose. */
+  bobAmplitudePx: 2,
+  /** Full bob cycle period, ms. */
+  bobPeriodMs: 900,
+  /** Render depth: just behind the rider so Gabby overlaps Caleb. */
+  depth: DEPTHS.rider - 1,
+} as const;
+
 /** Pixel font family (to be loaded in a later plan). */
 export const FONT_FAMILY_PIXEL = 'Press Start 2P';
 
