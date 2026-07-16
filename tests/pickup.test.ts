@@ -17,8 +17,9 @@ import type { PickupPhase, PickupSignals } from '../src/systems/pickup';
 describe('verbatim personal content', () => {
   it('the mailbox nameplate is byte-exact MELIN (never paraphrase — CLAUDE.md Rule 4)', () => {
     expect(MAILBOX_LABEL).toBe('MELIN');
-    // Code-point literal so an accidental homoglyph/casing swap fails the test.
-    expect(MAILBOX_LABEL).toBe('MELIN');
+    // Assert the actual code points so an accidental homoglyph (e.g. Cyrillic
+    // 'М'/'Е') or casing swap fails the test even if it renders identically.
+    expect([...MAILBOX_LABEL].map((c) => c.codePointAt(0))).toEqual([77, 69, 76, 73, 78]);
   });
 
   it('the pickup toast is byte-exact "Caleb hopped on!!" (never paraphrase)', () => {
