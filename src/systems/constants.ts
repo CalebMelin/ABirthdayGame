@@ -650,6 +650,39 @@ export const LEVEL = {
    * crossing at speed never runs out of world before the LevelComplete
    * hand-off. Was GameScene's module-local FINISH_X (14500 = 15000 - 500). */
   finishMarginPx: 500,
+
+  // ---------------------------------------------------------- jump-safety
+  // floors. Added for PLAN-05 ST-5/task 6 (src/levels/validate.ts's
+  // validateJumpSafety + scripts/playtest-levels.mjs, the ghost-driver
+  // harness that proves every level is gas-only-beatable). These are SAFETY
+  // FLOORS, not the tighter values ST-3 actually authored the real 22
+  // configs to (widths 420-700px, heights 50-95px, jump `x` at ~35-64% of
+  // level length, hilliness <=0.30 on every jump-bearing level — see
+  // DECISIONS.md's ST-3 entry) — deliberately looser so a minor future
+  // level-config tweak doesn't false-fail this guard, while a genuinely
+  // unsafe jump (too narrow/tall, too close to spawn/finish, or stacked on
+  // overly hilly terrain) still gets caught.
+  /** Minimum authored jump-ramp width, px. A narrower ramp steepens the
+   * raised-cosine slope (terrain.ts's applyJumps widens for maxJumpSlope,
+   * but only up to a point) toward an unrideable wall. */
+  jumpMinWidthPx: 400,
+  /** Maximum authored jump-ramp height, px. A taller ramp eats more of the
+   * bike's speed budget climbing it and risks a harder landing. */
+  jumpMaxHeightPx: 100,
+  /** Minimum fraction of level length a jump's `x` (the ramp's base — see
+   * JumpSpec.x) may sit at. */
+  jumpPlacementMinFrac: 0.25,
+  /** Maximum fraction of level length a jump's `x` may sit at. */
+  jumpPlacementMaxFrac: 0.75,
+  /** Minimum clearance, px, a jump's `x` must keep from both the spawn
+   * point (spawnXPx) and the finish flag (length - finishMarginPx) — guards
+   * against reaching ramp speed before the spawn flat zone ends, or a jump
+   * landing spilling past the finish. */
+  jumpClearancePx: 1500,
+  /** Maximum terrain.hilliness allowed on any level that authors >=1 jump —
+   * keeps a jump's launch/landing predictable instead of stacked on top of
+   * already-steep rolling-hill terrain. */
+  jumpLevelMaxHilliness: 0.3,
 } as const;
 
 /** Level-start intro banner tuning (PLAN-05 ST-4 — GameScene.showIntroBanner).

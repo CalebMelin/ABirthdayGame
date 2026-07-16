@@ -1,32 +1,62 @@
 // Automated browser playtest for the PLAN-02 task-6 feel-tuning criteria
 // (companion to playtest-drive.mjs — run that first as the regression gate).
 //
+// *** PLAN-05 ST-5/task 6 RECONCILIATION NOTE ***
+// This script was written against PLAN-02's hardcoded TEST_LEVEL, which had
+// a real trick kicker at x=10584. PLAN-05 ST-4 removed TEST_LEVEL and made
+// every level data-driven; the 22 real configs were authored conservatively
+// (gentle raised-cosine hops only, no flip-capable kicker anywhere — see
+// src/levels/validate.ts's jump-safety floors) so gas-only survival could be
+// PROVEN, not just hoped for. No PLAN-05 level has a kicker. Current status
+// per mode, below:
+//   - flip:    DORMANT. Cannot work until PLAN-07 re-adds a flip-capable
+//              kicker to some level. Exits immediately with a clear message
+//              instead of hanging/timing out against a kicker that no
+//              longer exists (see FLIP_DORMANT_MESSAGE).
+//   - gasonly: still runs (drives level 1 start-to-finish gas-only) but is
+//              SUPERSEDED for cross-level coverage by the new, committed
+//              scripts/playtest-levels.mjs, which drives all 22 levels.
+//              Its kicker-specific `overKicker` field is now permanently
+//              null (RAMP_X/RAMP_W no longer correspond to real geometry on
+//              any level) — expected, not a bug.
+//   - brake:   RE-POINTED at level 22 (BRAKE_TEST_LEVEL_ID below), the
+//              hilliest jump-free level, since level 1 is flat as of
+//              PLAN-05. The flat-stop portion is unaffected either way —
+//              every level shares the same {0,700} spawn flat zone
+//              (guarded by src/levels/validate.ts's validateFlatZones).
+//
 // Modes (node scripts/playtest-tricks.mjs [mode]):
-//   flip     (default) — performs the deliberate-backflip recipe off the
-//            test level's trick kicker N times (ATTEMPTS env, default 3),
-//            each on a fresh scene.restart + full drive from spawn, and
-//            reports the airborne rotation AT LANDING per attempt (the
-//            PLAN-07 tulip criterion: |rotation| >= 360deg + clean landing).
-//            Exit 0 only if EVERY attempt full-flips and lands clean.
-//   gasonly  — full-gas run start->finish recording per-physics-step
-//            telemetry; reports every airborne phase (steps, max |chassis
-//            angle|, rotation at landing) + crash count. Exit 0 only if the
-//            level completes, with zero crashes, and no airborne phase
-//            exceeds the LOOP_OUT_LIMIT_DEG chassis angle ("no loop-outs on
-//            natural hills", and "gas-only over the trick ramp doesn't flip").
+//   flip     (default) — DORMANT, see above. When PLAN-07 adds a real
+//            kicker: performs the deliberate-backflip recipe off it N times
+//            (ATTEMPTS env, default 3), each on a fresh scene.restart + full
+//            drive from spawn, and reports the airborne rotation AT LANDING
+//            per attempt (the PLAN-07 tulip criterion: |rotation| >= 360deg
+//            + clean landing). Exit 0 only if EVERY attempt full-flips and
+//            lands clean. The recipe implementation (`flipAttempt` et al.)
+//            is left intact/unreachable below, ready for PLAN-07 to re-point
+//            at a real kicker rather than being rebuilt from scratch.
+//   gasonly  — full-gas run start->finish (level 1) recording per-physics-
+//            step telemetry; reports every airborne phase (steps, max
+//            |chassis angle|, rotation at landing) + crash count. Exit 0
+//            only if the level completes, with zero crashes, and no
+//            airborne phase exceeds the LOOP_OUT_LIMIT_DEG chassis angle
+//            ("no loop-outs on natural hills"). See supersession note above.
 //   brake    — full-brake stops on the spawn flat (position-keyed, moderate
 //            speed — the flat is only 700px) and across 3 rounds of
-//            top-speed rolling hills; exit 0 only if no crash anywhere AND
-//            the GROUNDED max |chassis angle| stays under ENDO_LIMIT_DEG
-//            (flat) / DESCENT_PITCH_LIMIT_DEG (rolling). Grounded-only on
-//            purpose: an endo/faceplant is a grounded pitch-over (front
-//            wheel down, rear lifting — `airborne` needs BOTH wheels off,
-//            so it stays false through a real endo and the frames count);
-//            harmless airborne hop attitude mid-braking is governed by the
-//            gasonly/flip modes' loop-out checks, not this gate.
+//            top-speed rolling hills on BRAKE_TEST_LEVEL_ID; exit 0 only if
+//            no crash anywhere AND the GROUNDED max |chassis angle| stays
+//            under ENDO_LIMIT_DEG (flat) / DESCENT_PITCH_LIMIT_DEG (rolling).
+//            Grounded-only on purpose: an endo/faceplant is a grounded
+//            pitch-over (front wheel down, rear lifting — `airborne` needs
+//            BOTH wheels off, so it stays false through a real endo and the
+//            frames count); harmless airborne hop attitude mid-braking is
+//            governed by the gasonly/flip modes' loop-out checks, not this
+//            gate.
 //
-// THE BACKFLIP RECIPE (human instructions, encoded in `flip` below):
-//   1. Hold gas at full speed up the big kicker (x=10584 in TEST_LEVEL).
+// THE BACKFLIP RECIPE (human instructions, encoded in `flip` below — DORMANT,
+// see above; kept for PLAN-07):
+//   1. Hold gas at full speed up the big kicker (x=10584 in the old
+//      TEST_LEVEL — stale, see reconciliation note above).
 //   2. Right at the lip, let go of gas and immediately press it again
 //      (~0.1s gap). A press that lands a little BEFORE takeoff still
 //      counts — bike.ts's trickPressBufferSteps press-buffering.
@@ -51,10 +81,30 @@ const OUT_DIR = process.env.OUT_DIR ?? './playtest-out';
 const DESIGN_W = 1280;
 const DESIGN_H = 720;
 
-// TEST_LEVEL trick-kicker geometry (see src/scenes/GameScene.ts).
+// STALE trick-kicker geometry from the removed PLAN-02 TEST_LEVEL (see the
+// PLAN-05 ST-5/task 6 reconciliation note at the top of this file) — no
+// longer corresponds to real geometry on any of the 22 PLAN-05 levels.
+// Kept, not deleted: `flip` mode's (dormant) flipAttempt() still references
+// it for when PLAN-07 re-points this at a real kicker, and `gasonly`
+// mode's kicker-phase filter still references it too (harmlessly — it now
+// just never matches anything, so `overKicker` reports null forever until
+// re-pointed).
 const RAMP_X = 10584;
 const RAMP_W = 336;
 const CREST_X = RAMP_X + RAMP_W / 2;
+
+/** brake mode's re-pointed target (see the reconciliation note above):
+ * level 22 is the hilliest of the 22 real PLAN-05 configs (hilliness 0.38)
+ * AND jump-free, i.e. pure rolling hills — exactly what the "rolling
+ * descents" portion of brake mode wants to stress-test. The flat-stop
+ * portion doesn't care which level (every level shares the same {0,700}
+ * spawn flat zone). */
+const BRAKE_TEST_LEVEL_ID = 22;
+
+/** flip mode's dormant-exit message (see the reconciliation note above). */
+const FLIP_DORMANT_MESSAGE =
+  'flip mode is dormant until PLAN-07: no flip-capable kicker exists in the current levels; ' +
+  'gas-only survival is now covered by scripts/playtest-levels.mjs.';
 
 /** Criterion (e): max |chassis angle| allowed during any airborne phase of
  * a gas-only run — "the bike never loops out on natural hills". */
@@ -294,6 +344,22 @@ async function flipAttempt(page, att) {
 }
 
 async function main() {
+  // flip mode is DORMANT until PLAN-07 (see the reconciliation note at the
+  // top of this file) — exit immediately with a clear, unambiguous message.
+  // No browser/dev-server round trip at all, so this genuinely CANNOT hang
+  // or time out against a kicker that no longer exists.
+  if (mode === 'flip') {
+    console.log(JSON.stringify({ mode, status: 'dormant', message: FLIP_DORMANT_MESSAGE }, null, 1));
+    console.warn(FLIP_DORMANT_MESSAGE);
+    return;
+  }
+
+  if (mode !== 'gasonly' && mode !== 'brake') {
+    console.error(`unknown mode: ${mode} (use flip | gasonly | brake)`);
+    process.exitCode = 1;
+    return;
+  }
+
   await mkdir(OUT_DIR, { recursive: true });
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await browser.newContext({ viewport: { width: DESIGN_W, height: DESIGN_H } });
@@ -308,14 +374,18 @@ async function main() {
     await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
     await enterLevel1(page);
 
-    if (mode === 'flip') {
-      const attempts = Number(process.env.ATTEMPTS ?? 3);
-      const results = [];
-      for (let att = 0; att < attempts; att++) results.push(await flipAttempt(page, att));
-      const allFlipped = results.every((r) => r.fullFlip && !r.crashedWithin1sOfLanding);
-      console.log(JSON.stringify({ mode, allFlipped, results, consoleErrors, pageErrors }, null, 1));
-      if (!allFlipped || consoleErrors.length > 0 || pageErrors.length > 0) process.exitCode = 1;
-      return;
+    if (mode === 'brake') {
+      // Re-point at a real descent (see BRAKE_TEST_LEVEL_ID doc comment):
+      // level 1 is flat as of PLAN-05, so brake mode's "rolling descents"
+      // portion needs a hillier level. Same direct-entry technique (and the
+      // same verified-against-Phaser-source shutdown-then-restart
+      // semantics) as scripts/playtest-levels.mjs.
+      await page.evaluate(
+        (levelId) => globalThis.__gabbyGame.scene.start('GameScene', { level: levelId }),
+        BRAKE_TEST_LEVEL_ID
+      );
+      await waitForScene(page, 'GameScene');
+      await page.waitForTimeout(600);
     }
 
     if (mode === 'gasonly') {
@@ -438,9 +508,6 @@ async function main() {
       }
       return;
     }
-
-    console.error(`unknown mode: ${mode} (use flip | gasonly | brake)`);
-    process.exitCode = 1;
   } finally {
     await browser.close();
   }
