@@ -46,6 +46,8 @@ import { createDecorations } from '../systems/decorations';
 import type { DecorationsHandle } from '../systems/decorations';
 import { createPassenger } from '../systems/passenger';
 import type { PassengerHandle } from '../systems/passenger';
+import { createTricks } from '../systems/tricks';
+import type { TricksHandle } from '../systems/tricks';
 import { dispatchLevelEvents } from '../levels/events';
 import type { EventContext, LevelEventHandle } from '../levels/events';
 import { normalizeLevel } from './types';
@@ -132,6 +134,14 @@ export class GameScene extends Phaser.Scene {
    * holds its screen spot as the camera zooms. Recreated every create() and
    * destroyed in SHUTDOWN — same per-run lifecycle as gameInput/pedals. */
   private pauseButton: Phaser.GameObjects.Container | undefined;
+  /** Trick/tulip system (PLAN-07 task 1): fixed-step flip detection off the
+   * bike's airborne rotation + the persistent bouquet HUD top-RIGHT (the ⏸
+   * button's mirror corner), laid out every update() with the same
+   * zoom-compensation. Runs in EVERY level (not a LevelEvent). ZERO Matter
+   * bodies; its fixed-step listener self-removes in destroy(), so — like
+   * pedals/pauseButton — it's recreated every create() and destroyed in
+   * SHUTDOWN outside the matter-world guard. */
+  private tricks: TricksHandle | undefined;
   /** Esc / P desktop pause keys (PLAN-03 task 5). Added in create(), polled
    * with JustDown in update(); cleared by Phaser's KeyboardPlugin on shutdown
    * (same as the dev debugKey), reassigned each create(). */
@@ -284,6 +294,15 @@ export class GameScene extends Phaser.Scene {
     // helpers so it holds its screen spot as the camera zooms.
     this.pauseButton = this.createPauseButton();
 
+    // Trick/tulip system (PLAN-07 task 1): flip detection on the fixed 60 Hz
+    // step + the tulip bouquet HUD top-right (the ⏸ button's mirror corner),
+    // fed by the SAME save system every scene shares (awards persist the
+    // instant a flip lands, so a later fail-restart keeps them). Runs in
+    // every level. Must come AFTER createBike: its fixed-step listener
+    // registers behind the bike's, so it reads post-update bike state, and
+    // it watches the bike handle directly.
+    this.tricks = createTricks(this, this.bike, getSave());
+
     // Esc / P both pause on desktop. JustDown-polled in update(). No conflict
     // with gameplay keys (arrows/WASD via gameInput) or the dev debug toggle
     // (backtick). Cleared on shutdown by Phaser's KeyboardPlugin (like debugKey).
@@ -391,6 +410,14 @@ export class GameScene extends Phaser.Scene {
       // dev debugKey), so they need no explicit teardown here.
       this.pauseButton?.destroy();
       this.pauseButton = undefined;
+      // Trick/tulip system: plain GameObjects + a fixed-step world listener
+      // whose removal SELF-GUARDS a nulled matter world (see tricks.ts
+      // destroy, same pattern as police.ts) — so, like the other non-Matter
+      // handles here, it's torn down OUTSIDE the matter-world guard and must
+      // run on EVERY shutdown. Tulip PERSISTENCE needs nothing here: awards
+      // were saved the instant each flip landed.
+      this.tricks?.destroy();
+      this.tricks = undefined;
       // Remove the RESUME listener registered in create() (see above). The
       // Scene instance persists across scene.restart() and create() re-adds it,
       // so without this off() the RESUME handlers would stack across restarts.
@@ -496,6 +523,11 @@ export class GameScene extends Phaser.Scene {
     // SAME zoom-compensation helpers/pivot as the pedals. After updateCamera()
     // so it reads the freshest zoom.
     this.layoutPauseButton(this.cameras.main.zoom);
+
+    // Keep the tulip bouquet HUD (top-right) screen-fixed the same way. Runs
+    // even while ended (like the ⏸ layout above) so the bouquet holds its
+    // corner through finish finales/fail overlays.
+    this.tricks?.layout(this.cameras.main.zoom);
 
     // Dev-only debug overlay (PLAN-02 task 5). Inlined here (rather than
     // delegated to a private method) on purpose: `import.meta.env.DEV` is

@@ -167,6 +167,33 @@ describe('tulips', () => {
     save.addTulips(Number.POSITIVE_INFINITY);
     expect(save.getTulips()).toBe(5);
   });
+
+  it('truncates fractional counts (whole tulips only)', () => {
+    const save = createSaveSystem(createFakeStorage());
+    save.addTulips(1.9);
+    expect(save.getTulips()).toBe(1);
+    save.addTulips(2.5);
+    expect(save.getTulips()).toBe(3);
+  });
+
+  // The PLAN-07 "persists across levels AND sessions" criterion: each new
+  // SaveSystem over the same storage models a fresh page load / session, and
+  // awards from a later session must STACK on the earlier session's total
+  // (the plain read-back of one instance's writes is covered above in
+  // 'persistence across instances').
+  it('accumulates across sessions (a later instance adds onto an earlier one)', () => {
+    const storage = createFakeStorage();
+    const session1 = createSaveSystem(storage);
+    session1.addTulips(3);
+
+    const session2 = createSaveSystem(storage);
+    expect(session2.getTulips()).toBe(3);
+    session2.addTulips(4);
+    expect(session2.getTulips()).toBe(7);
+
+    const session3 = createSaveSystem(storage);
+    expect(session3.getTulips()).toBe(7);
+  });
 });
 
 describe('notesSeen', () => {

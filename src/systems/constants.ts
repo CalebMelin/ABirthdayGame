@@ -849,6 +849,62 @@ export const PAUSE = {
   buttonMinWidth: 320,
 } as const;
 
+/** Trick/tulip system tuning (PLAN-07 task 1 — see src/systems/tricks.ts).
+ * Landing a full airborne flip awards a tulip (NORTH_STAR §4 "Tricks &
+ * tulips"): the bike rig (bike.ts) already accumulates signed chassis
+ * rotation per air phase (BikeHandle.airborneRotation, reset at TAKEOFF),
+ * and tricks.ts reads it on the landing step — an award needs |rotation| >=
+ * flipThresholdDeg, n flips at n*fullFlipDeg - (fullFlipDeg -
+ * flipThresholdDeg). Tulips persist via save.ts (gabby22.tulips) and render
+ * as a bouquet HUD in the TOP-RIGHT corner that grows with the count
+ * (single tulip -> small bunch -> full bouquet). Purely sentimental — no
+ * spending, no shop, ZERO Matter bodies.
+ *
+ * The bouquet HUD is screen-anchored (scrollFactor 0) and, like the touch
+ * pedals and the ⏸ button, zoom-counter-transformed every render frame
+ * (zoomCompensated* helpers) so it holds its on-screen corner as the play
+ * camera zooms. The placeholder DRAWING dimensions (tulip cluster fan
+ * offsets, toast/count font sizes, arc start point) stay as local
+ * documented consts in tricks.ts (decorations.ts / pickup.ts / police.ts
+ * precedent — PLAN-10 replaces the art); the FEEL/timing/threshold knobs
+ * live here. Times are ms; angles are degrees. */
+export const TRICKS = {
+  /** Minimum |airborne rotation| (degrees) that lands ONE flip. Forgiving on
+   * purpose (330, not 360): the auto-stabilization assist settles the last
+   * few degrees after touchdown, so a human-landed 360 typically reads
+   * ~330-380 at the landing step (PLAN-02 measured real backflips at
+   * -376/-508). Also sets the per-extra-flip grace: n flips need
+   * n*fullFlipDeg - (fullFlipDeg - this) — e.g. 330 -> 1, 690 -> 2. */
+  flipThresholdDeg: 330,
+  /** Degrees in one full flip. A true constant (never tune this one) — named
+   * so the award rule reads as geometry, not magic. */
+  fullFlipDeg: 360,
+  /** "Backflip!! 🌷" / "Frontflip!! 🌷" toast: fully-visible hold before it
+   * fades, ms. Short — a flip is a mid-drive beat, not a cutscene. */
+  toastHoldMs: 1200,
+  /** Toast fade-out duration after the hold, ms. */
+  toastFadeMs: 500,
+  /** Tulip arc: how long one awarded tulip sprite takes to fly from the
+   * screen center up to the bouquet corner, ms. */
+  arcDurationMs: 700,
+  /** Extra launch delay per additional tulip when one landing awards several
+   * (a multi-flip), ms — they chase each other to the corner instead of
+   * stacking into one sprite. */
+  arcStaggerMs: 140,
+  /** Gap from the top-right screen corner to the bouquet HUD's bounding
+   * edges, px. The SAME margin as the ⏸ button's top-left corner gap, so the
+   * two corner HUD controls read as one system. */
+  hudMarginPx: PAUSE.buttonMarginPx,
+  /** Tulip count at which the single-tulip icon grows into the small bunch. */
+  bunchAtCount: 3,
+  /** Tulip count at which the bunch grows into the full bouquet ("~10+"). */
+  bouquetAtCount: 10,
+  /** Bouquet "pop" when an arced tulip arrives: peak scale of the cluster. */
+  popScale: 1.25,
+  /** Bouquet pop: how long the scale settles back to 1, ms. */
+  popMs: 220,
+} as const;
+
 /** Total number of levels in the game. A locked fact from NORTH_STAR.md —
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
