@@ -7,11 +7,16 @@
 // Unlike the gas-only sweep in playtest-levels.mjs (which excludes level 7 from
 // its gate BECAUSE traffic legitimately needs braking), THIS harness proves the
 // four things the task requires of the traffic system:
-//   (a) BEATABLE with a simple, forgiving dodge strategy — a "hold gas, but
-//       hang back (brake) when the next encounter's car is closing on its
-//       fixed danger zone, then go once it has swept past" driver, scripted
-//       below off the DEV-only scene.__traffic snapshot. Run repeatedly for a
-//       >=3-in-a-row difficulty tally (fails must stay <= 1 in 4).
+//   (a) BEATABLE with a forgiving dodge strategy at BOTH a slow and a
+//       max-reasonable speed (PLAN-06 task 1: "at max AND min reasonable
+//       speeds, every encounter has a dodge"). TWO driver profiles, each run
+//       for a >=3-in-a-row tally (fails <= 1 in 4), scripted off the DEV-only
+//       scene.__traffic snapshot:
+//         - CAUTIOUS: hangs back (brakes early) and waits for each car to
+//           sweep past — the slow/careful player.
+//         - FAST-REACTIVE: holds gas by default (arrives at each encounter at
+//           high speed) and only brakes once the oncoming car's telegraph has
+//           closed in, then resumes gas — the max-speed player.
 //   (b) a real COLLISION fires the VERBATIM soft-fail toast + restarts (driven
 //       gas-only, which — by design — gets clipped: level 7 is the one level
 //       gas-only doesn't clear).
@@ -46,13 +51,23 @@ const COLLISION_HALF_PX = 70;
 const COLLISION_LANE_THRESHOLD = 0.5;
 const SPACING_PX = 1500;
 
-// --- dodge-driver tuning (harness-only; the forgiving hang-back strategy a
-// cautious player would use). Brake PREEMPTIVELY once within HOLD_DIST of the
-// next encounter while its car is still ahead (not yet swept past) — chosen
-// large enough that the bike settles well LEFT of the danger zone (enc-265)
-// rather than coasting into it, so it reliably lets each car sweep through
-// first. A second rule brakes for any car already descending close ahead. ---
+// --- dodge-driver tuning (harness-only). TWO distinct player profiles, both
+// of which must clear all 6 encounters (validates avoidability at BOTH a slow
+// and a MAX-reasonable speed — PLAN-06 task 1: "at max AND min reasonable
+// speeds, every encounter has a dodge").
+//
+// CAUTIOUS (slow profile): brakes PREEMPTIVELY once within HOLD_DIST of the
+// next encounter while its car is still ahead — settles well LEFT of the
+// danger zone (enc-265) and waits for the car to sweep through.
 const HOLD_DIST_PX = 900;
+// FAST-REACTIVE (max-speed profile): holds gas by DEFAULT (arrives at each
+// encounter at high speed) and only brakes once an oncoming car's telegraph
+// has closed to within REACT_GAP ahead of the bike's x, then resumes gas the
+// moment it has swept past. The telegraph (>=3s in the far lane) gives enough
+// warning that even a full-speed arrival can brake before the danger zone.
+const REACT_GAP_PX = 1500;
+// Shared safety backup: brake for any car already descending into the near
+// lane this close ahead of the bike, regardless of which encounter it is.
 const DANGER_REACH_PX = 400;
 
 const MAX_BODIES = 100;
@@ -88,9 +103,11 @@ async function startLevel7(page) {
   await page.waitForTimeout(600); // create() + bike settle
 }
 
-/** Read scene state + compute the dodge decision (brake or gas) in one atomic
- * page.evaluate off the DEV traffic snapshot. */
-const DECISION_FN = ({ holdDist, dangerReach }) => {
+// Both decision functions run entirely in-page (atomic read of the DEV
+// scene.__traffic snapshot) and return { complete, active, bikeX, brake }.
+
+/** CAUTIOUS / slow profile — preemptive hang-back (see HOLD_DIST_PX). */
+const CAUTIOUS_DECISION_FN = ({ holdDist, dangerReach }) => {
   const g = globalThis.__gabbyGame;
   const s = g.scene.getScene('GameScene');
   const complete = g.scene.isActive('LevelCompleteScene');
@@ -98,12 +115,11 @@ const DECISION_FN = ({ holdDist, dangerReach }) => {
   const bikeX = active && s.bike ? s.bike.x : null;
   const t = s.__traffic;
   let brake = false;
-  let nextEnc = null;
   if (t && bikeX !== null) {
     const cars = t.cars();
     const ahead = t.encounters.filter((c) => c >= bikeX - 60);
     if (ahead.length > 0) {
-      nextEnc = Math.min(...ahead);
+      const nextEnc = Math.min(...ahead);
       // Preemptive hang-back: within holdDist of the next encounter while its
       // car is still ahead (not yet swept past) -> brake to a stop well left
       // of the danger zone and wait for the car to sweep through.
@@ -116,17 +132,43 @@ const DECISION_FN = ({ holdDist, dangerReach }) => {
     }
     // Safety backup: any car already descending into the near lane, close
     // ahead of the bike, forces a brake regardless of which encounter it is.
-    if (
-      cars.some((c) => c.laneFraction >= 0.3 && c.x > bikeX - 30 && c.x < bikeX + dangerReach)
-    ) {
+    if (cars.some((c) => c.laneFraction >= 0.3 && c.x > bikeX - 30 && c.x < bikeX + dangerReach)) {
       brake = true;
     }
   }
-  return { complete, active, bikeX, brake, nextEnc };
+  return { complete, active, bikeX, brake };
 };
 
-/** Drive level 7 with the forgiving dodge strategy until finish/timeout. */
-async function driveDodge(page) {
+/** FAST-REACTIVE / max-speed profile — gas by default; brake only once an
+ * oncoming car has closed to within reactGap ahead of the bike (its telegraph
+ * has "come near"), and only while that car hasn't fully swept past yet;
+ * resume gas the instant it has. Same near-lane safety backup as cautious. */
+const FAST_DECISION_FN = ({ reactGap, dangerReach }) => {
+  const g = globalThis.__gabbyGame;
+  const s = g.scene.getScene('GameScene');
+  const complete = g.scene.isActive('LevelCompleteScene');
+  const active = g.scene.isActive('GameScene');
+  const bikeX = active && s.bike ? s.bike.x : null;
+  const t = s.__traffic;
+  let brake = false;
+  if (t && bikeX !== null) {
+    const cars = t.cars();
+    // An oncoming car whose telegraph has closed to within reactGap ahead of
+    // the bike and hasn't yet swept behind it -> ease off gas and brake. The
+    // >=3s telegraph makes this reaction distance reachable even at full gas.
+    // Resumes gas automatically once the car has passed (c.x <= bikeX - 40).
+    if (cars.some((c) => c.x > bikeX - 40 && c.x - bikeX <= reactGap)) {
+      brake = true;
+    }
+    if (cars.some((c) => c.laneFraction >= 0.3 && c.x > bikeX - 30 && c.x < bikeX + dangerReach)) {
+      brake = true;
+    }
+  }
+  return { complete, active, bikeX, brake };
+};
+
+/** Drive level 7 with a given decision profile until finish/timeout. */
+async function driveProfile(page, decisionFn, params) {
   await startLevel7(page);
   const bodies = await bodyCount(page);
 
@@ -138,10 +180,7 @@ async function driveDodge(page) {
   let encounters = null;
 
   while (Date.now() - start < DODGE_TIMEOUT_MS) {
-    const st = await page.evaluate(DECISION_FN, {
-      holdDist: HOLD_DIST_PX,
-      dangerReach: DANGER_REACH_PX,
-    });
+    const st = await page.evaluate(decisionFn, params);
     if (encounters === null) {
       encounters = await page.evaluate(() => globalThis.__gabbyGame.scene.getScene('GameScene').__traffic?.encounters ?? null);
     }
@@ -236,46 +275,73 @@ async function main() {
     // (b) collision -> verbatim soft-fail + restart (gas-only, by-design fail).
     const gasOnly = await driveGasOnlyFail(page);
 
-    // (a) beatable with the forgiving dodge strategy + difficulty tally.
-    const attempts = [];
-    let maxConsecutiveWins = 0;
-    let consecutive = 0;
-    let fails = 0;
-    for (let i = 0; i < DODGE_ATTEMPTS; i++) {
-      const r = await driveDodge(page);
-      const won = r.finished && r.restarts === 0;
-      if (won) {
-        consecutive++;
-        maxConsecutiveWins = Math.max(maxConsecutiveWins, consecutive);
-      } else {
-        consecutive = 0;
-        fails++;
+    // (a) beatable with a forgiving dodge strategy at BOTH a slow AND a
+    // max-reasonable speed — run each profile DODGE_ATTEMPTS times for a
+    // difficulty tally. This validates PLAN-06 task 1's "at max AND min
+    // reasonable speeds, every encounter has a dodge".
+    async function runProfile(decisionFn, params, shotName) {
+      const attempts = [];
+      let maxConsecutiveWins = 0;
+      let consecutive = 0;
+      let fails = 0;
+      for (let i = 0; i < DODGE_ATTEMPTS; i++) {
+        const r = await driveProfile(page, decisionFn, params);
+        const won = r.finished && r.restarts === 0;
+        if (won) {
+          consecutive++;
+          maxConsecutiveWins = Math.max(maxConsecutiveWins, consecutive);
+        } else {
+          consecutive = 0;
+          fails++;
+        }
+        attempts.push({ attempt: i + 1, won, ...r });
+        if (i === 0) await page.screenshot({ path: join(OUT_DIR, shotName) });
       }
-      attempts.push({ attempt: i + 1, won, ...r });
-      if (i === 0) await page.screenshot({ path: join(OUT_DIR, 'level07-dodge.png') });
+      return {
+        attempts,
+        tally: {
+          attempts: DODGE_ATTEMPTS,
+          wins: attempts.filter((a) => a.won).length,
+          fails,
+          maxConsecutiveWins,
+        },
+        allEncountersClearedOnWin: attempts.some(
+          (a) => a.won && a.passedEncounters === ENCOUNTER_COUNT
+        ),
+        maxBodies: attempts.reduce((m, a) => Math.max(m, a.bodies), 0),
+      };
     }
+
+    const cautious = await runProfile(
+      CAUTIOUS_DECISION_FN,
+      { holdDist: HOLD_DIST_PX, dangerReach: DANGER_REACH_PX },
+      'level07-dodge-cautious.png'
+    );
+    const fast = await runProfile(
+      FAST_DECISION_FN,
+      { reactGap: REACT_GAP_PX, dangerReach: DANGER_REACH_PX },
+      'level07-dodge-fast.png'
+    );
 
     // (c) structural avoidability: danger zones never fill the inter-encounter
     // gap, so there is always clear road to hang back in.
     const dangerHalf = ZONE_HALF_PX - COLLISION_LANE_THRESHOLD * DRIFT_PX + COLLISION_HALF_PX;
     const clearRoadPx = SPACING_PX - 2 * dangerHalf;
 
-    const maxBodies = attempts.reduce((m, a) => Math.max(m, a.bodies), 0);
+    const maxBodies = Math.max(cautious.maxBodies, fast.maxBodies);
 
     report = {
       gasOnlyFail: gasOnly,
-      dodgeAttempts: attempts,
-      difficulty: {
-        attempts: DODGE_ATTEMPTS,
-        wins: attempts.filter((a) => a.won).length,
-        fails,
-        maxConsecutiveWins,
+      profiles: {
+        cautious: { tally: cautious.tally, attempts: cautious.attempts },
+        fast: { tally: fast.tally, attempts: fast.attempts },
       },
       avoidability: {
         dangerHalfPx: dangerHalf,
         clearRoadPx,
         encounterCount: ENCOUNTER_COUNT,
-        allEncountersClearedOnWin: attempts.some((a) => a.won && a.passedEncounters === ENCOUNTER_COUNT),
+        cautiousClearedAllOnWin: cautious.allEncountersClearedOnWin,
+        fastClearedAllOnWin: fast.allEncountersClearedOnWin,
       },
       maxBodies,
       maxBodiesBudget: MAX_BODIES,
@@ -293,14 +359,27 @@ async function main() {
     problems.push(`gas-only soft-fail message mismatch: got ${JSON.stringify(report.gasOnlyFail.failMsg)}`);
   }
   if (!report.gasOnlyFail.warpedBack) problems.push('gas-only run did not restart after the collision');
-  if (report.difficulty.maxConsecutiveWins < 3) {
-    problems.push(`dodge strategy did not win >= 3 in a row (max ${report.difficulty.maxConsecutiveWins})`);
+
+  // Both profiles (slow hang-back AND max-speed fast-reactive) must clear
+  // >= 3-in-a-row with <= 1 fail, and each must clear all 6 encounters on a
+  // win — this is the "at max AND min reasonable speeds, every encounter has a
+  // dodge" gate.
+  for (const [name, p] of [
+    ['cautious', report.profiles.cautious],
+    ['fast-reactive', report.profiles.fast],
+  ]) {
+    if (p.tally.maxConsecutiveWins < 3) {
+      problems.push(`${name} profile did not win >= 3 in a row (max ${p.tally.maxConsecutiveWins})`);
+    }
+    if (p.tally.fails > 1) {
+      problems.push(`${name} profile failed too often (${p.tally.fails}/${DODGE_ATTEMPTS}) — make it easier`);
+    }
   }
-  if (report.difficulty.fails > 1) {
-    problems.push(`dodge strategy failed too often (${report.difficulty.fails}/${DODGE_ATTEMPTS}) — make it easier`);
+  if (!report.avoidability.cautiousClearedAllOnWin) {
+    problems.push('cautious profile: no winning run cleared all encounters');
   }
-  if (!report.avoidability.allEncountersClearedOnWin) {
-    problems.push('no winning run cleared all encounters (avoidability not demonstrated)');
+  if (!report.avoidability.fastClearedAllOnWin) {
+    problems.push('fast-reactive profile: no winning run cleared all encounters (max-speed dodge not demonstrated)');
   }
   if (report.avoidability.clearRoadPx <= 300) {
     problems.push(`danger zones leave too little clear road (${report.avoidability.clearRoadPx}px)`);
@@ -313,7 +392,9 @@ async function main() {
     console.error('LEVEL 7 HARNESS FAILURES:\n  - ' + problems.join('\n  - '));
     process.exitCode = 1;
   } else {
-    console.log('LEVEL 7 OK: dodge-beatable, verbatim soft-fail + restart, all encounters avoidable, bodies < 100, no errors.');
+    console.log(
+      'LEVEL 7 OK: dodge-beatable at BOTH slow and max speed, verbatim soft-fail + restart, all encounters avoidable, bodies < 100, no errors.'
+    );
   }
 }
 
