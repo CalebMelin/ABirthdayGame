@@ -16,8 +16,12 @@ type TextureName = keyof typeof TEXTURE_KEYS;
 /** Names this scene draws as a single solid-color placeholder rect (see
  * TEXTURE_SPECS below). Excludes the PLAN-04 marker-composite base
  * textures (gabbyBase / bikeBase), which need SEVERAL differently-colored
- * regions rather than one solid fill — see generateMarkerBaseTextures. */
-type SolidTextureName = Exclude<TextureName, 'gabbyBase' | 'bikeBase'>;
+ * regions rather than one solid fill — see generateMarkerBaseTextures. Also
+ * excludes PLAN-07's `wheelieRider` texture: level 11's easter egg is the one
+ * entity confined to a single level, so src/systems/wheelieRider.ts generates
+ * it lazily (guarded, like a recolorTexture variant) the first time that
+ * level actually needs it, rather than pre-generating it here for every boot. */
+type SolidTextureName = Exclude<TextureName, 'gabbyBase' | 'bikeBase' | 'wheelieRider'>;
 
 /** Placeholder colored-rectangle sizes for each generated texture.
  * PLACEHOLDER ONLY — real pixel art replaces this table in PLAN-10; the

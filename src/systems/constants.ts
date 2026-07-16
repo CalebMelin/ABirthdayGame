@@ -905,6 +905,97 @@ export const TRICKS = {
   popMs: 220,
 } as const;
 
+/** Level 11 "Highway On-Ramp" wheelie-rider easter egg (PLAN-07 task 2 — see
+ * src/systems/wheelieRider.ts). NORTH_STAR §5 row 11: a guaranteed,
+ * NON-INTERACTIVE cameo — an all-black rider in a black helmet wheelies past
+ * on a yellow motorcycle, then rides off ahead. Never explained in-game, never
+ * appears on any other level (src/levels/types.ts's REQUIRED_EVENTS locks the
+ * `wheelieRider` event to level 11 only).
+ *
+ * MODEL (see wheelieRider.ts): the egg fires ONCE per run, armed the instant
+ * the bike is at/past the event's trigger x AND grounded AND moving (never
+ * mid-air, never while stationary). On trigger it spawns OFF-SCREEN behind the
+ * camera's current left edge, integrates a CONSTANT rightward speed on the
+ * fixed 60 Hz step (same discipline as police.ts/traffic.ts — refresh-
+ * independent), follows the road surface with a damped vertical glide (no
+ * jitter on rolling hills), and holds a constant nose-up wheelie pitch on the
+ * whole visual container (wheels + recolored chassis + bespoke rider, so one
+ * rotation sells the "front wheel up" look). Once safely off both the camera's
+ * right edge AND a lead distance ahead of the bike, its GameObjects are
+ * destroyed and it never reappears (freezes in place instead if the run ends
+ * first — e.g. a crash elsewhere — same "hazards stop the instant
+ * ctx.isEnded()" discipline every event system follows).
+ *
+ * ZERO Matter bodies — wheels/chassis/rider are plain Images in one
+ * Container, dust puffs are plain Graphics — so the egg never touches
+ * NORTH_STAR §8's <100-body budget. The motorcycle reuses the real
+ * bike-base texture recolored to characters.ts's dedicated 'yellow' bike
+ * swatch (palette.ts's recolorTexture); the rider is a bespoke all-black +
+ * black-helmet texture wheelieRider.ts generates lazily (guarded, like
+ * recolorTexture's own cache) the first time level 11 actually needs it.
+ *
+ * Speeds are px per fixed 60 Hz step (BikeHandle.speed units); times are ms;
+ * margins/offsets are px at the 1280x720 DESIGN scale. */
+export const WHEELIE_RIDER = {
+  /** Fixed physics/step rate the rider's motion + dust timer are integrated
+   * at. Matches the 60 Hz tick (see DEBUG_OVERLAY.physicsStepsPerSecond) so
+   * the pass plays out identically at any display refresh rate. */
+  fps: 60,
+  /** Bike speed (px per physics STEP — BikeHandle.speed units) at/above which
+   * the trigger counts as "moving". Small and lenient on purpose — the real
+   * gating is position + grounded; this only rules out a parked/stationary
+   * edge case at the trigger x. */
+  triggerMinSpeedPxPerStep: 1,
+  /** The rider's own constant travel speed, as a multiple of the BIKE's
+   * full-gas FLAT top speed (BIKE_TUNING.maxWheelAngularVelocity x
+   * wheelRadius = 10.8 px/step ~= 648 px/s) — comfortably above ANY
+   * achievable player speed (NORTH_STAR "overtaking... at higher speed"),
+   * per the PLAN-07 brief's "~1.25-1.4x" guidance. Unlike POLICE's
+   * copMaxSpeedFrac, this is never a fairness-critical floor (the egg can
+   * never fail the player) — 1.3 is simply the middle of the suggested
+   * range. */
+  speedMultiplier: 1.3,
+  /** How far behind the camera's LEFT edge (px, read live from
+   * scene.cameras.main.worldView at trigger time) the rider spawns, so he is
+   * guaranteed off-screen the instant he appears. */
+  spawnBehindCameraMarginPx: 150,
+  /** How far past the camera's CURRENT right edge (px) the rider must clear
+   * before he's eligible to despawn. */
+  despawnAheadCameraMarginPx: 150,
+  /** How far past the BIKE itself (not the camera, px) the rider must ALSO
+   * clear before despawning — a second, camera-independent guard so a later
+   * camera lookahead/zoom-out swing (the player speeding back up) can never
+   * bring an about-to-be-culled rider back on screen right before he's
+   * destroyed. */
+  despawnAheadOfBikeLeadPx: 900,
+  /** Exponential smoothing factor (0-1 applied per FIXED STEP) the rider's y
+   * follows terrain.heightAt(x) with — damps rolling-hill sampling into a
+   * smooth glide instead of snapping to every step's height. Higher =
+   * snappier/more jitter, lower = floatier/more lag. */
+  groundFollowLerp: 0.15,
+  /** Constant nose-up wheelie pitch, degrees. NEGATIVE in bike.ts's own angle
+   * convention (see BikeHandle.angle's doc: positive = clockwise = nose-DOWN
+   * facing right) — applied once to the whole visual container (never
+   * slope-blended), so the wheelie always reads clearly regardless of level
+   * 11's gentle rolling terrain (hilliness 0.28). */
+  pitchDeg: -25,
+  /** How often (ms) a dust puff spawns behind the rear wheel while the rider
+   * is on screen and moving. */
+  dustIntervalMs: 90,
+  /** One dust puff's rise-and-fade lifetime, ms. */
+  dustLifetimeMs: 380,
+  /** How far a dust puff rises before it's fully faded, px. */
+  dustRisePx: 14,
+  /** Dust puff radius at spawn, px — small on purpose ("subtle, not a smoke
+   * screen"). */
+  dustRadiusPx: 5,
+  /** Dust puff peak alpha (fades linearly to 0 over dustLifetimeMs). */
+  dustAlpha: 0.5,
+  /** How far behind the rear wheel's ground-contact point (px, world space —
+   * NOT rotated with the wheelie pitch) each dust puff spawns. */
+  dustTrailBehindPx: 14,
+} as const;
+
 /** Total number of levels in the game. A locked fact from NORTH_STAR.md —
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
@@ -1032,7 +1123,12 @@ export const SCENE_KEYS = {
  * non-character-aware caller stays behavior-identical, while GameScene
  * (PLAN-04 task 4) overrides them per-instance with the palette-swapped
  * character variants recolored from `gabbyBase` / `bikeBase`. `wheel` is
- * always used raw (wheels are never recolored). */
+ * always used raw (wheels are never recolored). `wheelieRider` (PLAN-07 task
+ * 2) is level 11's bespoke all-black + black-helmet rider texture — unlike
+ * every key above, BootScene never generates it; src/systems/wheelieRider.ts
+ * generates it lazily (guarded, like a recolorTexture variant) the first time
+ * level 11 actually needs it, since it's the one entity confined to a single
+ * level. */
 export const TEXTURE_KEYS = {
   bike: 'tex-bike',
   bikeBase: 'tex-bike-base',
@@ -1045,6 +1141,7 @@ export const TEXTURE_KEYS = {
   flag: 'tex-flag',
   tulip: 'tex-tulip',
   balloon: 'tex-balloon',
+  wheelieRider: 'tex-wheelie-rider',
 } as const;
 
 /** Region layout for the PLAN-04 marker-composite rider base texture

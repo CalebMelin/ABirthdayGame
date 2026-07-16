@@ -4,13 +4,15 @@
 // (update), tears down on shutdown (destroy), and can consult when the bike
 // crosses the finish flag (onFinish, e.g. level 15's cop spin-out finale).
 //
-// Task A wired the SEAM; the per-event systems land per later PLAN-06 task.
+// Task A wired the SEAM; the per-event systems land per later PLAN-06/07 task.
 // Level 7 traffic (task B), level 12's Caleb pickup (task C), and level 15's
 // police chase (task D) are now REAL — the `traffic`/`calebPickup`/`police`
 // cases construct createTraffic (src/systems/traffic.ts) / createPickup
-// (src/systems/pickup.ts) / createPolice (src/systems/police.ts). The level-11
-// wheelieRider + level-18 billboard cases stay PLAN-07 no-op stubs (they push no
-// handle). This never throws.
+// (src/systems/pickup.ts) / createPolice (src/systems/police.ts). Level 11's
+// wheelieRider easter egg (PLAN-07 task 2) is now REAL too — the `wheelieRider`
+// case constructs createWheelieRider (src/systems/wheelieRider.ts). Level 18's
+// billboard case stays a PLAN-07 no-op stub (it pushes no handle) until a later
+// task lands it. This never throws.
 //
 // The `switch (event.type)` stays EXHAUSTIVE with a `never` guard in the
 // default case, so adding a future LevelEvent variant without a case here is a
@@ -27,6 +29,7 @@ import type { PassengerHandle } from '../systems/passenger';
 import { createTraffic } from '../systems/traffic';
 import { createPickup } from '../systems/pickup';
 import { createPolice } from '../systems/police';
+import { createWheelieRider } from '../systems/wheelieRider';
 
 // ---------------------------------------------------------------------------
 // Public seam types (PLAN-06 Task A — the contract every event system + the
@@ -138,7 +141,11 @@ export function dispatchLevelEvents(
         handles.push(createPickup(scene, event, ctx));
         break;
       case 'wheelieRider':
-        // PLAN-07 no-op stub (level 11's easter egg) — pushes no handle.
+        // Level 11's guaranteed, non-interactive easter egg (PLAN-07 task 2): an
+        // all-black helmeted rider on a yellow motorcycle wheelies past,
+        // overtaking from behind, then rides off ahead. Never fails the player,
+        // never touches input — see src/systems/wheelieRider.ts.
+        handles.push(createWheelieRider(scene, event, ctx));
         break;
       case 'billboard':
         // PLAN-07 no-op stub (level 18's billboard) — pushes no handle.
