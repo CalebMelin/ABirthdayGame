@@ -19,9 +19,11 @@ import type { LevelConfig, LevelEvent } from '../src/levels/types';
 
 /** A chainable Phaser GameObject stub: any method returns the same node (so
  * `scene.add.rectangle(...).setOrigin(...).setDepth(...)` chains), and it carries
- * a numeric `width` so createPickup can size its MELIN mailbox board to fit its
- * label. One generic stub covers every scene.add.* factory createTraffic /
- * createPickup use (image/rectangle/graphics/text/container). */
+ * numeric `width`/`height` so createPickup can size its MELIN mailbox board to
+ * fit its label, and drawBillboard (the level-18 billboard event, dispatched via
+ * createBillboard) can size its board to fit its (possibly word-wrapped) label
+ * on BOTH axes. One generic stub covers every scene.add.* factory createTraffic /
+ * createPickup / createBillboard use (image/rectangle/graphics/text/container). */
 function stubNode(): unknown {
   const target: Record<string, unknown> = { width: 40, height: 20, type: 'Stub', x: 0, y: 0 };
   const proxy: unknown = new Proxy(target, {
@@ -55,8 +57,10 @@ const fakeScene = {
 // Ctx stub: createTraffic's update() reads isEnded/bike.x/terrain.heightAt and
 // may call softFail; createPickup reads terrain.heightAt at construction (to seat
 // its props on the ground); createWheelieRider reads worldLength (the default-x
-// fallback) at construction. With bike.x at 0 no encounter/pickup/wheelie-rider
-// trigger fires, so update() is a safe no-op here.
+// fallback) at construction; createBillboard also reads terrain.heightAt at
+// construction (to seat its board on the ground, same reason as createPickup).
+// With bike.x at 0 no encounter/pickup/wheelie-rider trigger fires, so update()
+// is a safe no-op here.
 const fakeCtx = {
   calebPickedUp: false,
   bike: { x: 0, y: 500, speed: 10, airborne: false },

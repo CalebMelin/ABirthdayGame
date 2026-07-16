@@ -33,7 +33,10 @@
 //   (f) 0 console/page errors fire;
 //   (g) screenshots: the egg billboard as the bike passes it, plus a nearby
 //       short decoy and the size-matched long decoy, for a personal, visual
-//       family-resemblance check (same frame, comparable scale, egg readable).
+//       family-resemblance check (same frame, comparable scale, egg readable);
+//   (h) the billboard snapshot itself was captured while GameScene was still
+//       ACTIVE — proves (b)/(c)/(d) above were measured against a live scene,
+//       not a stale/torn-down one.
 //
 // Usage:
 //   node scripts/playtest-level18.mjs
@@ -123,10 +126,12 @@ async function startLevel(page, level) {
 
 /** Atomic in-page read: every billboard board Rectangle (cream fill + a
  * stroke) and every Text object currently on the display list, plus the
- * bike's x and the scene's complete/active flags. Billboards are plain,
- * never-culled GameObjects created once at level entry (see this file's
- * header), so this snapshot is complete regardless of camera position --
- * taken once right after entry, not polled during the drive. */
+ * scene's `active` flag -- gates that GameScene was still live (not already
+ * torn down/replaced) the instant this snapshot was captured (see the (h)
+ * check below). Billboards are plain, never-culled GameObjects created once
+ * at level entry (see this file's header), so this snapshot is complete
+ * regardless of camera position -- taken once right after entry, not polled
+ * during the drive. */
 const READ_BILLBOARDS = (creamColor) => {
   const g = globalThis.__gabbyGame;
   const s = g.scene.getScene('GameScene');
@@ -140,9 +145,7 @@ const READ_BILLBOARDS = (creamColor) => {
     .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height, text: o.text }));
 
   return {
-    complete: g.scene.isActive('LevelCompleteScene'),
     active: g.scene.isActive('GameScene'),
-    bikeX: s.bike ? s.bike.x : null,
     boards,
     texts,
   };
@@ -244,6 +247,13 @@ async function main() {
   if (!report.drive.finished) problems.push('level 18 gas-only run did not finish');
   if (report.drive.restarts > 0) {
     problems.push(`level 18 gas-only run restarted ${report.drive.restarts}x (unexpected crash)`);
+  }
+
+  // (h) the snapshot was captured while GameScene was actually live -- proves
+  // (b)/(c)/(d) below were measured against a real, running scene rather than
+  // a stale/torn-down one.
+  if (!report.snapshot.active) {
+    problems.push('billboard snapshot was captured while GameScene was not active (stale scene?)');
   }
 
   // (b) exactly one text object matches the verbatim egg literal, once

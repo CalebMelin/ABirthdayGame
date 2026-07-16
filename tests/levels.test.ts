@@ -63,16 +63,25 @@ describe('level 18 — billboard row (PLAN-07 task 3: the egg among its decoys)'
     expect(frac).toBeLessThanOrEqual(0.75);
   });
 
-  it('every decoy billboard has at least one decoy (not just the egg alone)', () => {
+  it('the level authors at least one decoy billboard (the egg is never alone)', () => {
     const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
     expect(decoyBillboards.length).toBeGreaterThan(0);
   });
 
-  it('every decoy billboard is ASCII-only rendered copy (PLAN-05 pixel-font-safety convention)', () => {
+  it('every decoy billboard is ASCII-only rendered copy (PLAN-05 pixel-font-safety convention), and every billboard text (decoys + egg) is single-spaced with no leading/trailing whitespace (the harness\'s newline-undo compare + wrapBillboardText\'s family sizing depend on this)', () => {
     const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
     for (const decoy of decoyBillboards) {
       // eslint-disable-next-line no-control-regex -- deliberate ASCII range check
       expect(decoy.text ?? '').toMatch(/^[\x00-\x7F]*$/);
+    }
+
+    const egg = level18!.events?.find(
+      (event): event is Extract<LevelEvent, { type: 'billboard' }> => event.type === 'billboard'
+    );
+    expect(egg).toBeDefined();
+    const allBillboardTexts = [...decoyBillboards.map((decoy) => decoy.text ?? ''), egg!.text];
+    for (const text of allBillboardTexts) {
+      expect(text).toMatch(/^\S+( \S+)*$/);
     }
   });
 
