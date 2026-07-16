@@ -9,10 +9,10 @@
 // src/levels/validate.ts's jump-safety floors) so gas-only survival could be
 // PROVEN, not just hoped for. No PLAN-05 level has a kicker. Current status
 // per mode, below:
-//   - flip:    DORMANT. Cannot work until PLAN-07 re-adds a flip-capable
-//              kicker to some level. Exits immediately with a clear message
-//              instead of hanging/timing out against a kicker that no
-//              longer exists (see FLIP_DORMANT_MESSAGE).
+//   - flip:    REACTIVATED (PLAN-07 task 4). Drives level 2 from spawn, does
+//              the deliberate-backflip recipe off its first kicker (RAMP_X)
+//              N times, and gates on a real landed 360 PLUS the positive award
+//              path (byte-exact toast + tulip persisted + survives a reload).
 //   - gasonly: still runs (drives level 1 start-to-finish gas-only) but is
 //              SUPERSEDED for cross-level coverage by the new, committed
 //              scripts/playtest-levels.mjs, which drives all 22 levels.
@@ -26,15 +26,15 @@
 //              (guarded by src/levels/validate.ts's validateFlatZones).
 //
 // Modes (node scripts/playtest-tricks.mjs [mode]):
-//   flip     (default) — DORMANT, see above. When PLAN-07 adds a real
-//            kicker: performs the deliberate-backflip recipe off it N times
-//            (ATTEMPTS env, default 3), each on a fresh scene.restart + full
-//            drive from spawn, and reports the airborne rotation AT LANDING
-//            per attempt (the PLAN-07 tulip criterion: |rotation| >= 360deg
-//            + clean landing). Exit 0 only if EVERY attempt full-flips and
-//            lands clean. The recipe implementation (`flipAttempt` et al.)
-//            is left intact/unreachable below, ready for PLAN-07 to re-point
-//            at a real kicker rather than being rebuilt from scratch.
+//   flip     (default) — performs the deliberate-backflip recipe off level 2's
+//            first kicker N times (ATTEMPTS env, default 3), each on a fresh
+//            scene.restart({level:2}) + full drive from spawn, and reports the
+//            airborne rotation AT LANDING per attempt (the PLAN-07 tulip
+//            criterion: |rotation| >= 360deg + clean landing). Also gates the
+//            positive AWARD path: each landed flip fires the byte-exact
+//            'Backflip!! tulip' toast, bumps gabby22.tulips by its flip count,
+//            and the total survives a page reload. Exit 0 only if EVERY attempt
+//            full-flips, lands clean, and awards+persists.
 //   gasonly  — full-gas run start->finish (level 1) recording per-physics-
 //            step telemetry; reports every airborne phase (steps, max
 //            |chassis angle|, rotation at landing) + crash count. Exit 0
@@ -81,15 +81,16 @@ const OUT_DIR = process.env.OUT_DIR ?? './playtest-out';
 const DESIGN_W = 1280;
 const DESIGN_H = 720;
 
-// STALE trick-kicker geometry from the removed PLAN-02 TEST_LEVEL (see the
-// PLAN-05 ST-5/task 6 reconciliation note at the top of this file) — no
-// longer corresponds to real geometry on any of the 22 PLAN-05 levels.
-// Kept, not deleted: `flip` mode's (dormant) flipAttempt() still references
-// it for when PLAN-07 re-points this at a real kicker, and `gasonly`
-// mode's kicker-phase filter still references it too (harmlessly — it now
-// just never matches anything, so `overKicker` reports null forever until
-// re-pointed).
-const RAMP_X = 10584;
+// Real flip-capable KICKER geometry (PLAN-07 task 4 REACTIVATED this from the
+// dormant state — see the reconciliation note above). Points at level 2's FIRST
+// kicker (src/levels/level02.ts: { x: 4032, width: 336, kind: 'kicker' }), a
+// grid-aligned 336x106 launch triangle. flip mode drives from spawn, does the
+// backflip recipe off it, and gates on a real landed 360. gasonly mode's
+// kicker-phase filter also reads these (level 1 is flat/kicker-free, so
+// `overKicker` stays null there — the flip evidence comes from flip mode's own
+// level-2 drive).
+const FLIP_TEST_LEVEL_ID = 2;
+const RAMP_X = 4032;
 const RAMP_W = 336;
 const CREST_X = RAMP_X + RAMP_W / 2;
 
@@ -101,10 +102,25 @@ const CREST_X = RAMP_X + RAMP_W / 2;
  * spawn flat zone). */
 const BRAKE_TEST_LEVEL_ID = 22;
 
-/** flip mode's dormant-exit message (see the reconciliation note above). */
-const FLIP_DORMANT_MESSAGE =
-  'flip mode is dormant until PLAN-07: no flip-capable kicker exists in the current levels; ' +
-  'gas-only survival is now covered by scripts/playtest-levels.mjs.';
+/** VERBATIM backflip toast (byte-exact — CLAUDE.md Rule 4; U+1F337 tulip).
+ * flip mode's positive-award-path check confirms THIS exact string actually
+ * renders as a Text object when a real flip lands. */
+const EXPECT_BACKFLIP_MSG = 'Backflip!! \u{1F337}';
+
+/** flip mode: the airborneRotation (radians, negative = nose-up/backflip) at
+ * which the recipe RELEASES gas and lets the auto-stabilization assist settle
+ * the landing. Tuned by browser measurement on level 2's kicker (~58 steps of
+ * air): the bike keeps rotating ~+120deg AFTER release (built-up angular
+ * momentum decays slowly under the assist), so releasing near a full flip
+ * (-6.9 rad / -395deg) OVER-rotates to ~-515deg (155deg past upright) and
+ * head-clips the ground on touchdown — a crash, no award. Releasing at
+ * -4.5 rad (-258deg) lands the flip at ~-388 to -392deg: PAST the 360 gate
+ * with ~30deg of margin (robust against the ±360 landing-rotation flakiness
+ * PLAN-02/04 flagged) yet only ~30deg from upright, so it lands clean and
+ * AWARDS. If the bike touches down before reaching this, the recipe releases
+ * at landing anyway (the `!b.airborne` branch below). Env-overridable for
+ * re-tuning. */
+const FLIP_RELEASE_ROT_RAD = Number(process.env.FLIP_RELEASE_ROT ?? -4.5);
 
 /** Criterion (e): max |chassis angle| allowed during any airborne phase of
  * a gas-only run — "the bike never loops out on natural hills". */
@@ -220,11 +236,48 @@ function airPhases(frames) {
   return { phases, crashes };
 }
 
+/** Recursively search GameScene's display list (including Container children —
+ * the tricks HUD lives inside one root Container) for a live Text object whose
+ * text is EXACTLY `message`. Proves the flip toast actually RENDERED, not just
+ * that the constant exists. */
+function toastShown(page, message) {
+  return page.evaluate((msg) => {
+    const s = globalThis.__gabbyGame.scene.getScene('GameScene');
+    if (!s || !s.children) return false;
+    const stack = [...s.children.list];
+    while (stack.length > 0) {
+      const o = stack.pop();
+      if (o.type === 'Text' && o.text === msg) return true;
+      if (Array.isArray(o.list)) stack.push(...o.list);
+    }
+    return false;
+  }, message);
+}
+
+/** Live award/persistence read off the tricks system + real save (localStorage). */
+function trickAwardState(page) {
+  return page.evaluate(() => {
+    const s = globalThis.__gabbyGame.scene.getScene('GameScene');
+    const t = s.__tricks;
+    return {
+      hasTricks: Boolean(t),
+      gameActive: globalThis.__gabbyGame.scene.isActive('GameScene'),
+      awardedTulips: t ? t.awardedTulips() : null,
+      landings: t ? t.landings() : null,
+      maxLandingRotationDeg: t ? Math.round(t.maxLandingRotationDeg()) : null,
+      savedCount: t ? t.savedCount() : null,
+      displayedCount: t ? t.displayedCount() : null,
+      storedTulips: localStorage.getItem('gabby22.tulips'),
+    };
+  });
+}
+
 /** One full flip attempt: fresh restart, drive from spawn, do the recipe
  * page-side (keyed to game state), wait for landing, return evidence. */
 async function flipAttempt(page, att) {
-  await page.evaluate(() =>
-    globalThis.__gabbyGame.scene.getScene('GameScene').scene.restart({ level: 1 })
+  await page.evaluate(
+    (levelId) => globalThis.__gabbyGame.scene.getScene('GameScene').scene.restart({ level: levelId }),
+    FLIP_TEST_LEVEL_ID
   );
   await page.waitForTimeout(600);
   await installRecorder(page);
@@ -234,7 +287,7 @@ async function flipAttempt(page, att) {
   // monitor also re-presses gas if a mid-drive fail-restart cleared the
   // key state (restart recreates the Key objects).
   const attemptPromise = page.evaluate(
-    ([crestX]) =>
+    ([crestX, releaseRot]) =>
       new Promise((resolve) => {
         const s = globalThis.__gabbyGame.scene.getScene('GameScene');
         const fire = (type) => {
@@ -282,9 +335,10 @@ async function flipAttempt(page, att) {
               return;
             }
           } else if (phase === 'holding') {
-            // Hold the backflip until fully around, then release and let
-            // the stabilization assist steady the landing.
-            if (b.airborneRotation < -6.3 || (!b.airborne && b.x > crestX + 120)) {
+            // Hold the backflip past a full flip (with margin), then release and
+            // let the stabilization assist steady the landing. If we touch down
+            // first, release at landing anyway.
+            if (b.airborneRotation < releaseRot || (!b.airborne && b.x > crestX + 120)) {
               fire('keyup');
               info.releaseRotDeg = Math.round((b.airborneRotation * 180) / Math.PI);
               return done('released');
@@ -294,7 +348,7 @@ async function flipAttempt(page, att) {
         };
         tick();
       }),
-    [CREST_X]
+    [CREST_X, FLIP_RELEASE_ROT_RAD]
   );
 
   // Harness-side: mid-flip screenshot while the page-side recipe runs.
@@ -323,6 +377,20 @@ async function flipAttempt(page, att) {
     await page.waitForTimeout(20);
   }
   await page.screenshot({ path: join(OUT_DIR, `flip-land-${att}.png`) });
+
+  // POSITIVE AWARD PATH (PLAN-07 task 4): the backflip toast holds ~1200ms from
+  // the landing step — poll for the byte-exact Text within that window.
+  let backflipToastSeen = false;
+  const toastEnd = Date.now() + 1500;
+  while (Date.now() < toastEnd) {
+    if (await toastShown(page, EXPECT_BACKFLIP_MSG)) {
+      backflipToastSeen = true;
+      break;
+    }
+    await page.waitForTimeout(20);
+  }
+  const award = await trickAwardState(page);
+
   await page.waitForTimeout(1000);
   const after = await bikeState(page);
 
@@ -340,21 +408,21 @@ async function flipAttempt(page, att) {
     fullFlip: landingRotationDeg !== null && Math.abs(landingRotationDeg) >= 360,
     crashedWithin1sOfLanding: after && !after.gone ? after.crashed : false,
     settledAngleDeg: after && !after.gone ? Math.round((after.angle * 180) / Math.PI) : null,
+    // positive-award-path evidence:
+    backflipToastSeen,
+    hasTricks: award.hasTricks,
+    gameActive: award.gameActive,
+    landings: award.landings,
+    maxLandingRotationDeg: award.maxLandingRotationDeg,
+    awardedTulips: award.awardedTulips,
+    savedCount: award.savedCount,
+    displayedCount: award.displayedCount,
+    storedTulips: award.storedTulips === null ? null : Number(award.storedTulips),
   };
 }
 
 async function main() {
-  // flip mode is DORMANT until PLAN-07 (see the reconciliation note at the
-  // top of this file) — exit immediately with a clear, unambiguous message.
-  // No browser/dev-server round trip at all, so this genuinely CANNOT hang
-  // or time out against a kicker that no longer exists.
-  if (mode === 'flip') {
-    console.log(JSON.stringify({ mode, status: 'dormant', message: FLIP_DORMANT_MESSAGE }, null, 1));
-    console.warn(FLIP_DORMANT_MESSAGE);
-    return;
-  }
-
-  if (mode !== 'gasonly' && mode !== 'brake') {
+  if (mode !== 'flip' && mode !== 'gasonly' && mode !== 'brake') {
     console.error(`unknown mode: ${mode} (use flip | gasonly | brake)`);
     process.exitCode = 1;
     return;
@@ -373,6 +441,109 @@ async function main() {
   try {
     await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
     await enterLevel1(page);
+
+    if (mode === 'flip') {
+      const attempts = Number(process.env.ATTEMPTS ?? 3);
+      const problems = [];
+      const results = [];
+      // Capture the persisted tulip count BEFORE any attempt: each landed flip
+      // must bump gabby22.tulips by exactly its flip count (the positive award
+      // path task 1 could only prove NEGATIVELY before a kicker existed).
+      let storedPrev = await page.evaluate(() =>
+        Number(localStorage.getItem('gabby22.tulips') ?? '0')
+      );
+      const storedStart = storedPrev;
+
+      for (let att = 1; att <= attempts; att++) {
+        const r = await flipAttempt(page, att);
+        results.push(r);
+
+        // (1) a real, comfortably-past-360 landed flip, upright:
+        if (!r.fullFlip) {
+          problems.push(
+            `attempt ${att}: landing rotation ${r.landingRotationDeg}deg did not reach a full 360 flip`
+          );
+        }
+        if (r.crashedWithin1sOfLanding) {
+          problems.push(`attempt ${att}: crashed within 1s of landing (not a clean upright landing)`);
+        }
+        // (2) the positive award path fired: award persisted + toast + HUD.
+        if (r.fullFlip) {
+          const expectFlips = Math.floor((Math.abs(r.landingRotationDeg) + 30) / 360);
+          if (r.awardedTulips !== expectFlips) {
+            problems.push(
+              `attempt ${att}: awardedTulips ${r.awardedTulips} != expected ${expectFlips} for ${r.landingRotationDeg}deg`
+            );
+          }
+          if (!r.backflipToastSeen) {
+            problems.push(`attempt ${att}: the byte-exact 'Backflip!! 🌷' toast never rendered`);
+          }
+          if (r.storedTulips !== storedPrev + r.awardedTulips) {
+            problems.push(
+              `attempt ${att}: gabby22.tulips ${r.storedTulips} != prev ${storedPrev} + awarded ${r.awardedTulips}`
+            );
+          }
+        }
+        if (typeof r.storedTulips === 'number') storedPrev = r.storedTulips;
+      }
+
+      // (3) persistence across a real session boundary: reload -> same count.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForScene(page, 'TitleScene');
+      const storedAfterReload = await page.evaluate(() =>
+        Number(localStorage.getItem('gabby22.tulips') ?? '0')
+      );
+      if (storedAfterReload !== storedPrev) {
+        problems.push(
+          `post-reload tulip count ${storedAfterReload} != last persisted ${storedPrev} (did not survive reload)`
+        );
+      }
+      const totalAwarded = results.reduce((n, r) => n + (r.awardedTulips ?? 0), 0);
+      if (storedAfterReload !== storedStart + totalAwarded) {
+        problems.push(
+          `cumulative tulips ${storedAfterReload} != start ${storedStart} + total awarded ${totalAwarded}`
+        );
+      }
+
+      const report = {
+        mode,
+        attempts,
+        levelTargeted: FLIP_TEST_LEVEL_ID,
+        kicker: { x: RAMP_X, width: RAMP_W },
+        results: results.map((r) => ({
+          attempt: r.attempt,
+          landingRotationDeg: r.landingRotationDeg,
+          fullFlip: r.fullFlip,
+          crashedWithin1sOfLanding: r.crashedWithin1sOfLanding,
+          settledAngleDeg: r.settledAngleDeg,
+          flightSteps: r.flightSteps,
+          hasTricks: r.hasTricks,
+          gameActive: r.gameActive,
+          landings: r.landings,
+          maxLandingRotationDeg: r.maxLandingRotationDeg,
+          awardedTulips: r.awardedTulips,
+          backflipToastSeen: r.backflipToastSeen,
+          storedTulips: r.storedTulips,
+        })),
+        tulips: { start: storedStart, afterReload: storedAfterReload, totalAwarded },
+        consoleErrors,
+        pageErrors,
+      };
+      console.log(JSON.stringify(report, null, 1));
+      if (consoleErrors.length > 0) problems.push(`${consoleErrors.length} console error(s)`);
+      if (pageErrors.length > 0) problems.push(`${pageErrors.length} page error(s)`);
+      if (problems.length > 0) {
+        console.error('FLIP HARNESS FAILURES:\n  - ' + problems.join('\n  - '));
+        process.exitCode = 1;
+      } else {
+        console.log(
+          `FLIP OK: ${attempts}/${attempts} landed >=360 clean off level ${FLIP_TEST_LEVEL_ID}'s kicker; ` +
+            `each fired the byte-exact Backflip toast + persisted a tulip; ` +
+            `gabby22.tulips ${storedStart} -> ${storedAfterReload} (survives reload).`
+        );
+      }
+      return;
+    }
 
     if (mode === 'brake') {
       // Re-point at a real descent (see BRAKE_TEST_LEVEL_ID doc comment):
