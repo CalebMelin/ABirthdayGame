@@ -165,10 +165,16 @@ const PIVOT: Vec2 = { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
  * design coordinates (see the module doc's derivation). */
 const ROOT_ORIGIN: Vec2 = { x: 0, y: 0 };
 
-/** Half-extent of the bouquet cluster's bounding box at its LARGEST stage
- * (the 7-tulip fan below: dx ±27 + half the 16px tulip width, rotated), used
- * to inset the cluster's anchor from the corner so no stage ever clips
- * off-screen. Height: the 24px tulip + fan dy spread. */
+/** Anchor insets from the top-right corner, sized against the LARGEST stage
+ * (the 7-tulip bouquet fan below). WIDTH is the fan's true bounding
+ * half-width — outer tulips at dx ±27 plus a 28-degree-rotated 16x24
+ * tulip's ~12.7px half-width ≈ 39.7 — so no stage ever clips the RIGHT
+ * edge. HEIGHT is the anchor's drop from the top edge, ≥ the fan's TOP
+ * extent (~14px above center: the upright center tulip at dy -2), so no
+ * stage ever clips the TOP edge; it is NOT the full bounding half-height —
+ * the outer lobes dip ~21px BELOW the anchor (dy +7 plus a rotated tulip's
+ * ~14.4px half-height), past this inset but downward into open screen,
+ * which clips nothing. */
 const BOUQUET_HALF_WIDTH_PX = 40;
 const BOUQUET_HALF_HEIGHT_PX = 18;
 
@@ -308,12 +314,19 @@ interface TricksDebug {
  * from the freshly-persisted count. NO Matter body is created.
  *
  * Deliberately NOT gated on the run having ended: detection only needs the
- * bike's own signals (`airborne`, `crashed`, `airborneRotation`). A finish
- * transition destroys this system before an unlanded flip could touch down
- * (so it is simply never awarded — matching the "unlanded trick never
- * awards" rule), and a flip that DOES land cleanly during a brief soft-fail
- * overlay window still counts (kind, per the easy mandate — it WAS landed;
- * genuine crashes are blocked by the crashed latch).
+ * bike's own signals (`airborne`, `crashed`, `airborneRotation`). On an
+ * IMMEDIATE finish (no finale delay) the scene transition destroys this
+ * system the same frame, so a still-airborne flip never lands under it and
+ * is simply never awarded — matching the "unlanded trick never awards"
+ * rule. But the run being `ended` does NOT stop detection while the scene
+ * lives on: during a finish-DELAY finale hold (e.g. level 15's
+ * POLICE.finaleHoldMs ~1200ms) the Matter world keeps stepping and this
+ * listener stays live, so a flip landed cleanly during the hold — like one
+ * landed during the brief soft-fail overlay window — STILL AWARDS (persist
+ * + toast + arc, all swept by the shutdown teardown). Kind and deliberate,
+ * per the easy mandate: it WAS landed; genuine crashes are blocked by the
+ * crashed latch. NOTE for PLAN-08's per-level tulip accounting: awards can
+ * therefore land after `ended` flips true, any time up to scene shutdown.
  */
 export function createTricks(
   scene: Phaser.Scene,
