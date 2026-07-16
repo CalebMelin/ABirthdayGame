@@ -30,10 +30,12 @@ function stubImage(): Record<string, () => unknown> {
 }
 
 // Scene stub: dispatch reads scene.scene.key (dev breadcrumb); createTraffic
-// calls scene.add.image(...) to build its pool.
+// calls scene.add.image(...) to build its pool and registers/removes a
+// matter.world 'beforeupdate' listener for its fixed-step motion.
 const fakeScene = {
   scene: { key: 'GameScene' },
   add: { image: () => stubImage() },
+  matter: { world: { on: () => {}, off: () => {} } },
 } as unknown as Parameters<typeof dispatchLevelEvents>[0];
 
 // Ctx stub: createTraffic's update() reads isEnded/bike.x/terrain.heightAt and

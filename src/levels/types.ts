@@ -105,6 +105,12 @@ export interface TrafficEvent {
   /** How long a car is telegraphed in the far (harmless) lane before it
    * drifts down into the player's near lane, ms. */
   laneDropTelegraphMs?: number;
+  /** Indices (into the encounter run) of encounters that are "punch-through":
+   * a shorter trigger lead (TRAFFIC.punchTriggerLeadPx) lets a confident player
+   * accelerate through the gap before the car drops, instead of braking to hang
+   * back. Still avoidable by braking. Omitted/empty = every encounter is a
+   * brake-to-dodge one. */
+  punchThroughIndices?: number[];
 }
 
 /** Level 15's police chase (NORTH_STAR §5). All pursuit fields below are

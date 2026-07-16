@@ -61,11 +61,18 @@ const SPACING_PX = 1500;
 // danger zone (enc-265) and waits for the car to sweep through.
 const HOLD_DIST_PX = 900;
 // FAST-REACTIVE (max-speed profile): holds gas by DEFAULT (arrives at each
-// encounter at high speed) and only brakes once an oncoming car's telegraph
-// has closed to within REACT_GAP ahead of the bike's x, then resumes gas the
-// moment it has swept past. The telegraph (>=3s in the far lane) gives enough
-// warning that even a full-speed arrival can brake before the danger zone.
-const REACT_GAP_PX = 1500;
+// encounter at high speed). At a DEFAULT encounter it brakes once the oncoming
+// car's telegraph has closed to within REACT_GAP ahead, then resumes gas once
+// it has swept past. At a PUNCH-THROUGH encounter it instead keeps gas and
+// blasts through the gap while moving faster than PUNCH_MIN_SPEED (px/step) —
+// exercising the "accelerate through gaps" mechanic; if too slow it falls back
+// to braking. The >=3s telegraph makes both reactions reachable at full gas.
+const REACT_GAP_PX = 1700;
+// Punch only above the safe-punch floor for punchTriggerLeadPx (~6.2 px/step).
+// 6.5 sits just above that floor and well below the ~8-10 px/step the bike
+// actually arrives at, so `punchNow` stays stable (no flicker into the hang-
+// back fallback on a momentary dip); below it the bot safely hangs back.
+const PUNCH_MIN_SPEED = 6.5;
 // Shared safety backup: brake for any car already descending into the near
 // lane this close ahead of the bike, regardless of which encounter it is.
 const DANGER_REACH_PX = 400;
@@ -106,7 +113,9 @@ async function startLevel7(page) {
 // Both decision functions run entirely in-page (atomic read of the DEV
 // scene.__traffic snapshot) and return { complete, active, bikeX, brake }.
 
-/** CAUTIOUS / slow profile — preemptive hang-back (see HOLD_DIST_PX). */
+/** CAUTIOUS / slow profile — preemptive hang-back (see HOLD_DIST_PX). Brakes
+ * at EVERY encounter (punch-through ones included), proving every encounter is
+ * avoidable by braking alone. */
 const CAUTIOUS_DECISION_FN = ({ holdDist, dangerReach }) => {
   const g = globalThis.__gabbyGame;
   const s = g.scene.getScene('GameScene');
@@ -117,9 +126,9 @@ const CAUTIOUS_DECISION_FN = ({ holdDist, dangerReach }) => {
   let brake = false;
   if (t && bikeX !== null) {
     const cars = t.cars();
-    const ahead = t.encounters.filter((c) => c >= bikeX - 60);
+    const ahead = t.encounters.filter((e) => e.centerX >= bikeX - 60);
     if (ahead.length > 0) {
-      const nextEnc = Math.min(...ahead);
+      const nextEnc = Math.min(...ahead.map((e) => e.centerX));
       // Preemptive hang-back: within holdDist of the next encounter while its
       // car is still ahead (not yet swept past) -> brake to a stop well left
       // of the danger zone and wait for the car to sweep through.
@@ -139,28 +148,67 @@ const CAUTIOUS_DECISION_FN = ({ holdDist, dangerReach }) => {
   return { complete, active, bikeX, brake };
 };
 
-/** FAST-REACTIVE / max-speed profile — gas by default; brake only once an
- * oncoming car has closed to within reactGap ahead of the bike (its telegraph
- * has "come near"), and only while that car hasn't fully swept past yet;
- * resume gas the instant it has. Same near-lane safety backup as cautious. */
-const FAST_DECISION_FN = ({ reactGap, dangerReach }) => {
+/** FAST-REACTIVE / max-speed profile — gas by default. Punch-through encounters
+ * (short trigger lead): if fast enough, hold gas and blast through the gap;
+ * otherwise (rare) hang back PREEMPTIVELY like the cautious profile (a late
+ * reactGap brake would be unsafe at a short lead). Default encounters: brake
+ * once the oncoming car has closed to within reactGap ahead, resume gas once it
+ * has swept past. Shared near-lane safety backup. */
+const FAST_DECISION_FN = ({ reactGap, dangerReach, punchMinSpeed, holdDist }) => {
   const g = globalThis.__gabbyGame;
   const s = g.scene.getScene('GameScene');
   const complete = g.scene.isActive('LevelCompleteScene');
   const active = g.scene.isActive('GameScene');
   const bikeX = active && s.bike ? s.bike.x : null;
+  const velX = active && s.bike ? s.bike.velocityX : 0;
   const t = s.__traffic;
   let brake = false;
   if (t && bikeX !== null) {
     const cars = t.cars();
-    // An oncoming car whose telegraph has closed to within reactGap ahead of
-    // the bike and hasn't yet swept behind it -> ease off gas and brake. The
-    // >=3s telegraph makes this reaction distance reachable even at full gas.
-    // Resumes gas automatically once the car has passed (c.x <= bikeX - 40).
-    if (cars.some((c) => c.x > bikeX - 40 && c.x - bikeX <= reactGap)) {
+    const ahead = t.encounters.filter((e) => e.centerX >= bikeX - 60);
+    const nextEnc = ahead.length > 0 ? ahead.reduce((a, b) => (a.centerX < b.centerX ? a : b)) : null;
+    // Are we committed to PUNCHING through the next (punch-through) encounter?
+    const punchNow = nextEnc !== null && nextEnc.punchThrough && velX >= punchMinSpeed;
+    // Too slow to punch a punch-through encounter -> preemptive hang-back
+    // (safe), NOT a late reactGap brake.
+    if (
+      nextEnc !== null &&
+      nextEnc.punchThrough &&
+      !punchNow &&
+      nextEnc.centerX - bikeX <= holdDist &&
+      cars.some((c) => Math.abs(c.encounterX - nextEnc.centerX) < 1 && c.x > bikeX - 60)
+    ) {
       brake = true;
     }
-    if (cars.some((c) => c.laneFraction >= 0.3 && c.x > bikeX - 30 && c.x < bikeX + dangerReach)) {
+    // Approaching a DEFAULT (brake) encounter: hang back once ITS OWN car has
+    // closed to within reactGap ahead. Keyed strictly to the next encounter's
+    // car (like the cautious profile) — NOT any car — so a harmless far-lane
+    // car we've already punched past can't spuriously brake us and bleed the
+    // speed the next punch needs. Punch-through encounters are punched, not
+    // braked (handled by punchNow / the preemptive fallback above).
+    if (nextEnc !== null && !nextEnc.punchThrough) {
+      if (
+        cars.some(
+          (c) =>
+            Math.abs(c.encounterX - nextEnc.centerX) < 1 &&
+            c.x > bikeX - 40 &&
+            c.x - bikeX <= reactGap
+        )
+      ) {
+        brake = true;
+      }
+    }
+    // Near-lane safety backup — but NOT for the car we're punching through:
+    // while punching, that car is by design close ahead and descending, so
+    // braking for it here would sabotage the punch and get us caught.
+    const isPunchCar = (c) =>
+      punchNow && nextEnc && Math.abs(c.encounterX - nextEnc.centerX) < 1;
+    if (
+      cars.some(
+        (c) =>
+          c.laneFraction >= 0.3 && c.x > bikeX - 30 && c.x < bikeX + dangerReach && !isPunchCar(c)
+      )
+    ) {
       brake = true;
     }
   }
@@ -181,8 +229,13 @@ async function driveProfile(page, decisionFn, params) {
 
   while (Date.now() - start < DODGE_TIMEOUT_MS) {
     const st = await page.evaluate(decisionFn, params);
-    if (encounters === null) {
-      encounters = await page.evaluate(() => globalThis.__gabbyGame.scene.getScene('GameScene').__traffic?.encounters ?? null);
+    if (encounters === null || encounters.length === 0) {
+      encounters = await page.evaluate(
+        () =>
+          (globalThis.__gabbyGame.scene.getScene('GameScene').__traffic?.encounters ?? []).map(
+            (e) => e.centerX
+          )
+      );
     }
     if (st.complete) {
       finished = true;
@@ -319,7 +372,12 @@ async function main() {
     );
     const fast = await runProfile(
       FAST_DECISION_FN,
-      { reactGap: REACT_GAP_PX, dangerReach: DANGER_REACH_PX },
+      {
+        reactGap: REACT_GAP_PX,
+        dangerReach: DANGER_REACH_PX,
+        punchMinSpeed: PUNCH_MIN_SPEED,
+        holdDist: HOLD_DIST_PX,
+      },
       'level07-dodge-fast.png'
     );
 

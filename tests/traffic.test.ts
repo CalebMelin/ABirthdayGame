@@ -11,6 +11,7 @@ import {
   trafficLaneY,
   isTrafficCollision,
   trafficSpawnAheadPx,
+  trafficCarDisplacement,
   trafficEncounterCenters,
   shouldTriggerEncounter,
   TRAFFIC_FAIL_MESSAGE,
@@ -102,6 +103,39 @@ describe('trafficSpawnAheadPx', () => {
   });
   it('scales the telegraph distance with speed and time', () => {
     expect(trafficSpawnAheadPx(0, 10, 1000, 0, 60)).toBe(600); // 1s * 60 * 10
+  });
+});
+
+describe('trafficCarDisplacement (frame-rate independence)', () => {
+  const speed = 6; // px per 60 Hz frame
+
+  it('advances one 60 Hz frame worth of px for a single fixed step', () => {
+    expect(trafficCarDisplacement(speed, 1000 / 60)).toBeCloseTo(speed, 6);
+  });
+
+  it('gives EQUAL wall-time displacement at 30 / 60 / 120 Hz', () => {
+    // The whole point of the fix: integrated over the SAME 1000ms of wall time,
+    // total displacement must be identical regardless of how many frames
+    // (fixed steps or dt-scaled render frames) subdivide it — 6px * 60 = 360.
+    // A raw per-render-frame `x -= speed` would instead give 180 / 360 / 720.
+    const totalOver = (steps: number, dtMs: number): number => {
+      let d = 0;
+      for (let i = 0; i < steps; i++) d += trafficCarDisplacement(speed, dtMs);
+      return d;
+    };
+    const at60 = totalOver(60, 1000 / 60);
+    const at30 = totalOver(30, 1000 / 30);
+    const at120 = totalOver(120, 1000 / 120);
+    expect(at60).toBeCloseTo(360, 6);
+    expect(at30).toBeCloseTo(360, 6);
+    expect(at120).toBeCloseTo(360, 6);
+    expect(at30).toBeCloseTo(at60, 6);
+    expect(at120).toBeCloseTo(at60, 6);
+  });
+
+  it('scales linearly with elapsed time', () => {
+    expect(trafficCarDisplacement(speed, 2 * (1000 / 60))).toBeCloseTo(2 * speed, 6);
+    expect(trafficCarDisplacement(speed, 0)).toBe(0);
   });
 });
 

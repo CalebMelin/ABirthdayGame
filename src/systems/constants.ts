@@ -642,8 +642,17 @@ export const TRAFFIC = {
    * encounter's car to spawn. Chosen with carSpeed/telegraph so a constant
    * full-gas player CROSSES the near lane while the car is in it (level 7 is
    * the one level gas-only doesn't clear — you brake to dodge), while a player
-   * who hangs back always clears it. */
+   * who hangs back always clears it. Used by DEFAULT (brake-to-dodge) encounters. */
   triggerLeadPx: 2100,
+  /** Shorter trigger lead for encounters listed in the config's
+   * `punchThroughIndices`: the car spawns when the bike is already close, so a
+   * confident player at speed can ACCELERATE THROUGH the gap before the car
+   * drops into the near lane (the plan's second dodge mechanic). These stay
+   * avoidable by braking too — just no longer force it. Adds pacing/variety and
+   * keeps confident play inside NORTH_STAR's 20-45s window. Kept >= a cautious
+   * player's braking distance (~900px) so these stay safely brakeable too, and
+   * short enough that a punch is safe from a modest ~6.5 px/step arrival. */
+  punchTriggerLeadPx: 1000,
   /** Extra px added past the telegraph distance when spawning a car to the
    * right of its encounter, so it comfortably starts fully off in the far
    * lane before the >=3s telegraph begins. */
