@@ -207,6 +207,13 @@ const PUFF_GROW = 2.2;
 /** "WOOHOO!" toast (screen-anchored, like the fail overlay / pickup toast). */
 const TOAST_Y_PX = 180;
 const TOAST_FONT_SIZE_PX = 40;
+/** Finale spin-out: the cop rotates 540 degrees (1.5 turns) — deliberately past a
+ * full turn so it reads as a violent skid; Phaser's angle setter wraps it to a
+ * 180-degree display value mid-tween, which is what the harness observes. */
+const FINALE_SPIN_DEG = 540;
+/** Finale spin-out: how far the cop drifts back (left) / down as it loses you, px. */
+const FINALE_DRIFT_X_PX = 40;
+const FINALE_DRIFT_Y_PX = 24;
 
 /** Centered pixel-font text, replicating ui.ts's createPixelText from the shared
  * font constants — inlined so this module needs no runtime ui.ts/Phaser import
@@ -420,9 +427,9 @@ export function createPolice(
     // Cop loses control: spin out + drift back/down as Gabby pulls away.
     scene.tweens.add({
       targets: cop,
-      angle: 540,
-      x: cop.x - 40,
-      y: cop.y + 24,
+      angle: FINALE_SPIN_DEG,
+      x: cop.x - FINALE_DRIFT_X_PX,
+      y: cop.y + FINALE_DRIFT_Y_PX,
       duration: POLICE.finaleSpinMs,
       ease: 'Cubic.easeOut',
     });
@@ -468,6 +475,12 @@ export function createPolice(
     // (and only safe) if the world somehow survived.
     const world = scene.matter.world as Phaser.Physics.Matter.World | null;
     if (world) world.off(BEFORE_UPDATE_EVENT, onBeforeUpdate);
+    // Kill any in-flight finale tweens (cop spin-out / puff / toast — all tracked
+    // in `objects`) BEFORE destroying their targets, so an abnormal shutdown mid-
+    // finale (e.g. pause->quit during the ~1200ms hold) can't leave a tween running
+    // against a destroyed GameObject. Idempotent: a second destroy() sees an empty
+    // `objects` and killTweensOf([]) is a harmless no-op.
+    scene.tweens.killTweensOf(objects);
     for (const obj of objects) obj.destroy();
     objects.length = 0;
     if (import.meta.env.DEV) {
