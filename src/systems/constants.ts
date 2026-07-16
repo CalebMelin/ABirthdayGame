@@ -656,7 +656,7 @@ export const LEVEL = {
   // validateJumpSafety + scripts/playtest-levels.mjs, the ghost-driver
   // harness that proves every level is gas-only-beatable). These are SAFETY
   // FLOORS, not the tighter values ST-3 actually authored the real 22
-  // configs to (widths 420-700px, heights 50-95px, jump `x` at ~35-64% of
+  // configs to (widths 480-680px, heights 50-95px, jump `x` at ~35-64% of
   // level length, hilliness <=0.30 on every jump-bearing level — see
   // DECISIONS.md's ST-3 entry) — deliberately looser so a minor future
   // level-config tweak doesn't false-fail this guard, while a genuinely

@@ -222,6 +222,12 @@ async function main() {
   const eventFreeUnfinished = eventFreeRows.filter((r) => !r.finished);
   const eventUnfinished = eventRows.filter((r) => !r.finished);
   const overBodyBudget = rows.filter((r) => r.bodies >= MAX_BODIES);
+  // A gas-only run that CRASHES then recovers still returns finished:true;
+  // restartCount>0 means it didn't CLEANLY make it. Gate event-free levels
+  // on it (the harness's whole point is proving clean gas-only beatability);
+  // event levels only WARN (a real PLAN-06/07 obstacle could force a retry).
+  const eventFreeRestarted = eventFreeRows.filter((r) => r.restartCount > 0);
+  const eventRestarted = eventRows.filter((r) => r.restartCount > 0);
 
   const summary = {
     totalLevels: rows.length,
@@ -231,6 +237,8 @@ async function main() {
     eventLevelIds: EVENT_LEVEL_IDS,
     eventLevelsFinishedIds: eventRows.filter((r) => r.finished).map((r) => r.id),
     eventLevelsNotFinishedIds: eventUnfinished.map((r) => r.id), // WARN only, not gated
+    eventFreeRestartedIds: eventFreeRestarted.map((r) => r.id), // GATES the exit code
+    eventLevelsRestartedIds: eventRestarted.map((r) => r.id), // WARN only, not gated
     maxBodies: MAX_BODIES,
     maxBodiesSeen: rows.reduce((max, r) => Math.max(max, r.bodies), 0),
     overBodyBudgetIds: overBodyBudget.map((r) => r.id), // GATES the exit code
@@ -248,9 +256,17 @@ async function main() {
         .join(', ')}). Not gated (a real PLAN-06/07 event could legitimately block gas-only), but worth a look.`
     );
   }
+  if (eventRestarted.length > 0) {
+    console.warn(
+      `WARNING: ${eventRestarted.length} special-event level(s) crash-restarted mid-drive (ids ${eventRestarted
+        .map((r) => r.id)
+        .join(', ')}). Not gated (a real PLAN-06/07 obstacle could force a retry), but worth a look.`
+    );
+  }
 
   const gatedFailure =
     eventFreeUnfinished.length > 0 ||
+    eventFreeRestarted.length > 0 ||
     overBodyBudget.length > 0 ||
     errorSink.consoleErrors.length > 0 ||
     errorSink.pageErrors.length > 0;

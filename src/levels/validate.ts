@@ -93,6 +93,11 @@ export function validateJumpSafety(configs: readonly LevelConfig[]): string[] {
           );
         }
 
+        // Measured from the ramp BASE x (not x+width): the ramp footprint
+        // is deliberately not subtracted on the finish side, so this floor is
+        // effectively a little looser there — harmless, since overshooting
+        // the finish only completes the level (never a crash), and authored
+        // placement sits far from this limit anyway.
         const finishX = length - LEVEL.finishMarginPx;
         const finishClearance = finishX - x;
         if (finishClearance < LEVEL.jumpClearancePx) {
