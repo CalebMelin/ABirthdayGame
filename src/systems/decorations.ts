@@ -6,19 +6,62 @@
 // PLAN-10; this file is placeholder plumbing (create-once / destroy-on-teardown
 // handle), mirroring terrain.ts's / themes.ts's handle pattern.
 //
-// UNLIKE terrain.ts / themes.ts / bike.ts, this module is NOT written to be
-// Node/Vitest import-safe: it pulls in createPixelText from ui.ts (which DOES
-// `import Phaser from 'phaser'` at runtime), so it can only be imported from
-// browser-side code (GameScene). That's fine — no test imports it, and the
-// signs/billboards genuinely need the shared pixel-text helper. Its own Phaser
-// import is still type-only (`import type Phaser`), and every drawing call goes
-// through the `scene` handle it's given, same contract as createTerrain.
+// AS OF PLAN-07 task 3, this module IS Node/Vitest import-safe (like
+// terrain.ts/bike.ts/themes.ts/traffic.ts/police.ts/wheelieRider.ts): it no
+// longer imports createPixelText from ui.ts (which DOES `import Phaser from
+// 'phaser'` at runtime — the thing that made this file test-unsafe pre-PLAN-07).
+// A local `pixelText` helper (below, mirroring police.ts's/pickup.ts's own copy)
+// replicates it from the shared font constants instead. This matters because
+// src/systems/billboard.ts (level 18's easter-egg billboard, PLAN-07 task 3)
+// imports this module's exported `drawBillboard` directly — the SAME function
+// createDecorations calls for every decoy billboard — so the egg and its decoys
+// can never visually drift apart (one shared drawer, one source of frame
+// pixels), and importing it must not drag real Phaser into events.ts's import
+// graph (which tests/events.test.ts imports under plain Node). The exported pure
+// `wrapBillboardText` helper is exercised directly by tests/decorations.test.ts;
+// `createDecorations`/`drawBillboard`/the other per-kind drawers only ever CALL
+// METHODS on the `scene` handle they're given, same contract as createTerrain.
 import type Phaser from 'phaser';
-import { DEPTHS, TEXTURE_KEYS, PALETTE } from './constants';
-import { createPixelText } from './ui';
+import {
+  DEPTHS,
+  TEXTURE_KEYS,
+  PALETTE,
+  BILLBOARD,
+  FONT_STACK_PIXEL,
+  TEXT_COLOR,
+  snapFontSize,
+} from './constants';
 import { THEMES } from './themes';
 import type { LevelConfig, DecorationSpec } from '../levels/types';
 import type { TerrainHandle } from './terrain';
+
+/**
+ * Centered pixel-font text, replicating ui.ts's createPixelText from the
+ * shared font constants — inlined so this module needs no runtime ui.ts/Phaser
+ * import (keeping `wrapBillboardText` Node-testable; same discipline as
+ * police.ts's/pickup.ts's own local `pixelText` helper). `lineSpacingPx`
+ * (default 0) sets Phaser's Text style `lineSpacing` — used by drawBillboard's
+ * multi-line (word-wrapped) labels; single-line callers (drawSign, and
+ * drawBillboard's own single-line case) simply don't need it.
+ */
+function pixelText(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  text: string,
+  sizePx: number,
+  lineSpacingPx = 0
+): Phaser.GameObjects.Text {
+  return scene.add
+    .text(Math.round(x), Math.round(y), text, {
+      fontFamily: FONT_STACK_PIXEL,
+      fontSize: `${snapFontSize(sizePx)}px`,
+      color: TEXT_COLOR,
+      align: 'center',
+      lineSpacing: lineSpacingPx,
+    })
+    .setOrigin(0.5);
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -54,19 +97,21 @@ const SIGN_BOARD_HEIGHT_PX = 44;
 const SIGN_BOARD_MIN_WIDTH_PX = 120;
 /** Horizontal padding each side between the sign text and the board edge. */
 const SIGN_TEXT_PAD_PX = 16;
-/** Sign text size, px (snapped to the 8px pixel grid by createPixelText). */
+/** Sign text size, px (snapped to the 8px pixel grid by the local pixelText). */
 const SIGN_TEXT_SIZE_PX = 12;
 const SIGN_OUTLINE_PX = 4;
 /** Height of the accent-colored strip along the top of the sign board. */
 const SIGN_STRIP_HEIGHT_PX = 8;
 
 // --- Billboard: a larger board on a tall pole, elevated well above the road.
+// Board WIDTH/HEIGHT/padding + word-wrap tunables live in constants.ts's
+// BILLBOARD block (PLAN-07 task 3) instead of here — unlike this pole/outline/
+// text-size placeholder-art shape, board sizing now serves a real gameplay
+// requirement (the level-18 easter egg's "subtle, same family as the decoys"
+// mandate), not just decorative fluff — see that block's doc comment.
 const BILLBOARD_POST_WIDTH_PX = 16;
 const BILLBOARD_POST_HEIGHT_PX = 190;
-const BILLBOARD_BOARD_HEIGHT_PX = 110;
-const BILLBOARD_BOARD_MIN_WIDTH_PX = 220;
-const BILLBOARD_TEXT_PAD_PX = 24;
-/** Billboard text size, px (bigger than a sign — snapped by createPixelText). */
+/** Billboard text size, px (bigger than a sign — snapped by the local pixelText). */
 const BILLBOARD_TEXT_SIZE_PX = 20;
 /** Billboard frame stroke width, px (drawn in the theme accent color). */
 const BILLBOARD_OUTLINE_PX = 6;
@@ -113,7 +158,7 @@ function drawSign(
 
   // Text first so the board can be sized to fit it. Depth props+1 so it always
   // draws over the board regardless of add order (Phaser sorts by depth).
-  const label = createPixelText(scene, spec.x, boardCenterY, spec.text ?? '', SIGN_TEXT_SIZE_PX).setDepth(
+  const label = pixelText(scene, spec.x, boardCenterY, spec.text ?? '', SIGN_TEXT_SIZE_PX).setDepth(
     DEPTHS.props + 1
   );
   const boardWidth = Math.max(SIGN_BOARD_MIN_WIDTH_PX, label.width + SIGN_TEXT_PAD_PX * 2);
@@ -135,37 +180,100 @@ function drawSign(
   objects.push(post, board, strip, label);
 }
 
-/** A large elevated billboard: tall dark pole, cream board with an accent-
- * colored frame, and the ad text. Board floats above the surface on the pole. */
-function drawBillboard(
+/**
+ * Greedy word-wrap: re-joins `text`'s words with spaces, breaking to a new
+ * line (joined by '\n') only once a line would exceed `maxCharsPerLine`
+ * characters — never mid-word. A single word LONGER than `maxCharsPerLine` is
+ * kept whole, unsplit, on its own line. Press Start 2P is a fixed-width pixel
+ * font, so a CHARACTER budget is a simple, Node-testable stand-in for a real
+ * (browser-only) pixel-width measurement — see BILLBOARD.wrapMaxChars's doc.
+ *
+ * ROUND-TRIP PROPERTY (relied on by scripts/playtest-level18.mjs's verbatim
+ * egg-text check): for any single-spaced `text` with no leading/trailing/
+ * repeated whitespace (true of every billboard's authored copy),
+ * `wrapBillboardText(text, n).replace(/\n/g, ' ') === text` — wrapping only
+ * ever REPLACES a space with a newline, it never adds, drops, reorders, or
+ * duplicates a character.
+ *
+ * Pure — no Phaser/DOM. Always returns a defined string: an empty/blank
+ * `text` yields `''` (matching drawBillboard's `text` contract — callers
+ * already guard `spec.text ?? ''`), never throws.
+ */
+export function wrapBillboardText(text: string, maxCharsPerLine: number): string {
+  const words = text.split(' ').filter((word) => word.length > 0);
+  if (words.length === 0) return '';
+
+  const lines: string[] = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const candidate = `${current} ${words[i]}`;
+    if (candidate.length <= maxCharsPerLine) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines.join('\n');
+}
+
+/**
+ * Draws one billboard's full frame — tall dark pole, cream board with an
+ * accent-colored outline, and the (possibly word-wrapped) ad/egg text — and
+ * returns every GameObject it created. Board floats above the surface on the
+ * pole; sized to fit its (wrapped) text on BOTH axes, floored at
+ * BILLBOARD.boardMinWidthPx / boardBaseHeightPx (the exact pre-wrap fixed
+ * dimensions), so an existing short single-line decoy renders unchanged.
+ *
+ * SHARED: this is the ONE function that draws a billboard's frame pixels —
+ * `createDecorations` below calls it for every decoy `{kind:'billboard'}`
+ * entry, and src/systems/billboard.ts calls it directly for level 18's
+ * easter-egg billboard event, so the two can never visually drift apart
+ * (NORTH_STAR: the egg must read as "just another billboard," subtle among
+ * its decoys). Takes primitives (not a DecorationSpec) so a caller with no
+ * DecorationSpec to hand (billboard.ts's BillboardEvent) doesn't need to
+ * fabricate one just to call this.
+ */
+export function drawBillboard(
   scene: Phaser.Scene,
-  spec: DecorationSpec,
+  x: number,
   surfaceY: number,
-  accent: number,
-  objects: DecoObjects
-): void {
-  const boardCenterY = surfaceY - BILLBOARD_POST_HEIGHT_PX - BILLBOARD_BOARD_HEIGHT_PX / 2;
+  text: string,
+  accent: number
+): Phaser.GameObjects.GameObject[] {
+  const wrapped = wrapBillboardText(text, BILLBOARD.wrapMaxChars);
 
   const post = scene.add
-    .rectangle(spec.x, surfaceY, BILLBOARD_POST_WIDTH_PX, BILLBOARD_POST_HEIGHT_PX, PALETTE.outline)
+    .rectangle(x, surfaceY, BILLBOARD_POST_WIDTH_PX, BILLBOARD_POST_HEIGHT_PX, PALETTE.outline)
     .setOrigin(0.5, 1)
     .setDepth(DEPTHS.props);
 
-  const label = createPixelText(
-    scene,
-    spec.x,
-    boardCenterY,
-    spec.text ?? '',
-    BILLBOARD_TEXT_SIZE_PX
-  ).setDepth(DEPTHS.props + 1);
-  const boardWidth = Math.max(BILLBOARD_BOARD_MIN_WIDTH_PX, label.width + BILLBOARD_TEXT_PAD_PX * 2);
+  // Label created at a THROWAWAY y first so its real (possibly multi-line)
+  // width/height can be measured (mirrors ui.ts's createPixelButton, which
+  // measures its label before sizing the button around it) — repositioned
+  // below once boardCenterY is known. ONE Text object carrying embedded '\n's
+  // (not several stacked Text objects): Phaser's own multi-line layout +
+  // `align:'center'` centers every line within the block for free, and the
+  // egg's verbatim text survives intact (modulo space<->newline at wrap
+  // points — see wrapBillboardText's round-trip property) as ONE object's
+  // `.text`, which is what scripts/playtest-level18.mjs's "exactly one text
+  // object" check depends on.
+  const label = pixelText(scene, x, 0, wrapped, BILLBOARD_TEXT_SIZE_PX, BILLBOARD.lineSpacingPx).setDepth(
+    DEPTHS.props + 1
+  );
+
+  const boardWidth = Math.max(BILLBOARD.boardMinWidthPx, label.width + BILLBOARD.textPadPx * 2);
+  const boardHeight = Math.max(BILLBOARD.boardBaseHeightPx, label.height + BILLBOARD.textPadPx * 2);
+  const boardCenterY = surfaceY - BILLBOARD_POST_HEIGHT_PX - boardHeight / 2;
+  label.setPosition(x, boardCenterY);
 
   const board = scene.add
-    .rectangle(spec.x, boardCenterY, boardWidth, BILLBOARD_BOARD_HEIGHT_PX, PALETTE.cream)
+    .rectangle(x, boardCenterY, boardWidth, boardHeight, PALETTE.cream)
     .setStrokeStyle(BILLBOARD_OUTLINE_PX, accent)
     .setDepth(DEPTHS.props);
 
-  objects.push(post, board, label);
+  return [post, board, label];
 }
 
 /** A party balloon: the tex-balloon sprite tinted the theme accent, floating
@@ -249,7 +357,7 @@ export function createDecorations(
         drawSign(scene, spec, surfaceY, accent, objects);
         break;
       case 'billboard':
-        drawBillboard(scene, spec, surfaceY, accent, objects);
+        objects.push(...drawBillboard(scene, spec.x, surfaceY, spec.text ?? '', accent));
         break;
       case 'balloon':
         drawBalloon(scene, spec, surfaceY, accent, objects);

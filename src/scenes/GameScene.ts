@@ -257,11 +257,11 @@ export class GameScene extends Phaser.Scene {
 
     // Scripted-event dispatch (PLAN-06 Task A seam): each event returns a handle
     // GameScene drives per-frame (update), tears down (destroy), and can consult
-    // for a finish-hold (onFinish). Traffic/police/pickup behavior lands in
-    // later PLAN-06 tasks (inert handles today); billboard remains a PLAN-07
-    // no-op (task 3 lands it next). Never throws — a special-event level
-    // (7/11/12/15/18) enters cleanly. Built AFTER bike + terrain + finishX +
-    // passenger exist.
+    // for a finish-hold (onFinish). Traffic/police/pickup/wheelieRider/billboard
+    // are all REAL systems now (PLAN-06 tasks B/C/D + PLAN-07 tasks 2/3) — see
+    // src/levels/events.ts's dispatch switch. Never throws — a special-event
+    // level (7/11/12/15/18) enters cleanly. Built AFTER bike + terrain + finishX
+    // + passenger exist.
     const ctx: EventContext = {
       bike: this.bike,
       terrain: this.terrain,

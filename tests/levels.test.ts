@@ -37,6 +37,62 @@ describe('LEVELS', () => {
   });
 });
 
+describe('level 18 — billboard row (PLAN-07 task 3: the egg among its decoys)', () => {
+  const level18 = LEVELS.find((level) => level.id === 18);
+
+  it('exists and has a terrain length to derive fractions against', () => {
+    expect(level18).toBeDefined();
+    expect(level18!.terrain.length).toBeGreaterThan(0);
+  });
+
+  it('has between 5 and 7 total billboards (decoy decorations + the egg event), inclusive — NORTH_STAR "subtle among decoy billboards"', () => {
+    const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
+    const eggBillboards = (level18!.events ?? []).filter((e) => e.type === 'billboard');
+    const total = decoyBillboards.length + eggBillboards.length;
+    expect(total).toBeGreaterThanOrEqual(5);
+    expect(total).toBeLessThanOrEqual(7);
+  });
+
+  it("the egg billboard's x sits mid-level (25%-75% of the level's length)", () => {
+    const egg = level18!.events?.find(
+      (event): event is Extract<LevelEvent, { type: 'billboard' }> => event.type === 'billboard'
+    );
+    expect(egg).toBeDefined();
+    const frac = egg!.x / level18!.terrain.length;
+    expect(frac).toBeGreaterThanOrEqual(0.25);
+    expect(frac).toBeLessThanOrEqual(0.75);
+  });
+
+  it('every decoy billboard has at least one decoy (not just the egg alone)', () => {
+    const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
+    expect(decoyBillboards.length).toBeGreaterThan(0);
+  });
+
+  it('every decoy billboard is ASCII-only rendered copy (PLAN-05 pixel-font-safety convention)', () => {
+    const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
+    for (const decoy of decoyBillboards) {
+      // eslint-disable-next-line no-control-regex -- deliberate ASCII range check
+      expect(decoy.text ?? '').toMatch(/^[\x00-\x7F]*$/);
+    }
+  });
+
+  it('no decoy billboard text accidentally matches the locked egg text (decoys are generic, never the joke itself)', () => {
+    // Deliberately compared against the EVENT's own text (not another
+    // hardcoded copy of the locked literal): the byte-exact guard above is
+    // the ONE independent copy this file carries (CLAUDE.md Rule 4 — keep
+    // copies of locked personal content to the minimum that guards it), and
+    // this test only needs "decoys never duplicate whatever the egg says".
+    const egg = level18!.events?.find(
+      (event): event is Extract<LevelEvent, { type: 'billboard' }> => event.type === 'billboard'
+    );
+    expect(egg).toBeDefined();
+    const decoyBillboards = (level18!.decorations ?? []).filter((d) => d.kind === 'billboard');
+    for (const decoy of decoyBillboards) {
+      expect(decoy.text).not.toBe(egg!.text);
+    }
+  });
+});
+
 describe('getLevelConfig', () => {
   it('returns the matching level for every real id, 1..TOTAL_LEVELS', () => {
     for (let id = 1; id <= TOTAL_LEVELS; id++) {

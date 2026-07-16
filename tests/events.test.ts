@@ -1,12 +1,15 @@
 // Seam tests for dispatchLevelEvents (PLAN-06 Task A). events.ts has NO runtime
 // Phaser import (its `import type` lines are erased), so the dispatcher runs in
 // plain Node. The `traffic` case (PLAN-06 task B, src/systems/traffic.ts), the
-// `calebPickup` case (PLAN-06 task C, src/systems/pickup.ts), and the
-// `wheelieRider` case (PLAN-07 task 2, src/systems/wheelieRider.ts) now construct
-// REAL systems (all import-safe: no runtime Phaser, no ui.ts), so the stand-ins
-// below are functional stubs rich enough for createTraffic to build its sprite
-// pool + run a frame, createPickup to build its house/mailbox/Caleb GameObjects,
-// and createWheelieRider to prepare its textures (police is still inert and
+// `calebPickup` case (PLAN-06 task C, src/systems/pickup.ts), the
+// `wheelieRider` case (PLAN-07 task 2, src/systems/wheelieRider.ts), and the
+// `billboard` case (PLAN-07 task 3, src/systems/billboard.ts) now ALL construct
+// REAL systems (every one import-safe: no runtime Phaser, no ui.ts — see
+// decorations.ts's module doc for how billboard.ts's dependency on it stayed
+// safe), so the stand-ins below are functional stubs rich enough for
+// createTraffic to build its sprite pool + run a frame, createPickup to build
+// its house/mailbox/Caleb GameObjects, createWheelieRider to prepare its
+// textures, and createBillboard to draw its board (police is still inert and
 // ignores them) — without a real Phaser. These lock the seam's handle-count
 // contract.
 import { describe, expect, it } from 'vitest';
@@ -83,12 +86,13 @@ describe('dispatchLevelEvents', () => {
     expect(dispatchLevelEvents(fakeScene, config, fakeCtx)).toEqual([]);
   });
 
-  it('returns one handle each for traffic / police / calebPickup / wheelieRider', () => {
+  it('returns one handle each for traffic / police / calebPickup / wheelieRider / billboard', () => {
     for (const event of [
       { type: 'traffic' },
       { type: 'police' },
       { type: 'calebPickup', x: 6250 },
       { type: 'wheelieRider', x: 6500 },
+      { type: 'billboard', x: 500, text: 'hi' },
     ] satisfies LevelEvent[]) {
       const handles = dispatchLevelEvents(fakeScene, configWith([event]), fakeCtx);
       expect(handles).toHaveLength(1);
@@ -97,7 +101,7 @@ describe('dispatchLevelEvents', () => {
     }
   });
 
-  it('returns a real handle for wheelieRider (PLAN-07 task 2) but NO handle for the billboard stub', () => {
+  it('returns REAL handles for BOTH wheelieRider (PLAN-07 task 2) and billboard (PLAN-07 task 3) together', () => {
     const handles = dispatchLevelEvents(
       fakeScene,
       configWith([
@@ -106,9 +110,11 @@ describe('dispatchLevelEvents', () => {
       ]),
       fakeCtx
     );
-    expect(handles).toHaveLength(1);
-    expect(typeof handles[0].update).toBe('function');
-    expect(typeof handles[0].destroy).toBe('function');
+    expect(handles).toHaveLength(2);
+    for (const handle of handles) {
+      expect(typeof handle.update).toBe('function');
+      expect(typeof handle.destroy).toBe('function');
+    }
   });
 
   it('returns one handle per real event, in order, for a mixed list', () => {
@@ -118,11 +124,13 @@ describe('dispatchLevelEvents', () => {
         { type: 'traffic' },
         { type: 'wheelieRider', x: 500 },
         { type: 'police' },
+        { type: 'billboard', x: 500, text: 'hi' },
       ]),
       fakeCtx
     );
-    // traffic + wheelieRider + police all produce real handles now (PLAN-07 task 2).
-    expect(handles).toHaveLength(3);
+    // traffic + wheelieRider + police + billboard all produce real handles now
+    // (PLAN-07 task 3 — every LevelEvent variant dispatches to a real system).
+    expect(handles).toHaveLength(4);
   });
 
   it('inert handles are safe to update() and destroy() (no throw)', () => {
@@ -135,6 +143,19 @@ describe('dispatchLevelEvents', () => {
 
   it('the wheelieRider handle is safe to update() and destroy() (no throw), incl. double-destroy', () => {
     const [handle] = dispatchLevelEvents(fakeScene, configWith([{ type: 'wheelieRider', x: 6500 }]), fakeCtx);
+    expect(() => {
+      handle.update();
+      handle.destroy();
+      handle.destroy(); // idempotent — a second teardown must never throw
+    }).not.toThrow();
+  });
+
+  it('the billboard handle is safe to update() and destroy() (no throw), incl. double-destroy', () => {
+    const [handle] = dispatchLevelEvents(
+      fakeScene,
+      configWith([{ type: 'billboard', x: 500, text: 'hi' }]),
+      fakeCtx
+    );
     expect(() => {
       handle.update();
       handle.destroy();

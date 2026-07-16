@@ -9,10 +9,11 @@
 // police chase (task D) are now REAL — the `traffic`/`calebPickup`/`police`
 // cases construct createTraffic (src/systems/traffic.ts) / createPickup
 // (src/systems/pickup.ts) / createPolice (src/systems/police.ts). Level 11's
-// wheelieRider easter egg (PLAN-07 task 2) is now REAL too — the `wheelieRider`
-// case constructs createWheelieRider (src/systems/wheelieRider.ts). Level 18's
-// billboard case stays a PLAN-07 no-op stub (it pushes no handle) until a later
-// task lands it. This never throws.
+// wheelieRider easter egg (PLAN-07 task 2) and level 18's billboard easter egg
+// (PLAN-07 task 3) are now REAL too — the `wheelieRider`/`billboard` cases
+// construct createWheelieRider (src/systems/wheelieRider.ts) / createBillboard
+// (src/systems/billboard.ts). EVERY LevelEvent variant now dispatches to a real
+// system. This never throws.
 //
 // The `switch (event.type)` stays EXHAUSTIVE with a `never` guard in the
 // default case, so adding a future LevelEvent variant without a case here is a
@@ -30,6 +31,7 @@ import { createTraffic } from '../systems/traffic';
 import { createPickup } from '../systems/pickup';
 import { createPolice } from '../systems/police';
 import { createWheelieRider } from '../systems/wheelieRider';
+import { createBillboard } from '../systems/billboard';
 
 // ---------------------------------------------------------------------------
 // Public seam types (PLAN-06 Task A — the contract every event system + the
@@ -91,14 +93,13 @@ export interface EventContext {
 
 /**
  * Dispatches each of `config.events` (none if absent), returning the live
- * handles GameScene drives. Traffic/pickup/police/wheelieRider each construct
- * a real system; billboard still pushes nothing (the one remaining PLAN-07
- * stub) — see the module comment. Never throws.
+ * handles GameScene drives. Traffic/pickup/police/wheelieRider/billboard each
+ * construct a real system — see the module comment. Never throws.
  *
  * @param scene runtime handle to Phaser's factories — passed straight through
- *   to createTraffic/createPickup/createPolice/createWheelieRider, each of
- *   which spawns cars/plays cutscenes/builds its own GameObjects directly off
- *   it (also used for the dev-only breadcrumb below).
+ *   to createTraffic/createPickup/createPolice/createWheelieRider/
+ *   createBillboard, each of which spawns cars/plays cutscenes/builds its own
+ *   GameObjects directly off it (also used for the dev-only breadcrumb below).
  * @param ctx the shared {@link EventContext} the real systems will consume.
  */
 export function dispatchLevelEvents(
@@ -149,7 +150,16 @@ export function dispatchLevelEvents(
         handles.push(createWheelieRider(scene, event, ctx));
         break;
       case 'billboard':
-        // PLAN-07 no-op stub (level 18's billboard) — pushes no handle.
+        // Level 18's easter-egg billboard (PLAN-07 task 3): a static
+        // decoration rendered through the SAME shared drawer, same
+        // DEPTHS.props layer, same scroll behavior as every decoy billboard
+        // in the level's `decorations` array (see DECISIONS.md's
+        // parallax-vs-same-layer judgment call) — so it reads as "just
+        // another billboard," discoverable only by reading it. `config.theme`
+        // is passed through so its frame color matches the level's decoys
+        // exactly. Zero Matter bodies, no fixed-step listener, never
+        // fails/awards anything.
+        handles.push(createBillboard(scene, event, ctx, config.theme));
         break;
       default: {
         // Exhaustiveness guard: a new LevelEvent variant with no case above

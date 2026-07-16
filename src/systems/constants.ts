@@ -996,6 +996,52 @@ export const WHEELIE_RIDER = {
   dustTrailBehindPx: 14,
 } as const;
 
+/** Level 18 "Billboard Row" shared billboard sizing + word-wrap tunables
+ * (PLAN-07 task 3 — see src/systems/decorations.ts's exported `drawBillboard`,
+ * shared by BOTH `createDecorations`' decoy billboards and
+ * src/systems/billboard.ts's level-18 easter egg). NORTH_STAR §5 row 18's egg
+ * text (~44 chars — the locked literal lives in level18.ts's event entry,
+ * NEVER copied here per CLAUDE.md Rule 4) is far
+ * longer than any decoy's ad copy — rendered on ONE line at
+ * BILLBOARD_TEXT_SIZE_PX (decorations.ts) it would grow the board to roughly
+ * 4x a decoy's width, defeating "subtle, among decoy billboards" (NORTH_STAR)
+ * by SIZE alone, regardless of the text itself. Word-wrap (a simple greedy
+ * CHARACTER-budget wrap — Press Start 2P is a fixed-width pixel font, so a
+ * character count is a simple, Node-testable stand-in for a real, browser-only
+ * pixel-width measurement) keeps every billboard's board within a comparable
+ * footprint no matter how long its copy is, so the egg is discoverable only by
+ * READING it, never by its size or motion (see DECISIONS.md).
+ *
+ * Board sizing follows the SAME "min OR content, whichever is bigger" rule on
+ * BOTH axes — width already worked this way pre-wrap; height is new here.
+ * `boardBaseHeightPx` is exactly the pre-wrap fixed height, so every existing
+ * single-line decoy renders unchanged (its measured label height sits well
+ * under the floor, same as its width already did at the min). */
+export const BILLBOARD = {
+  /** Greedy word-wrap budget, in CHARACTERS per line (see
+   * decorations.ts's `wrapBillboardText`). A single word longer than this is
+   * kept whole, unsplit, on its own line — never broken mid-word. Tuned so
+   * the egg's ~44-char line wraps to a board comparable in size to the
+   * level's longest decoy (level18.ts's "PARKER AND PARKER..." decoy is
+   * authored to wrap identically at this width — see DECISIONS.md). */
+  wrapMaxChars: 18,
+  /** Minimum board width, px (grown to fit the WIDEST wrapped line, not the
+   * whole string). */
+  boardMinWidthPx: 220,
+  /** Minimum board height, px — the EXACT pre-wrap fixed height (grown to fit
+   * a multi-line label's real measured height, same "min OR content" rule as
+   * width). */
+  boardBaseHeightPx: 110,
+  /** Padding, each side, between the (possibly multi-line) label and the
+   * board edge, px — applied on BOTH axes. */
+  textPadPx: 24,
+  /** Phaser Text style `lineSpacing`, px — extra vertical gap between wrapped
+   * lines within one multi-line Text object (see drawBillboard: the wrapped
+   * copy renders as ONE Text GameObject with embedded '\n's, not several
+   * stacked ones, so Phaser's own multi-line layout/centering does the work). */
+  lineSpacingPx: 10,
+} as const;
+
 /** Total number of levels in the game. A locked fact from NORTH_STAR.md —
  * never make this configurable or derive it from level data. */
 export const TOTAL_LEVELS = 22;
