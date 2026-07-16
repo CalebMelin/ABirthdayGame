@@ -23,6 +23,26 @@ import { PALETTE, DEPTHS, TERRAIN } from './constants';
  * import it rather than re-typing the string. */
 export const TERRAIN_BODY_LABEL = 'terrain';
 
+/** How many visual heightmap samples span one Matter collision segment (see
+ * buildGroundBodies) — the coarse chain uses one body per this many samples
+ * to stay under NORTH_STAR §8's <100-body budget. Exported (rather than
+ * recomputed inline) so validate.ts's kicker-alignment guard and this file's
+ * own chain builder can never disagree about where collision NODES fall. */
+export const TERRAIN_COLLISION_STRIDE = Math.max(
+  1,
+  Math.round(TERRAIN.segmentTargetPx / TERRAIN.sampleSpacingPx)
+);
+
+/** Horizontal spacing (px) between adjacent Matter collision NODES — the
+ * coarse chain samples the dense heightmap every this many px. A "kicker"
+ * (PLAN-07 task 4) is a raised-cosine ramp whose base/peak/end land exactly
+ * on these nodes, so the coarse chain renders it as a clean launch TRIANGLE
+ * (nose-up airtime) rather than the flat-topped chord a gentle hump becomes.
+ * That requires kicker.x to be a multiple of this and kicker.width a multiple
+ * of TWICE this (peak at width/2 must also land on a node) — see
+ * src/levels/validate.ts's kicker guard. Currently 7 * 24 = 168px. */
+export const TERRAIN_COLLISION_GRID_PX = TERRAIN_COLLISION_STRIDE * TERRAIN.sampleSpacingPx;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -54,6 +74,25 @@ export interface JumpSpec {
   /** Peak rise above the surrounding terrain at the ramp's midpoint, px.
    * Clamped to TERRAIN.maxJumpHeightPx regardless of what's requested. */
   height: number;
+  /** How the coarse Matter collision chain reads this ramp (PLAN-07 task 4):
+   *
+   *  - `'hump'` (default when omitted): a gentle, wide raised cosine. The
+   *    coarse chain flattens its top into a near-level chord — the bike rolls
+   *    over it and gets a little air but launches roughly FLAT, so a gas-only
+   *    hold never flips (the conservative PLAN-05 jump shape).
+   *  - `'kicker'`: a narrower, taller raised cosine whose base/peak/end are
+   *    aligned to the collision grid (TERRAIN_COLLISION_GRID_PX), which the
+   *    coarse chain renders as a clean launch TRIANGLE — real nose-up airtime.
+   *    A gas-only hold still clears it upright (the held-pedal assist), but a
+   *    deliberate mid-air GAS tap backflips off it (NORTH_STAR §4 "flips
+   *    achievable but optional"). src/levels/validate.ts enforces kicker-
+   *    specific bounds + grid alignment so it stays flip-capable AND gas-only-
+   *    survivable.
+   *
+   * Rendering is IDENTICAL for both (applyJumps stamps the same raised cosine)
+   * — `kind` is purely an authoring/validation label; the different FEEL comes
+   * entirely from the different dimensions + grid alignment a kicker requires. */
+  kind?: 'hump' | 'kicker';
 }
 
 /** Terrain generation input — the `terrain` sub-object of a level's
@@ -518,7 +557,7 @@ function makeSegmentBody(scene: Phaser.Scene, a: TerrainPoint, b: TerrainPoint):
  * the (dense) visual heightmap — see TERRAIN.segmentTargetPx doc comment
  * for the physics-body budget this respects. */
 function buildGroundBodies(scene: Phaser.Scene, points: TerrainPoint[]): MatterJS.BodyType[] {
-  const stride = Math.max(1, Math.round(TERRAIN.segmentTargetPx / TERRAIN.sampleSpacingPx));
+  const stride = TERRAIN_COLLISION_STRIDE;
   const bodies: MatterJS.BodyType[] = [];
 
   for (let i = 0; i < points.length - 1; i += stride) {

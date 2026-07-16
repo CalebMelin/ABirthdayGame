@@ -1,10 +1,11 @@
-// Level 17 — "Tulip Farming" (NORTH_STAR §5: hilly district; big jumps —
-// tulip farming). Three BIG WIDE humps (90-95px tall, 650-680px wide —
-// wide keeps the slope gentle/gas-only-safe per the jump-sizing rules,
-// never narrow+tall), spaced with a full landing gap between each so a
-// mediocre player recovers before the next takeoff. Hilliness nudged down
-// from the suggested 0.35 to 0.3 (the max allowed ±0.05 nudge) to satisfy
-// the jump-level "hilliness <= 0.30" rule — see DECISIONS.md.
+// Level 17 — "Tulip Farming" (NORTH_STAR §5: hilly district; big jumps — tulip
+// farming). THREE flip-capable KICKERS (PLAN-07 task 4 — the most of any level,
+// the tulip-farming field), each a grid-aligned 336×106 launch ramp spaced with
+// a full landing gap so a mediocre player recovers before the next takeoff. A
+// gas-only hold clears every one upright; a deliberate mid-air GAS tap backflips
+// off it for a tulip. Hilliness held at 0.30 (the jump-level ceiling) so the
+// kickers launch off predictable ground rather than stacking on steep hills —
+// see DECISIONS.md; kicker geometry validated by src/levels/validate.ts.
 import type { LevelConfig } from './types';
 
 export const level17: LevelConfig = {
@@ -16,9 +17,9 @@ export const level17: LevelConfig = {
     length: 14500,
     hilliness: 0.3,
     jumps: [
-      { x: 5100, width: 650, height: 90 },
-      { x: 7200, width: 680, height: 95 },
-      { x: 9300, width: 650, height: 90 },
+      { x: 5040, width: 336, height: 106, kind: 'kicker' },
+      { x: 7560, width: 336, height: 106, kind: 'kicker' },
+      { x: 10080, width: 336, height: 106, kind: 'kicker' },
     ],
     flatZones: [
       { start: 0, end: 700 },

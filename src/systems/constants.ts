@@ -1110,6 +1110,33 @@ export const LEVEL = {
    * keeps a jump's launch/landing predictable instead of stacked on top of
    * already-steep rolling-hill terrain. */
   jumpLevelMaxHilliness: 0.3,
+
+  // ---------------------------------------------------------- KICKER bounds
+  // A jump authored `kind: 'kicker'` (terrain.ts's JumpSpec) is a flip-capable
+  // launch ramp (PLAN-07 task 4) — deliberately NARROWER + TALLER than the
+  // gentle humps above, and GRID-ALIGNED so the coarse Matter collision chain
+  // renders it as a clean launch triangle (see TERRAIN_COLLISION_GRID_PX). It
+  // therefore CANNOT pass the hump width-floor/height-ceiling above, so kickers
+  // get their OWN validated bounds here (validate.ts branches on `kind`). These
+  // are tuned around PLAN-02's browser-PROVEN flip kicker (336px wide × 106px
+  // tall, ~0.55-1.0s airtime): a deliberate mid-air gas tap backflips off it
+  // while a gas-only hold clears it upright (the held-pedal assist). The bounds
+  // still catch genuinely dangerous kicker geometry — too tall/steep (crashes a
+  // gas-only hold, or auto-widens off the grid and stops launching) or too
+  // narrow — while admitting the proven size. Placement/clearance/hilliness
+  // (the rules above) apply to kickers too. All lengths px.
+  /** Minimum kicker ramp width, px (the proven kicker is 336 = 2 grid cells). */
+  kickerMinWidthPx: 336,
+  /** Maximum kicker ramp width, px (4 grid cells — wider reads as a hump, not
+   * a snappy launch). */
+  kickerMaxWidthPx: 672,
+  /** Minimum kicker ramp height, px — below this it barely leaves the ground,
+   * so a full flip isn't comfortably achievable. */
+  kickerMinHeightPx: 90,
+  /** Maximum kicker ramp height, px. Above the proven 106 the gas-only hold's
+   * airtime grows past where the held-pedal assist reliably lands it upright
+   * (BIKE_TUNING.heldPitchDelaySteps caveat) — keep kickers modest. */
+  kickerMaxHeightPx: 112,
 } as const;
 
 /** Level-start intro banner tuning (PLAN-05 ST-4 — GameScene.showIntroBanner).

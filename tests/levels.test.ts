@@ -102,6 +102,53 @@ describe('level 18 — billboard row (PLAN-07 task 3: the egg among its decoys)'
   });
 });
 
+describe('flip-capable kickers on jump-heavy levels (PLAN-07 task 4)', () => {
+  // NORTH_STAR §5 marks 2/4/9/17 as the jump-heavy levels; task 4 requires each
+  // to have >= 2 flip-capable kickers.
+  it.each([2, 4, 9, 17])('level %i has >= 2 kicker jumps', (id) => {
+    const level = LEVELS.find((l) => l.id === id);
+    expect(level).toBeDefined();
+    const kickers = level!.terrain.jumps.filter((jump) => jump.kind === 'kicker');
+    expect(kickers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('level 17 has the most kickers (the tulip-farming field)', () => {
+    const kickerCount = (id: number) =>
+      LEVELS.find((l) => l.id === id)!.terrain.jumps.filter((j) => j.kind === 'kicker').length;
+    const l17 = kickerCount(17);
+    for (const id of [2, 4, 9]) {
+      expect(l17).toBeGreaterThanOrEqual(kickerCount(id));
+    }
+    expect(l17).toBeGreaterThanOrEqual(3);
+  });
+
+  it("level 2's tutorial sign teaches the flip, byte-exact (PLAN-07 task 4 — em dash U+2014 + tulip U+1F337, do NOT paraphrase)", () => {
+    // Built from explicit code points, NOT copy-pasted from level02.ts, so this
+    // guard is its own independent oracle against an editor mangling the em dash
+    // or emoji (CLAUDE.md Rule 4).
+    const expected =
+      'Big jump ahead ' + '—' + ' try holding GAS in the air to flip! ' + '\u{1F337}';
+    const level2 = LEVELS.find((l) => l.id === 2);
+    const sign = (level2!.decorations ?? []).find((d) => d.kind === 'sign');
+    expect(sign).toBeDefined();
+    expect(sign!.text).toBe(expected);
+    // Belt-and-suspenders on the two non-ASCII glyphs specifically (so a mangled
+    // em dash / emoji can't slip through even if the literal above were changed).
+    expect(sign!.text).toContain('—'); // em dash
+    expect(sign!.text).toContain('\u{1F337}'); // tulip
+  });
+
+  it("level 2's tutorial sign sits BEFORE the first kicker (teaches before it asks)", () => {
+    const level2 = LEVELS.find((l) => l.id === 2)!;
+    const sign = (level2.decorations ?? []).find((d) => d.kind === 'sign');
+    const firstKickerX = Math.min(
+      ...level2.terrain.jumps.filter((j) => j.kind === 'kicker').map((j) => j.x)
+    );
+    expect(sign).toBeDefined();
+    expect(sign!.x).toBeLessThan(firstKickerX);
+  });
+});
+
 describe('getLevelConfig', () => {
   it('returns the matching level for every real id, 1..TOTAL_LEVELS', () => {
     for (let id = 1; id <= TOTAL_LEVELS; id++) {

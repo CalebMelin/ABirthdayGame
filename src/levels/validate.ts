@@ -14,7 +14,8 @@
 // own applyJumps would also treat it as an inert no-op — see the jump-field
 // guard below), never a crash.
 import type { LevelConfig } from './types';
-import { LEVEL } from '../systems/constants';
+import { LEVEL, TERRAIN } from '../systems/constants';
+import { TERRAIN_COLLISION_GRID_PX } from '../systems/terrain';
 
 /** Extra px past LEVEL.spawnXPx the spawn flat zone must cover, so the bike
  * (which spawns exactly at spawnXPx) has a little room to accelerate before
@@ -25,6 +26,27 @@ const SPAWN_FLAT_ZONE_MARGIN_PX = 200;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Steepest slope (dy/dx) of a raised-cosine ramp of the given height/width —
+ * reached a quarter of the way up, value height*pi/width (see terrain.ts's
+ * applyJumps). A kicker whose peak slope exceeds TERRAIN.maxJumpSlope would be
+ * AUTO-WIDENED by terrain.ts to hold that cap, knocking it off the collision
+ * grid and destroying the clean-triangle launch — so the kicker guard rejects
+ * it. Pure, total: a non-positive width yields Infinity (flagged). */
+export function raisedCosinePeakSlope(height: number, width: number): number {
+  return width > 0 ? (height * Math.PI) / width : Infinity;
+}
+
+/** True when a kicker's base `x` and `width` land its base/peak/end exactly on
+ * Matter collision NODES (TERRAIN_COLLISION_GRID_PX apart): `x` a multiple of
+ * the grid, `width` a multiple of TWICE the grid (so the peak at width/2 also
+ * lands on a node). Only then does the coarse chain render the raised cosine
+ * as a clean launch triangle (see terrain.ts). Pure, total. */
+export function isCollisionGridAlignedKicker(x: number, width: number): boolean {
+  const grid = TERRAIN_COLLISION_GRID_PX;
+  if (grid <= 0) return false;
+  return x % grid === 0 && width % (2 * grid) === 0;
 }
 
 /**
@@ -66,13 +88,40 @@ export function validateJumpSafety(configs: readonly LevelConfig[]): string[] {
       const height = jump?.height;
       if (!isFiniteNumber(x) || !isFiniteNumber(width) || !isFiniteNumber(height)) continue;
 
-      const label = `Level ${id} jump at x=${x}`;
+      const isKicker = jump?.kind === 'kicker';
+      const label = `Level ${id} ${isKicker ? 'kicker' : 'jump'} at x=${x}`;
 
-      if (width < LEVEL.jumpMinWidthPx) {
-        problems.push(`${label}: width ${width} is below LEVEL.jumpMinWidthPx (${LEVEL.jumpMinWidthPx})`);
-      }
-      if (height > LEVEL.jumpMaxHeightPx) {
-        problems.push(`${label}: height ${height} exceeds LEVEL.jumpMaxHeightPx (${LEVEL.jumpMaxHeightPx})`);
+      if (isKicker) {
+        // Flip-capable launch ramp (PLAN-07 task 4): its own width/height
+        // envelope, plus grid alignment + a no-auto-widen slope cap, so it
+        // stays a clean-triangle kicker that flips yet survives gas-only.
+        if (width < LEVEL.kickerMinWidthPx || width > LEVEL.kickerMaxWidthPx) {
+          problems.push(
+            `${label}: width ${width} is outside kicker range [${LEVEL.kickerMinWidthPx}, ${LEVEL.kickerMaxWidthPx}]`
+          );
+        }
+        if (height < LEVEL.kickerMinHeightPx || height > LEVEL.kickerMaxHeightPx) {
+          problems.push(
+            `${label}: height ${height} is outside kicker range [${LEVEL.kickerMinHeightPx}, ${LEVEL.kickerMaxHeightPx}]`
+          );
+        }
+        if (!isCollisionGridAlignedKicker(x, width)) {
+          problems.push(
+            `${label}: not aligned to the ${TERRAIN_COLLISION_GRID_PX}px collision grid (x must be a multiple of ${TERRAIN_COLLISION_GRID_PX}, width a multiple of ${2 * TERRAIN_COLLISION_GRID_PX})`
+          );
+        }
+        if (raisedCosinePeakSlope(height, width) > TERRAIN.maxJumpSlope) {
+          problems.push(
+            `${label}: peak slope ${raisedCosinePeakSlope(height, width).toFixed(3)} exceeds TERRAIN.maxJumpSlope (${TERRAIN.maxJumpSlope}) — terrain.ts would auto-widen it off the grid`
+          );
+        }
+      } else {
+        if (width < LEVEL.jumpMinWidthPx) {
+          problems.push(`${label}: width ${width} is below LEVEL.jumpMinWidthPx (${LEVEL.jumpMinWidthPx})`);
+        }
+        if (height > LEVEL.jumpMaxHeightPx) {
+          problems.push(`${label}: height ${height} exceeds LEVEL.jumpMaxHeightPx (${LEVEL.jumpMaxHeightPx})`);
+        }
       }
 
       // Placement-fraction and spawn/finish clearance both need a usable
