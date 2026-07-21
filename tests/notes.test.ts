@@ -140,6 +140,17 @@ describe('no-repeat drawing within a playthrough', () => {
   });
 });
 
+describe('rng boundary (clampIndex guard)', () => {
+  it('an rng that returns exactly 1.0 still yields a valid in-pool fact (never undefined)', () => {
+    // Math.random() never returns 1, but an injected stub can — floor(1*len)
+    // would index one past the end without clamping.
+    const note = selectNote(1, createSaveSystem(createFakeStorage()), () => 1);
+    expect(note.text).toBeDefined();
+    expect(FACT_POOL).toContain(note.text);
+    expect(note.style).toBe('fact');
+  });
+});
+
 describe('pool exhaustion reset', () => {
   it('resets the seen-set and returns a valid fact once the pool is exhausted', () => {
     const save = createSaveSystem(createFakeStorage());
