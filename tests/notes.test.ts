@@ -204,7 +204,7 @@ describe('resetNotesSeen (engine dependency)', () => {
 });
 
 describe('fact pool shape invariants', () => {
-  it('has at least 18 facts (>= the 18 fact-levels, so no forced repeat in one playthrough)', () => {
+  it('has at least 18 facts (>= the 17 fact-levels shown in one playthrough, so no forced repeat)', () => {
     expect(FACT_POOL.length).toBeGreaterThanOrEqual(18);
   });
 

@@ -70,9 +70,11 @@ export const FIXED_NOTES: readonly FixedNote[] = [
 
 /** The rotating fact pool (20 entries) for every non-fixed level. Each fact
  * is light, warm, and TRUE (verified for PLAN-08 task 2); ASCII-only except
- * fact 20's tulip emoji (U+1F337, escaped). At least 18 facts is the minimum
- * that guarantees no forced repeat across the 18 fact-levels in one linear
- * playthrough (tests/notes.test.ts pins the >= 18 floor). Facts 19-20 are
+ * fact 20's tulip emoji (U+1F337, escaped). One linear playthrough shows a fact
+ * on 17 levels (levels 1-21 reach the level-complete screen - level 22 goes
+ * straight to PartyScene, skipping it - minus the four fixed-note levels
+ * 6/9/13/14), so any pool of >= 17 never forces a repeat; the pool holds 20 and
+ * tests/notes.test.ts pins a conservative >= 18 floor. Facts 19-20 are
  * intentional in-jokes: "Two-up" calls back to level 13, and the tulip line
  * ties to the game's tulips. */
 export const FACT_POOL: readonly string[] = [
