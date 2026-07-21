@@ -13,11 +13,13 @@
 // Requires `npm run dev` running on :5173.
 //
 // What it gates:
-//   1. NO-REPEAT ACROSS A SEQUENCE: reset the save, then directly-start
-//      LevelCompleteScene for a run of FACT levels (1,2,3,4,5 then 8,10,16 —
-//      never the fixed 6/9/13/14) and collect each shown note; assert every one
-//      is style 'fact' and NO fact text repeats across the whole sequence
-//      (proving the no-repeat draw + notesSeen-marking through the real scene).
+//   1. NO-REPEAT ACROSS A SEQUENCE (probabilistic smoke check): reset the save,
+//      then directly-start LevelCompleteScene for a run of FACT levels (1,2,3,4,5
+//      then 8,10,16 — never the fixed 6/9/13/14) and collect each shown note;
+//      assert every one is style 'fact' and NO fact text repeats across the whole
+//      sequence. The scene uses the real Math.random-backed selectNote, so one
+//      run is a SMOKE check of no-repeat + notesSeen-marking end-to-end; the
+//      DETERMINISTIC no-repeat proof (injected RNG) is tests/notes.test.ts.
 //   2. FIXED NOTE IN THE SAME RUN: partway through, a fixed level (6) still shows
 //      its byte-exact verbatim note under style 'hint' and does NOT consume the
 //      pool (the surrounding fact rotation stays distinct; the seen-set does not
@@ -99,7 +101,6 @@ async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await browser.newContext({
     viewport: { width: DESIGN_W, height: DESIGN_H },
-    hasTouch: true,
   });
   const page = await context.newPage();
 
@@ -169,6 +170,17 @@ async function main() {
     await page.screenshot({ path: join(OUT_DIR, 'notes-post-reload.png') });
 
     // --- No repeat across the WHOLE sequence (spanning the reload). ---
+    // NOTE ON WHAT THESE TWO CHECKS PROVE: the scene drives the REAL
+    // Math.random-backed selectNote, so on a single run the "all facts distinct"
+    // and "no post-reload fact repeats a pre-reload one" assertions are a
+    // PROBABILISTIC end-to-end SMOKE check — a correct engine (which only ever
+    // draws from unseen indices) always yields distinct facts so green is stable,
+    // but a hypothetical no-repeat regression would only SOMETIMES collide in any
+    // one run. The DETERMINISTIC no-repeat proof (injected RNG, full-pool cycle)
+    // lives in tests/notes.test.ts. This harness's own load-bearing DETERMINISTIC
+    // guarantees are elsewhere: seenBefore.length === 5 (the fixed L6 does not
+    // consume the pool + the fact draws actually persisted) and the byte-identical
+    // notesSeen across the reload asserted above.
     const allFacts = [...factsA, ...factsB];
     const uniqueFacts = new Set(allFacts);
     if (uniqueFacts.size !== allFacts.length) {
