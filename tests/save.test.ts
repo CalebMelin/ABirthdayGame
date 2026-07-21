@@ -219,6 +219,36 @@ describe('notesSeen', () => {
   });
 });
 
+describe('resetNotesSeen', () => {
+  it('clears only the seen-fact set, leaving other save data intact', () => {
+    const storage = createFakeStorage();
+    const save = createSaveSystem(storage);
+    save.saveCharacter(sampleCharacter);
+    save.markLevelCompleted(5);
+    save.addTulips(9);
+    save.markNoteSeen(1);
+    save.markNoteSeen(3);
+
+    save.resetNotesSeen();
+
+    // Seen-set is wiped...
+    expect(save.getNotesSeen()).toEqual([]);
+    expect(storage.getItem('gabby22.notesSeen')).toBeNull();
+
+    // ...but nothing else is touched.
+    expect(save.loadCharacter()).toEqual(sampleCharacter);
+    expect(save.loadProgress().completed[4]).toBe(true);
+    expect(save.loadProgress().highestUnlocked).toBe(6);
+    expect(save.getTulips()).toBe(9);
+  });
+
+  it('is a no-op when the seen-set is already empty', () => {
+    const save = createSaveSystem(createFakeStorage());
+    expect(() => save.resetNotesSeen()).not.toThrow();
+    expect(save.getNotesSeen()).toEqual([]);
+  });
+});
+
 describe('resetAll', () => {
   it('clears every gabby22 key and restores defaults', () => {
     const storage = createFakeStorage();

@@ -41,6 +41,7 @@ export interface SaveSystem {
   addTulips(count: number): void;
   getNotesSeen(): number[];
   markNoteSeen(index: number): void;
+  resetNotesSeen(): void;
   resetAll(): void;
 }
 
@@ -351,6 +352,17 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
     }
   }
 
+  /** Clears ONLY the seen-fact set (`gabby22.notesSeen`), leaving character,
+   * progress, tulips, and version untouched. The notes engine
+   * (systems/notes.ts) calls this to recycle the fact pool once every fact
+   * has been shown within a playthrough. NOTE: "reset on a NEW playthrough"
+   * is NOT this method's job — that is handled by `resetAll()` (which also
+   * clears notesSeen) when a future "Play again" flow starts; the only
+   * caller of `resetNotesSeen()` is the engine's pool-exhaustion recycle. */
+  function resetNotesSeen(): void {
+    store.removeItem(KEY_NOTES_SEEN);
+  }
+
   function resetAll(): void {
     for (const key of ALL_KEYS) {
       store.removeItem(key);
@@ -366,6 +378,7 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
     addTulips,
     getNotesSeen,
     markNoteSeen,
+    resetNotesSeen,
     resetAll,
   };
 }
