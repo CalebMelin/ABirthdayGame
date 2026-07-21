@@ -21,12 +21,13 @@ import {
   CAMERA,
   FAIL,
   failOverlayFontSizePx,
+  pickFailMessage,
   LEVEL,
   LEVEL_INTRO,
   DEBUG_OVERLAY,
   PAUSE,
 } from '../systems/constants';
-import { createPixelText, createPixelPanel } from '../systems/ui';
+import { createPixelText, createPixelPanel, createPixelButton } from '../systems/ui';
 import { createTerrain } from '../systems/terrain';
 import type { TerrainHandle } from '../systems/terrain';
 import { createBike, bikeSpawnY } from '../systems/bike';
@@ -62,10 +63,6 @@ import type { LevelSceneData } from './types';
 // {0,700} spawn flat zone and a {length-900,length} finish flat zone sized for
 // exactly these). The old trick-kicker geometry (x=10584) now lives only in the
 // PLAN-05 level configs / their authoring notes.
-
-/** EXACT soft-fail copy from NORTH_STAR §4 — verbatim personal content,
- * never paraphrase (CLAUDE.md Rule 4). */
-const FAIL_OVERLAY_TEXT = 'Oops! Go again 💛';
 
 /** The camera's zoom pivot (design-screen center). The ⏸ button is screen-
  * anchored (scrollFactor 0) and counter-positioned/-scaled around this pivot
@@ -201,6 +198,12 @@ export class GameScene extends Phaser.Scene {
     this.ended = false;
     this.lookaheadPx = 0;
     this.inputOverride = null;
+    // Clear the DEV-only fail handle from any prior run (set by failLevel) so
+    // harnesses read only the CURRENT run's fail, never a stale one across a
+    // restart. Stripped from production builds via import.meta.env.DEV.
+    if (import.meta.env.DEV) {
+      delete (this as unknown as { __fail?: unknown }).__fail;
+    }
 
     // Snapshot the persistent tulip total at the START of a FRESH visit only
     // (NOT on a fail-restart — fromFail keeps the earlier snapshot so tulips
@@ -652,45 +655,100 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------- fail
-  /** Soft fail (head crash or fell off world): friendly overlay with the
-   * exact NORTH_STAR copy, then a full scene.restart() after
-   * FAIL.overlayDurationMs — comfortably under the 500ms restart budget
-   * (create() rebuilds terrain+bike in a few ms). scene.restart() was
-   * chosen over in-place recreate because scene shutdown + the explicit
-   * SHUTDOWN backstop above tear down every body/listener/game-object in
-   * one well-defined sweep, which is what makes the "no leaks after 3
-   * restarts" criterion hold by construction. */
-  private failLevel(message: string = FAIL_OVERLAY_TEXT): void {
+  /** Soft fail (head crash or fell off world): a friendly overlay — dim + a
+   * message + a "Try again" BUTTON — then a scene.restart(). A GENERIC fail
+   * (called with NO message: the head crash via onCrash, or the fell-off-world
+   * check) shows a RANDOM message from the FAIL_MESSAGES pool; a SPECIAL fail
+   * (level-7 traffic / level-15 police via ctx.softFail(message)) shows its
+   * passed message VERBATIM.
+   *
+   * Restart routes (PLAN-08 task 3): tapping the button restarts INSTANTLY (the
+   * fast path — well under PLAN-02's < 500ms budget), and if the player never
+   * taps, a gentle FAIL.autoRestartMs (2.5s) no-input auto-restart fires as a
+   * courtesy fallback. Both funnel through ONE idempotent `restart` closure
+   * (guarded by `restarted`) so a restart can never fire twice; scene.restart()
+   * then sweeps the overlay + button + pending timer in its shutdown. This runs
+   * once per run (the `ended` latch above), so nothing stacks across the delay.
+   * scene.restart() (over an in-place recreate) is what makes the "no leaks
+   * after N restarts" criterion hold by construction. */
+  private failLevel(message?: string): void {
     if (this.ended) return;
     this.ended = true;
 
-    // Overlay pieces are scrollFactor-0 (screen-anchored). A scroll-
-    // factor-0 object still scales with camera zoom around the camera
-    // center, so at zoomMin the viewport shows DESIGN/zoomMin world px —
-    // the dim rect is oversized by 1/zoomMin to always cover it fully.
+    // GENERIC fail (no message) -> a random pool message; SPECIAL fail -> the
+    // passed message, verbatim (never paraphrased — CLAUDE.md Rule 4).
+    const text = message ?? pickFailMessage();
+
+    // Overlay pieces are scrollFactor-0 (screen-anchored). A scroll-factor-0
+    // object still scales with camera zoom around the camera center, so at
+    // zoomMin the viewport shows DESIGN/zoomMin world px — the dim rect is
+    // oversized by 1/zoomMin to always cover it fully.
     const dimW = DESIGN_WIDTH / CAMERA.zoomMin;
     const dimH = DESIGN_HEIGHT / CAMERA.zoomMin;
     this.add
       .rectangle(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, dimW, dimH, PALETTE.bgPink, 0.6)
       .setScrollFactor(0)
       .setDepth(DEPTHS.overlay);
-    // Size + word-wrap the toast so BOTH the short default and a long custom
-    // softFail message (e.g. level 15's verbatim ~50-char line) render fully
-    // inside the screen. The default short message is under the threshold and
-    // narrower than the wrap box, so it stays visually identical to before.
-    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, message, failOverlayFontSizePx(message))
+    // Size + word-wrap the message so BOTH the short generic pool messages and a
+    // long custom softFail message (e.g. level 15's verbatim ~50-char line)
+    // render fully inside the screen. Short messages sit under the threshold and
+    // narrower than the wrap box, so they render exactly as before.
+    const messageText = createPixelText(
+      this,
+      DESIGN_WIDTH / 2,
+      DESIGN_HEIGHT / 2,
+      text,
+      failOverlayFontSizePx(text)
+    )
       .setScrollFactor(0)
       .setWordWrapWidth(DESIGN_WIDTH - FAIL.overlayWrapMarginPx * 2)
       .setAlign('center')
       .setDepth(DEPTHS.overlay + 1);
 
-    // The bike stays limp/tumbling under the overlay (see bike.ts crash
-    // handling) until the restart — friendlier than freezing the world.
-    // fromFail:true so the restarted run SUPPRESSES the intro banner (re-reading
-    // the one-liner after every crash is annoying — see init()/showIntroBanner).
-    this.time.delayedCall(FAIL.overlayDurationMs, () => {
+    // ONE idempotent restart shared by the button (instant) and the no-input
+    // auto-restart timer below — the `restarted` latch means whichever fires
+    // first wins and the other is a no-op (belt-and-suspenders alongside
+    // scene.restart()'s own teardown of the pending timer). fromFail:true so the
+    // restarted run SUPPRESSES the intro banner (re-reading the one-liner after
+    // every crash is annoying — see init()/showIntroBanner).
+    let restarted = false;
+    const restart = (): void => {
+      if (restarted) return;
+      restarted = true;
       this.scene.restart({ level: this.level, fromFail: true });
+    };
+
+    // "Try again" button, centered below the message. createPixelButton defaults
+    // its container to DEPTHS.ui (110) — BELOW the dim rect at DEPTHS.overlay
+    // (120) — so it MUST be lifted to DEPTHS.overlay + 2 and screen-anchored
+    // (scrollFactor 0) like the rest of the overlay. Deliberately NOT
+    // zoom-compensated: it scales with camera zoom like the message text, and by
+    // the time the crashed bike settles the camera is back near zoom 1 so it
+    // reads full-size; the tap target (UI_MIN_TOUCH_PX tall) stays generous
+    // meanwhile. Short label that avoids echoing the pool's "Go again" wording.
+    const buttonY = DESIGN_HEIGHT / 2 + messageText.height / 2 + FAIL.overlayButtonGapPx;
+    const tryAgainButton = createPixelButton(this, {
+      x: DESIGN_WIDTH / 2,
+      y: buttonY,
+      label: 'Try again',
+      onClick: restart,
     });
+    tryAgainButton.setScrollFactor(0).setDepth(DEPTHS.overlay + 2);
+
+    // The bike stays limp/tumbling under the overlay (see bike.ts crash
+    // handling) until the restart — friendlier than freezing the world. Gentle
+    // no-input fallback: auto-restart after FAIL.autoRestartMs if never tapped.
+    this.time.delayedCall(FAIL.autoRestartMs, restart);
+
+    // DEV-only handle so the committed fail-UX harness (scripts/playtest-fail.mjs)
+    // can read the shown message and tap the button at its screen center. Mirrors
+    // traffic.ts's __lastTrafficSoftFail etc.; Vite dead-code-eliminates the
+    // whole branch from production via import.meta.env.DEV.
+    if (import.meta.env.DEV) {
+      (
+        this as unknown as { __fail?: { message: string; buttonX: number; buttonY: number } }
+      ).__fail = { message: text, buttonX: DESIGN_WIDTH / 2, buttonY };
+    }
   }
 
   // --------------------------------------------------------------- intro

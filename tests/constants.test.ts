@@ -4,7 +4,9 @@ import {
   DESIGN_WIDTH,
   DESIGN_HEIGHT,
   FAIL,
+  FAIL_MESSAGES,
   failOverlayFontSizePx,
+  pickFailMessage,
   hexToCss,
   LEVEL_COMPLETE,
   PALETTE,
@@ -41,6 +43,45 @@ describe('failOverlayFontSizePx', () => {
   it('the wrap box stays inside DESIGN_WIDTH', () => {
     expect(DESIGN_WIDTH - FAIL.overlayWrapMarginPx * 2).toBeGreaterThan(0);
     expect(FAIL.overlayWrapMarginPx * 2).toBeLessThan(DESIGN_WIDTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FAIL_MESSAGES / pickFailMessage (PLAN-08 task 3) — the GENERIC soft-fail
+// message pool + its pure picker. Only "Oops! Go again 💛" is locked content
+// (quoted verbatim in NORTH_STAR §4); it gets a byte-exact guard mirroring the
+// discipline used for the traffic/police message guards.
+// ---------------------------------------------------------------------------
+
+describe('FAIL_MESSAGES / pickFailMessage', () => {
+  it('contains exactly the three generic soft-fail messages', () => {
+    expect([...FAIL_MESSAGES]).toEqual([
+      'Oops! Go again \u{1F49B}',
+      'So close!! One more time',
+      'Even MotoGP riders crash sometimes \u{1F49B}',
+    ]);
+  });
+
+  it('keeps the NORTH_STAR §4 verbatim "Oops! Go again 💛" in the pool (byte-exact)', () => {
+    // Independent code-point literal (U+1F49B yellow heart) AND a raw-emoji
+    // literal — same byte-exact double-check the traffic/police guards use. This
+    // line is quoted verbatim in NORTH_STAR §4 (CLAUDE.md Rule 4) and locked.
+    expect(FAIL_MESSAGES).toContain('Oops! Go again \u{1F49B}');
+    expect(FAIL_MESSAGES).toContain('Oops! Go again 💛');
+  });
+
+  it('pickFailMessage always returns a member of the pool', () => {
+    for (let i = 0; i < 30; i++) {
+      expect(FAIL_MESSAGES).toContain(pickFailMessage());
+    }
+  });
+
+  it('pickFailMessage selects deterministically from an injected rng', () => {
+    expect(pickFailMessage(() => 0)).toBe(FAIL_MESSAGES[0]);
+    expect(pickFailMessage(() => 0.5)).toBe(FAIL_MESSAGES[1]); // 0.5*3 = 1.5 -> 1
+    expect(pickFailMessage(() => 0.99)).toBe(FAIL_MESSAGES[2]);
+    // Defensive clamp: an rng returning exactly 1 must not overflow the array.
+    expect(pickFailMessage(() => 1)).toBe(FAIL_MESSAGES[FAIL_MESSAGES.length - 1]);
   });
 });
 

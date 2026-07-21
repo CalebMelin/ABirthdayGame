@@ -454,17 +454,30 @@ export const CAMERA = {
   boundsTopPx: -1600,
 } as const;
 
-/** Soft-fail tuning (PLAN-02 task 4 — GameScene's crash / fell-off-world
- * handling). Restart flow: fail detected -> friendly overlay -> scene
- * restart; overlayDurationMs + the restart itself must stay well under the
- * 500ms budget (PLAN-02: "restarts are < 500ms"). */
+/** Soft-fail tuning (PLAN-02 task 4 / PLAN-08 task 3 — GameScene's crash /
+ * fell-off-world handling). Restart MODEL (PLAN-08 task 3): the friendly
+ * overlay shows the fail message + a "Try again" BUTTON. Tapping the button is
+ * the INSTANT restart path — a tapping player still restarts well under the old
+ * PLAN-02 "< 500ms" budget, which now applies to the BUTTON path (not the auto
+ * path). If the player doesn't tap, a gentle no-input AUTO-restart fires after
+ * autoRestartMs, giving a non-gamer time to read the friendly message and see
+ * the clear tap-to-retry. Both routes funnel through ONE idempotent restart in
+ * GameScene.failLevel so a restart can never fire twice. */
 export const FAIL = {
   /** How far below the LOWEST terrain surface point the bike may fall
    * before it counts as "fell off the world", px. */
   worldBottomMarginPx: 500,
-  /** How long the "Oops! Go again 💛" overlay stays up before the level
-   * restarts, ms. */
-  overlayDurationMs: 350,
+  /** No-input AUTO-restart delay after the fail overlay appears, ms — the
+   * gentle fallback for a player who doesn't tap "Try again" (the button is the
+   * instant path). Long enough to read the message; PLAN-08 task 3's
+   * reconciliation of the plan's "auto-restart after 2.5s" with NORTH_STAR §4's
+   * "instant restart" (the button IS the instant path, this is the courtesy
+   * fallback). Replaces the old 350ms overlayDurationMs restart timing. */
+  autoRestartMs: 2500,
+  /** Vertical gap between the overlay message's bottom edge and the "Try again"
+   * button's center, px (so the button sits a comfortable distance below the
+   * message regardless of how many lines the message wraps to). */
+  overlayButtonGapPx: 48,
 
   // ------------------------------------------------ overlay text sizing
   // The soft-fail overlay shows a message that is usually the short default
@@ -498,6 +511,32 @@ export function failOverlayFontSizePx(message: string): number {
   return message.length > FAIL.overlayLongThresholdChars
     ? FAIL.overlayLongFontSizePx
     : FAIL.overlayFontSizePx;
+}
+
+/** Generic soft-fail message POOL (PLAN-08 task 3). Shown for a GENERIC fail —
+ * a head crash or falling off the world (GameScene.failLevel called with NO
+ * message). A SPECIAL fail (level-7 traffic / level-15 police) passes its own
+ * verbatim message through failLevel and never draws from this pool.
+ *
+ * "Oops! Go again 💛" is quoted VERBATIM in NORTH_STAR §4, so it is locked-in
+ * personal content (CLAUDE.md Rule 4) and MUST stay in the pool; the other two
+ * are free copy. The yellow-heart emoji is the \u{1F49B} code-point escape so
+ * this file stays ASCII — matching traffic.ts / police.ts's message discipline
+ * and byte-guarded in tests/constants.test.ts. */
+export const FAIL_MESSAGES = [
+  'Oops! Go again \u{1F49B}',
+  'So close!! One more time',
+  'Even MotoGP riders crash sometimes \u{1F49B}',
+] as const;
+
+/** Pick a random generic soft-fail message from FAIL_MESSAGES. Pure — inject a
+ * deterministic `rng` (0 ≤ rng() < 1) in tests; defaults to Math.random. The
+ * index is clamped to the last element so an injected rng returning exactly 1
+ * can never overflow the array (Math.random itself never returns 1). Used by
+ * GameScene.failLevel for a GENERIC fail. */
+export function pickFailMessage(rng: () => number = Math.random): string {
+  const index = Math.min(FAIL_MESSAGES.length - 1, Math.floor(rng() * FAIL_MESSAGES.length));
+  return FAIL_MESSAGES[index];
 }
 
 /** Debug overlay tuning (PLAN-02 task 5 — GameScene's dev-only debug
