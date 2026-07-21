@@ -22,10 +22,12 @@
 //      Matter body count (decorations/events add none as of PLAN-05 — see
 //      GameScene.ts),
 //   3. holds gas (ArrowRight, re-pressed every poll — CDP has no OS key
-//      auto-repeat) until LevelCompleteScene activates (finished) or a
+//      auto-repeat) until the level's terminal scene activates (finished) or a
 //      per-level timeout hits, detecting a crash-restart loop (bike x
 //      warping back toward spawn, same heuristic/threshold as
-//      playtest-drive.mjs) along the way,
+//      playtest-drive.mjs) along the way. The terminal scene is
+//      LevelCompleteScene for levels 1-21 and PartyScene for the final level
+//      22 (PLAN-08 task 1: level 22 skips the per-level congrats screen),
 //   4. screenshots the level and records how many console/page errors fired
 //      while THAT level specifically was active (a running total is sliced
 //      by count before/after each level).
@@ -135,6 +137,12 @@ async function playLevel(page, id, errorSink) {
     if (g.scene.isActive('LevelCompleteScene')) {
       g.scene.stop('LevelCompleteScene');
     }
+    // PLAN-08 task 1: finishing the FINAL level (22) now routes to PartyScene
+    // instead of LevelCompleteScene, so a prior level-22 run could leave
+    // PartyScene active — stop it too for the same self-cleaning reason.
+    if (g.scene.isActive('PartyScene')) {
+      g.scene.stop('PartyScene');
+    }
     g.scene.start('GameScene', { level: levelId });
   }, id);
   await waitForScene(page, 'GameScene');
@@ -152,14 +160,17 @@ async function playLevel(page, id, errorSink) {
   let lastX = null;
   while (Date.now() - driveStart < LEVEL_TIMEOUT_MS) {
     await page.keyboard.down('ArrowRight');
-    const state = await page.evaluate(() => {
+    // PLAN-08 task 1: the FINAL level (22) SKIPS LevelCompleteScene and lands
+    // on PartyScene, so its "finished" terminal scene differs from levels 1-21.
+    const finishKey = id >= TOTAL_LEVELS ? 'PartyScene' : 'LevelCompleteScene';
+    const state = await page.evaluate((key) => {
       const g = globalThis.__gabbyGame;
       const s = g.scene.getScene('GameScene');
       return {
-        complete: g.scene.isActive('LevelCompleteScene'),
+        complete: g.scene.isActive(key),
         bikeX: g.scene.isActive('GameScene') && s.bike ? Math.round(s.bike.x) : null,
       };
-    });
+    }, finishKey);
     if (state.complete) {
       finished = true;
       break;

@@ -17,6 +17,7 @@ import {
   SCENE_KEYS,
   TEXTURE_KEYS,
   TERRAIN,
+  TOTAL_LEVELS,
   CAMERA,
   FAIL,
   failOverlayFontSizePx,
@@ -88,6 +89,15 @@ export class GameScene extends Phaser.Scene {
    * in create() so re-reading the one-liner after every crash is suppressed. A
    * fresh entry from LevelSelect/LevelComplete carries no fromFail, so it shows. */
   private fromFail = false;
+  /** The persistent tulip total (getSave().getTulips()) snapshotted at the
+   * START of a FRESH visit to this level — NOT re-taken on a fail-restart
+   * (fromFail), so it preserves the count from before the FIRST attempt of
+   * this visit. Passed forward on the finish transition; LevelCompleteScene
+   * subtracts it from the current total to show "tulips earned this level"
+   * (correct even for awards that persist during a finish-finale hold, since
+   * the subtraction reads the total at the level-complete hand-off — see the
+   * PLAN-07 tricks.ts note that awards can land after `ended` flips true). */
+  private tulipsAtLevelStart = 0;
   private terrain: TerrainHandle | undefined;
   /** Theme parallax backdrop (PLAN-05 ST-4): sky bands + far/near silhouette
    * layers at DEPTHS.background. Plain Graphics/Rectangles — NOT Matter — so it's
@@ -191,6 +201,15 @@ export class GameScene extends Phaser.Scene {
     this.ended = false;
     this.lookaheadPx = 0;
     this.inputOverride = null;
+
+    // Snapshot the persistent tulip total at the START of a FRESH visit only
+    // (NOT on a fail-restart — fromFail keeps the earlier snapshot so tulips
+    // earned across ALL attempts of this visit are counted; kind + correct).
+    // LevelCompleteScene reads it back via LevelSceneData.tulipsAtStart to show
+    // tulips earned this level. Read-only save use (GameScene never writes it).
+    if (!this.fromFail) {
+      this.tulipsAtLevelStart = getSave().getTulips();
+    }
 
     // Resolve this level's config (TOTAL function — clamps/defaults a bad id).
     const config = getLevelConfig(this.level);
@@ -496,7 +515,22 @@ export class GameScene extends Phaser.Scene {
         if (typeof delay === 'number' && delay > finishDelayMs) finishDelayMs = delay;
       }
       const goToComplete = (): void => {
-        this.scene.start(SCENE_KEYS.levelComplete, { level: this.level });
+        // Mark THIS level completed HERE (moved out of LevelCompleteScene,
+        // which level 22 now SKIPS) so progress persists for every level 1..22.
+        getSave().markLevelCompleted(this.level);
+        if (this.level >= TOTAL_LEVELS) {
+          // Final level: skip the per-level congrats screen for the party.
+          this.scene.start(SCENE_KEYS.party);
+        } else {
+          // tulipsAtStart lets LevelCompleteScene show tulips earned this
+          // level (current total minus this snapshot — captures any award
+          // that persisted right up to this hand-off, incl. during a finale
+          // hold).
+          this.scene.start(SCENE_KEYS.levelComplete, {
+            level: this.level,
+            tulipsAtStart: this.tulipsAtLevelStart,
+          });
+        }
       };
       if (finishDelayMs > 0) {
         this.time.delayedCall(finishDelayMs, goToComplete);

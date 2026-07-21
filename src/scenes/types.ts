@@ -11,6 +11,13 @@ export interface LevelSceneData {
    * after every fail is annoying. A fresh entry from LevelSelect/LevelComplete
    * omits it (so the banner shows). Ignored by LevelCompleteScene. */
   fromFail?: boolean;
+  /** GameScene's snapshot of the persistent tulip total taken at the START of
+   * a fresh visit to this level (see GameScene.tulipsAtLevelStart). Passed
+   * FORWARD only on the GameScene -> LevelCompleteScene finish transition:
+   * LevelCompleteScene subtracts it from the current total to show tulips
+   * "earned this level". GameScene ignores it on entry (it snapshots its own),
+   * and LevelCompleteScene never passes it onward from its buttons. */
+  tulipsAtStart?: number;
 }
 
 /** Normalizes a level number from scene init data: non-integer or

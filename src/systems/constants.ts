@@ -1172,6 +1172,128 @@ export const LEVEL_INTRO = {
   paddingYPx: 28,
 } as const;
 
+/** Level-complete screen tuning (PLAN-08 task 1 — see
+ * src/scenes/LevelCompleteScene.ts). The congratulations screen shown after
+ * every finished level 1..21 (level 22 SKIPS it for PartyScene): a
+ * "Level N complete!! 🎉" header, a confetti burst, the tulips earned this
+ * level + the bouquet total, a pixel-postcard "note card" whose text reveals
+ * with a typewriter effect, then Next / Replay / Level-select buttons.
+ *
+ * A plain (non-Matter) menu scene at camera zoom 1 like TitleScene/
+ * LevelSelectScene — so NO zoom compensation and ZERO Matter bodies by
+ * construction; every length below is a straight px at the 1280x720 DESIGN
+ * scale (design == screen at zoom 1) and every time is ms. Per CLAUDE.md's
+ * "no magic numbers in scene code", EVERY Y position, font size, spacing, the
+ * note-card geometry, the typewriter speed, and all the confetti-burst knobs
+ * live here; only the two card-title literals and the confetti COLOR set stay
+ * as local consts in the scene (presentation content, not tunable numbers —
+ * the decorations.ts / tricks.ts precedent). */
+export const LEVEL_COMPLETE = {
+  // ------------------------------------------------------------- header
+  /** "Level N complete!! 🎉" header center Y, px (near the top). */
+  headerY: 72,
+  /** Header font size, px (snapped to the 8px pixel grid by createPixelText). */
+  headerFontSizePx: 40,
+
+  // -------------------------------------------------------- tulip tally
+  /** "earned this level" row center Y, px. */
+  tulipEarnedY: 140,
+  /** Bouquet-TOTAL row center Y, px (just below the earned row). */
+  tulipTotalY: 186,
+  /** Both tulip-tally rows' font size, px. */
+  tulipFontSizePx: 24,
+  /** Uniform scale applied to the tex-tulip icon sprite shown beside each
+   * tally row (the 16x24 placeholder tulip reads a touch large at native size
+   * next to 24px text). */
+  tulipIconScale: 0.7,
+  /** Gap between a tally row's tulip icon and its text, px. */
+  tulipIconGapPx: 12,
+
+  // ---------------------------------------------------------- note card
+  /** Note-card center Y, px — the visual centerpiece "below" the tulip tally
+   * (PLAN-08). The card GROWS symmetrically around this center as its wrapped
+   * note gets taller, so it stays vertically centered here regardless of note
+   * length. */
+  noteCardCenterY: 352,
+  /** Word-wrap width of the note BODY text inside the card, px. The card face
+   * is this + 2*notePaddingXPx wide. */
+  noteWrapWidthPx: 760,
+  /** Note-body font size, px — smaller than the tally so a long fact wraps to
+   * only a few lines and the card stays compact. */
+  noteBodyFontSizePx: 16,
+  /** Note-card title ("Did you know?" / "Psst… 💡") font size, px. */
+  noteTitleFontSizePx: 24,
+  /** Padding between the card content (title + wrapped body) and the card face
+   * edges, each side, px. */
+  notePaddingXPx: 32,
+  notePaddingYPx: 28,
+  /** Vertical gap between the card title and the body text below it, px. */
+  noteTitleGapPx: 16,
+  /** Extra vertical gap between wrapped body lines (Phaser Text lineSpacing),
+   * px — keeps a multi-line note from crowding. */
+  noteLineSpacingPx: 8,
+  /** Typewriter reveal speed: ms held per revealed CHARACTER (code point, so
+   * an emoji reveals as one unit). Gentle by default (NORTH_STAR easy/cute); a
+   * tap/click anywhere skips straight to the full text (LevelCompleteScene). */
+  typewriterMsPerChar: 32,
+
+  // ------------------------------------------------------------ buttons
+  // Two rows: the big primary alone, then the two secondaries. Button faces are
+  // UI_MIN_TOUCH_PX (88) tall, so the row centers are kept >= 88px apart (here
+  // 112) to leave a clean gap between rows; the secondary row still clears the
+  // bottom screen edge (664 + 44 = 708 < 720).
+  /** Primary "Next level →" button center Y, px — alone on its row so it reads
+   * as the big primary action. */
+  primaryButtonY: 548,
+  /** Primary button minimum face width, px (big/prominent). */
+  primaryButtonMinWidthPx: 380,
+  /** Secondary (Replay / Level select) row center Y, px — one full button
+   * height + a gap below the primary so the rows never overlap. */
+  secondaryButtonY: 664,
+  /** Horizontal offset of each secondary button's center from screen center,
+   * px (Replay to the left, Level select to the right). 2*this must stay >=
+   * secondaryButtonMinWidthPx so the two never overlap. */
+  secondaryButtonOffsetXPx: 210,
+  /** Secondary button minimum face width, px. */
+  secondaryButtonMinWidthPx: 300,
+
+  // ----------------------------------------------------------- confetti
+  // A cheerful one-shot burst that pops UP from near the header, then rains
+  // down under gravity and fades, each piece destroying itself once its life
+  // elapses — no leftover tweens/objects (this scene is entered many times).
+  // Integrated per-frame in update(delta), so the fall is frame-rate
+  // independent.
+  /** Number of confetti pieces spawned in the burst. */
+  confettiCount: 54,
+  /** Burst origin center Y, px (near the header). */
+  confettiOriginY: 96,
+  /** Half-width, px, of the random horizontal band the pieces spawn across
+   * (centered on screen center). */
+  confettiOriginSpreadXPx: 220,
+  /** Min/max initial launch speed, px/sec. */
+  confettiSpeedMinPxPerSec: 320,
+  confettiSpeedMaxPxPerSec: 640,
+  /** Launch direction is straight UP (-90 degrees) plus/minus this spread,
+   * radians — a fan-shaped upward pop. */
+  confettiLaunchSpreadRad: 1.15,
+  /** Downward acceleration applied every frame, px/sec^2 — the "gravity" that
+   * turns the upward pop into a settling rain. */
+  confettiGravityPxPerSec2: 900,
+  /** Max absolute tumble spin, rad/sec (each piece gets a random spin in
+   * +/- this). */
+  confettiSpinMaxRadPerSec: 6,
+  /** Min/max piece lifetime, ms — a piece is destroyed when its age reaches
+   * its life. */
+  confettiLifetimeMinMs: 1500,
+  confettiLifetimeMaxMs: 2700,
+  /** Min/max piece edge size, px (small squares). */
+  confettiSizeMinPx: 8,
+  confettiSizeMaxPx: 16,
+  /** Life fraction (0..1) after which a piece fades its alpha 1 -> 0, so it
+   * settles out rather than vanishing abruptly. */
+  confettiFadeStartFrac: 0.6,
+} as const;
+
 /** Centralized scene keys — all scenes and transitions reference these
  * instead of string literals. See NORTH_STAR.md §4 for the scene flow. */
 export const SCENE_KEYS = {

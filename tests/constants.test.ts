@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   CHARACTER_CREATE,
   DESIGN_WIDTH,
+  DESIGN_HEIGHT,
   FAIL,
   failOverlayFontSizePx,
   hexToCss,
+  LEVEL_COMPLETE,
   PALETTE,
   PASTEL_BG_COLOR,
   TEXT_COLOR,
@@ -104,5 +106,59 @@ describe('CHARACTER_CREATE swatch thumb-friendly budget', () => {
 
   it('the visible swatch face is no larger than its hit area (decoupled, pedals.ts-style)', () => {
     expect(CHARACTER_CREATE.swatchVisibleSizePx).toBeLessThanOrEqual(CHARACTER_CREATE.swatchHitSizePx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LEVEL_COMPLETE (PLAN-08 task 1) — the level-complete screen lays header /
+// tulip tally / note card / buttons out vertically at the fixed 1280x720
+// design size. The scene reads every position/size from here (no magic numbers
+// in the scene), so guard the load-bearing layout invariants: the note card
+// fits the screen width, the two secondary buttons can't overlap, and the rows
+// march down the screen in order and stay on-screen. Cheap regression net for a
+// future edit that quietly breaks the fit.
+// ---------------------------------------------------------------------------
+
+describe('LEVEL_COMPLETE layout', () => {
+  it('the note card fits inside DESIGN_WIDTH', () => {
+    const cardWidth = LEVEL_COMPLETE.noteWrapWidthPx + LEVEL_COMPLETE.notePaddingXPx * 2;
+    expect(cardWidth).toBeLessThanOrEqual(DESIGN_WIDTH);
+  });
+
+  it('the two secondary buttons never overlap', () => {
+    // Replay is at cx - offset, Level select at cx + offset; their faces are at
+    // least secondaryButtonMinWidthPx wide, so the center-to-center gap
+    // (2*offset) must clear that width.
+    expect(2 * LEVEL_COMPLETE.secondaryButtonOffsetXPx).toBeGreaterThanOrEqual(
+      LEVEL_COMPLETE.secondaryButtonMinWidthPx
+    );
+  });
+
+  it('the rows are ordered top-to-bottom and stay on screen', () => {
+    expect(LEVEL_COMPLETE.headerY).toBeLessThan(LEVEL_COMPLETE.tulipEarnedY);
+    expect(LEVEL_COMPLETE.tulipEarnedY).toBeLessThan(LEVEL_COMPLETE.tulipTotalY);
+    expect(LEVEL_COMPLETE.tulipTotalY).toBeLessThan(LEVEL_COMPLETE.noteCardCenterY);
+    expect(LEVEL_COMPLETE.noteCardCenterY).toBeLessThan(LEVEL_COMPLETE.primaryButtonY);
+    // The primary and secondary button rows (faces UI_MIN_TOUCH_PX tall) must
+    // not vertically overlap: the primary's bottom edge sits above the
+    // secondary's top edge.
+    expect(LEVEL_COMPLETE.primaryButtonY + UI_MIN_TOUCH_PX / 2).toBeLessThanOrEqual(
+      LEVEL_COMPLETE.secondaryButtonY - UI_MIN_TOUCH_PX / 2
+    );
+    // The secondary row (button faces are UI_MIN_TOUCH_PX tall) stays on-screen.
+    expect(LEVEL_COMPLETE.secondaryButtonY + UI_MIN_TOUCH_PX / 2).toBeLessThanOrEqual(DESIGN_HEIGHT);
+  });
+
+  it('the typewriter advances (positive reveal speed) and confetti ranges are ordered', () => {
+    expect(LEVEL_COMPLETE.typewriterMsPerChar).toBeGreaterThan(0);
+    expect(LEVEL_COMPLETE.confettiSizeMinPx).toBeLessThanOrEqual(LEVEL_COMPLETE.confettiSizeMaxPx);
+    expect(LEVEL_COMPLETE.confettiSpeedMinPxPerSec).toBeLessThanOrEqual(
+      LEVEL_COMPLETE.confettiSpeedMaxPxPerSec
+    );
+    expect(LEVEL_COMPLETE.confettiLifetimeMinMs).toBeLessThanOrEqual(
+      LEVEL_COMPLETE.confettiLifetimeMaxMs
+    );
+    expect(LEVEL_COMPLETE.confettiFadeStartFrac).toBeGreaterThanOrEqual(0);
+    expect(LEVEL_COMPLETE.confettiFadeStartFrac).toBeLessThan(1);
   });
 });
