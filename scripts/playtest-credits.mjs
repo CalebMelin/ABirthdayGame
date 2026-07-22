@@ -720,6 +720,11 @@ async function main() {
     });
     if (!partyButton) problems.push('chain: the party never revealed its "Credits ->" button');
     else {
+      // Settle before pressing, for the same reason pollAndSettle exists: the
+      // party builds its button inside a delayedCall, so the frame the poll
+      // sees `creditsButtonShown()` flip is the frame it is still queued in
+      // Phaser's _pendingInsertion and cannot be hit-tested yet.
+      await page.waitForTimeout(SETTLE_MS);
       await clickDesign(page, partyButton.x, partyButton.y);
       try {
         await waitForScene(page, 'CreditsScene', 6000);
