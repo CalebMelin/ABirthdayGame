@@ -58,6 +58,7 @@ export interface FakeGameObject {
   setOrigin(x: number, y?: number): FakeGameObject;
   setScale(value: number): FakeGameObject;
   setPosition(x: number, y: number): FakeGameObject;
+  setRotation(value: number): FakeGameObject;
   setFillStyle(color: number): FakeGameObject;
   setStrokeStyle(width: number, color: number): FakeGameObject;
   setTint(color: number): FakeGameObject;
@@ -137,6 +138,10 @@ export function createFakeScene(startNowMs = 0): FakeScene {
       setPosition(x, y) {
         obj.x = x;
         obj.y = y;
+        return obj;
+      },
+      setRotation(value) {
+        obj.rotation = value;
         return obj;
       },
       setFillStyle(color) {

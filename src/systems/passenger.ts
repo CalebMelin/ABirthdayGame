@@ -23,14 +23,25 @@ const TWO_PI = Math.PI * 2;
 /** The handle GameScene (Task A) holds for the persistent passenger.
  * Create-once (via createPassenger) / update()-per-frame / destroy()-on-
  * teardown, mirroring the bike/decoration handles. `activate()` reveals Caleb
- * mid-level (level 12's pickup cutscene calls it); `active` reflects whether
- * he is currently shown. */
+ * mid-level (level 12's pickup cutscene calls it), `hide()` takes him off again
+ * (level 22's arrival dismount); `active` reflects whether he is currently
+ * shown. */
 export interface PassengerHandle {
   /** Re-pins Caleb behind Gabby for this render frame (no-op while hidden).
    * Call once per GameScene.update(), after bike.update(). */
   update(): void;
   /** Reveals Caleb (level 12's pickup cutscene flips him on). Idempotent. */
   activate(): void;
+  /** Hides Caleb again — the exact inverse of activate(), and the ONLY way he
+   * ever leaves the bike: level 22's arrival cutscene (src/systems/arrival.ts)
+   * calls it at the instant he DISMOUNTS at the party venue, and immediately
+   * draws its own standing Caleb in his place. Idempotent, and `active` reads
+   * false afterwards (so update() stops pinning a hidden sprite), exactly as if
+   * he had never been activated. Cosmetic only — like the rest of this module it
+   * touches no Matter body and no gameplay state; Caleb being "picked up" is
+   * DERIVED from save progress (save.ts's deriveCalebPickedUp), never from this
+   * flag, so hiding the sprite can't lose him. */
+  hide(): void;
   /** True while Caleb is shown. */
   readonly active: boolean;
   /** Destroys the Caleb sprite. Call on level teardown/restart. */
@@ -83,6 +94,12 @@ export function createPassenger(
     update();
   }
 
+  function hide(): void {
+    if (!active) return;
+    active = false;
+    sprite.setVisible(false);
+  }
+
   function destroy(): void {
     sprite.destroy();
   }
@@ -90,6 +107,7 @@ export function createPassenger(
   return {
     update,
     activate,
+    hide,
     get active() {
       return active;
     },
