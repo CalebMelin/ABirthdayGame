@@ -452,8 +452,6 @@ export function createArrival(
       CALEB_HAIR_BAND_HEIGHT_PX,
       PALETTE.brown
     );
-    // DEPTHS.rider + 1: he has stepped off onto the near side of the road, in
-    // front of the bike and its rider.
     // He STARTS exactly where the pillion sprite just was — same chassis-local
     // offset, same depth — so hiding the pillion and revealing him is an
     // invisible swap, and the tween below is a genuine hop OFF THE BIKE rather
