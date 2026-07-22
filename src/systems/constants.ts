@@ -1360,9 +1360,12 @@ export const LEVEL_COMPLETE = {
  *     right. Gabby+Caleb straddle the exact center; Dallas sits immediately to
  *     Gabby's left so the twin joke actually lands (they must be adjacent), and
  *     the other three named guests flank the pair.
- *   - BACK row (crowdCount): the unnamed crowd, drawn at a lower depth, higher
- *     on screen, and smaller — the three cues that read as "further away". No
- *     name tags (NORTH_STAR §5 gives tags only to the four named guests).
+ *   - BACK row: the unnamed crowd, drawn at a lower depth, higher on screen,
+ *     and smaller — the three cues that read as "further away". No name tags
+ *     (NORTH_STAR §5 gives tags only to the four named guests). It is laid out
+ *     over crowdSlotCount grid slots but the MIDDLE one is left EMPTY, so the
+ *     dead centre of the screen belongs to Gabby and Caleb rather than to a
+ *     stranger — see crowdCount.
  * Idle motion is a 2-frame bounce (each member is either DOWN or UP — pixel-art
  * honest, and explicitly what the plan asks for), phase-staggered per member by
  * bouncePhaseStep so nobody moves in lockstep.
@@ -1402,25 +1405,40 @@ export const PARTY = {
   frontRowScale: 3,
 
   // ---------------------------------------------------------------- crowd
-  /** Number of unnamed background partygoers. MUST stay within NORTH_STAR §5's
-   * 8-15 range (guarded by tests/finale.test.ts). 9 (odd) is what makes the
-   * half-step interleave below work out exactly — see crowdSpacingPx. Together
-   * with the 6 front-row members the venue holds 15 people, alternating every
-   * 75px across the full screen width, which reads as a packed party. */
-  crowdCount: 9,
+  /** Number of GRID SLOTS the crowd row is laid out over. ODD on purpose — that
+   * is what makes the half-step interleave below work out exactly (see
+   * crowdSpacingPx), and it is why this stays 9 even though only 8 partygoers
+   * are built. */
+  crowdSlotCount: 9,
+  /** Number of unnamed background partygoers actually built: every grid slot
+   * except the MIDDLE one, which is deliberately left EMPTY. MUST stay within
+   * NORTH_STAR §5's 8-15 range (guarded by tests/finale.test.ts).
+   *
+   * WHY THE CENTRE SLOT IS EMPTY: at an odd crowdSlotCount the middle slot sits
+   * exactly on crowdCenterX — i.e. exactly between Gabby (565) and Caleb (715),
+   * which put an unnamed stranger's head at the geometric centre of the
+   * emotional-climax screen, the one spot NORTH_STAR §5 reserves for the couple
+   * ("Gabby + Caleb stand center"). Dropping the SLOT is what fixes it without
+   * touching the interleave: shifting crowdCenterX by a half step instead would
+   * align EVERY crowd member with a front-row member and re-create the
+   * "crowd heads read as hats" problem ST-1 fixed. With the 6 front-row members
+   * the venue still holds 14 people across the full screen width. */
+  crowdCount: 8,
   /** Crowd-row center x, px. */
   crowdCenterX: DESIGN_WIDTH / 2,
   /** Crowd FEET y, px — higher on screen than the front row (further away).
    * Moved 400 -> 470 with frontRowGroundY (see its doc), keeping the same
    * 100px front/back separation while the whole party sits lower in frame. */
   crowdGroundY: 470,
-  /** Center-to-center spacing between adjacent crowd members, px. EQUAL to
-   * frontRowSpacingPx on purpose: an ODD crowd count centered on the same x as
-   * an EVEN front row lands every crowd member exactly HALF a step (75px) from
+  /** Center-to-center spacing between adjacent crowd SLOTS, px. EQUAL to
+   * frontRowSpacingPx on purpose: an ODD crowdSlotCount centered on the same x
+   * as an EVEN front row lands every crowd slot exactly HALF a step (75px) from
    * its nearest front-row neighbour — i.e. squarely in the gaps, like the back
    * row of a group photo. That 75px clears the summed sprite half-widths
    * (36 + 26.4 = 62.4), so no partygoer is ever hidden behind (or mistaken for
-   * a hat on) somebody in front. Guarded by tests/finale.test.ts. */
+   * a hat on) somebody in front. Leaving the centre slot empty (see crowdCount)
+   * removes a member but cannot disturb this: the property holds slot by slot.
+   * Guarded by tests/finale.test.ts. */
   crowdSpacingPx: 150,
   /** Base crowd sprite scale — smaller than frontRowScale (further away). */
   crowdScale: 2,
@@ -1702,8 +1720,10 @@ export const PARTY = {
   // as "warm-lit at dusk", and it keeps the pastel cast and the cream text panels
   // popping instead of fighting the floor.
   /** Top of the MID dusk sky band (plum); everything above it is duskIndigo.
-   * Sits just below the string lights so the strand hangs against clean night
-   * sky. */
+   * Sits at the string lights' own level: the strand's anchors (240) and most
+   * of its span hang against clean duskIndigo night sky, and only the lowest
+   * ~6px of the centre bulbs (which bottom out at 306) cross into the plum
+   * band. */
   venueSkyMidY: 300,
   /** The last of the sunset behind the yard: TWO nested translucent sunsetGlow
    * ellipses centred on the fence top, brightest in the middle and fading to
@@ -1731,14 +1751,28 @@ export const PARTY = {
   venueFenceSeamWidthPx: 6,
   /** Height of the darker rail capping the top of the fence, px. */
   venueFenceRailHeightPx: 6,
-  /** The warm light pool washed over the patio — the "warm-lit" cue, and the
-   * one piece of the venue that is an ELLIPSE rather than a band: a full-width
+  /** The warm light pool washed over the venue — the "warm-lit" cue, and the
+   * one piece of it that is an ELLIPSE rather than a band: a full-width
    * translucent RECTANGLE just lightens the whole floor uniformly and reads as
    * a different floor color, where an ellipse reads as light falling on it
-   * (screenshot-caught). Two nested ellipses (wide+dim, then narrow+brighter)
-   * fake the falloff cheaply. Centre y sits between the crowd's feet and the
-   * front row's, so the pool is centred on the people. */
+   * (screenshot-caught). THREE nested rings (faint halo, then wide+dim, then
+   * narrow+brighter) fake the falloff cheaply; two alone left a crisp visible
+   * curve sweeping across the patio that read as a hard-edged oval rug, so the
+   * outermost ring exists purely to soften that edge. Centre y sits between the
+   * crowd's feet and the front row's, so the pool is centred on the people.
+   *
+   * IT IS NOT FLOOR-ONLY, AND THAT IS DELIBERATE: the pool's top reaches above
+   * venueGroundY (540 - 340/2 = 370), so ~80px of it washes up the fence and it
+   * is still ~967px wide at the ground line. Light falling on a yard does hit
+   * the fence behind it, and the spill is what keeps the fence from reading as
+   * a flat cut-out band — so this is kept rather than clipped. The test only
+   * pins the pool's CENTRE (which is genuinely on the floor), never its
+   * extent. */
   venueGlowPoolCenterY: 540,
+  /** The faint outermost halo — the ring that softens the pool's outer edge. */
+  venueGlowHaloWidthPx: 1460,
+  venueGlowHaloHeightPx: 430,
+  venueGlowHaloAlpha: 0.08,
   venueGlowPoolWidthPx: 1140,
   venueGlowPoolHeightPx: 340,
   venueGlowPoolAlpha: 0.22,
@@ -1750,7 +1784,10 @@ export const PARTY = {
   // -------------------------------------------------------- string lights
   // A sagging strand of warm bulbs across the yard — the second "warm-lit" cue,
   // and the one that most says "party" at a glance. Sits BELOW the bouquet toast
-  // and ABOVE the crowd's heads (~294), so it crosses nothing.
+  // and ABOVE the crowd's heads (the highest head top is ~364: crowdGroundY 470
+  // minus a 48px sprite at the tallest crowdScale), so it crosses nothing. The
+  // strand bottoms out at 306, and tests/finale.test.ts derives the head top
+  // from the REAL cast slots rather than trusting this number.
   /** Y the strand is pinned to at both screen edges, px. */
   lightStringAnchorY: 240,
   /** How far the strand sags below its anchors at screen centre, px (a simple
@@ -1803,20 +1840,31 @@ export const PARTY = {
   // N tulips to the party!! <tulip>'". BOTH are gated on tulips > 0 — at zero
   // there is no bouquet and no toast at all (never a zero-count toast).
   /** Bouquet toast panel centre Y, px — directly under the banner, and well
-   * above the crowd's head tops (~294). */
+   * above the crowd's head tops (the highest is ~364; this panel bottoms out at
+   * ~195). */
   toastCenterY: 168,
   toastFontSizePx: 20,
   toastPadXPx: 24,
   toastPadYPx: 12,
   /** The bouquet Gabby HOLDS: offsets from her cast slot's centre x and FEET y,
    * px. Negative x puts it on her far side from Caleb (he stands immediately to
-   * her right); negative y lifts it to mid-torso. Re-applied every frame on top
-   * of her 2-frame idle bounce (castBounceOffsetPx + her phase01) so it can
-   * never detach from her as she bobs. */
-  bouquetOffsetXPx: -30,
-  bouquetOffsetYPx: -50,
+   * her right); negative y sets the height of her GRIP. Re-applied every frame
+   * on top of her 2-frame idle bounce (castBounceOffsetPx + her phase01) so it
+   * can never detach from her as she bobs.
+   *
+   * SHE IS THE POINT OF THIS SCREEN, so the bunch is carried AT HER SIDE, not
+   * painted across her. The first pass used -30/-50 at scale 1.6, which put the
+   * bouquet's centre INSIDE her 36px half-width and its top at her chin: a
+   * pale-green mass over her whole left half, obscuring the one character this
+   * gift is about (screenshot-caught). It is now smaller, lower and further
+   * out — overlapping her silhouette enough to read as held, with its centre
+   * outside her sprite and its blossoms clear of the face band that
+   * GABBY_BASE_LAYOUT defines. tests/finale.test.ts pins all three properties
+   * against that layout rather than against a copied number. */
+  bouquetOffsetXPx: -50,
+  bouquetOffsetYPx: -28,
   /** Uniform scale of the 16x24 tex-tulip placeholder used per bouquet stem. */
-  bouquetScale: 1.6,
+  bouquetScale: 1.2,
   /** Stems in the bouquet. It is a BOUQUET, not one flower — screenshot-caught
    * twice: a SINGLE placeholder tulip beside Gabby read as a stray green box,
    * and three stems packed 13px apart merged into one flat green slab that was
@@ -1827,19 +1875,19 @@ export const PARTY = {
   /** Centre-to-centre fan spacing between stems, px. Deliberately more than
    * HALF a scaled tulip (16 x bouquetScale / 2), so the outer blossoms clear the
    * middle one instead of hiding inside it. */
-  bouquetSpreadXPx: 18,
+  bouquetSpreadXPx: 14,
   /** How much higher the MIDDLE stem sits than the outer ones, px (the outer
    * stems taper down to 0), so the bunch has a stepped silhouette instead of a
    * flat top. */
-  bouquetLiftYPx: 10,
+  bouquetLiftYPx: 8,
   /** The dark STEM BUNDLE she grips, drawn hanging below the blossoms — the
    * second "these are flowers in a hand, not a balloon" cue. Drawn in
    * PALETTE.outline rather than PALETTE.brown, which was the first attempt and
    * vanished against the brown-lit patio, and rather than a cream "paper wrap",
    * which vanished against Gabby's default off-white racing suit. A chunky
-   * 14x16 block cannot be confused with a balloon's 3x40 string. */
-  bouquetGripWidthPx: 14,
-  bouquetGripHeightPx: 16,
+   * chunky block cannot be confused with a balloon's 3x40 string. */
+  bouquetGripWidthPx: 12,
+  bouquetGripHeightPx: 12,
   /** Bouquet render depth — one above the front row so it draws IN FRONT of
    * Gabby (she is holding it), still below nameTagDepth. */
   bouquetDepth: DEPTHS.rider + 1,

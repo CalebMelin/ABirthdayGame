@@ -151,14 +151,16 @@ export function castBounceOffsetPx(
  * only, never Math.random — so the party looks identical on every visit and
  * both the unit tests and ST-3's browser harness can assert exact positions.
  *
- * NOBODY IS HIDDEN BEHIND ANYBODY: at the shipped constants the ODD crowd row
- * (9 members, 150px apart, centred on 640) lands at `40 + 150i` while the EVEN
+ * NOBODY IS HIDDEN BEHIND ANYBODY: at the shipped constants the ODD crowd GRID
+ * (9 slots, 150px apart, centred on 640) lands at `40 + 150i` while the EVEN
  * front row lands at `265 + 150j` — exactly a HALF step apart, so every crowd
  * member stands in a gap between two front-row members and the two rows can
  * never coincide (`150(i-j) = 225` has no integer solution). That 75px
  * separation also clears the summed sprite half-widths, so a crowd head never
- * peeks out of a front-row head and reads as a hat. Both properties are guarded
- * by tests/finale.test.ts, so a future constant tweak can't silently undo them.
+ * peeks out of a front-row head and reads as a hat. Leaving the CENTRE slot
+ * empty (below) removes a member without touching either property, since both
+ * hold slot by slot. All of it is guarded by tests/finale.test.ts, so a future
+ * constant tweak can't silently undo them.
  */
 export function buildPartyCastSlots(): readonly PartyCastSlot[] {
   const slots: PartyCastSlot[] = [];
@@ -185,21 +187,37 @@ export function buildPartyCastSlots(): readonly PartyCastSlot[] {
     });
   });
 
-  for (let i = 0; i < PARTY.crowdCount; i++) {
+  // The crowd is positioned over crowdSlotCount GRID SLOTS but the MIDDLE slot
+  // is deliberately left EMPTY: at an odd slot count it lands exactly on
+  // crowdCenterX, i.e. exactly between Gabby and Caleb, and the geometric
+  // centre of this screen belongs to the couple (NORTH_STAR §5), not to an
+  // unnamed partygoer. Dropping the SLOT rather than re-centring the row is
+  // what preserves the half-step interleave — see crowdCount / crowdSpacingPx.
+  //
+  // Two indices, on purpose: `slot` drives POSITION (so the interleave is a
+  // property of the grid, unchanged by the gap), while the compacted `member`
+  // index drives IDENTITY — id, look, stagger, scale and bounce phase — so the
+  // built crowd is a contiguous crowd-0..crowd-(crowdCount-1) with no hole in
+  // its numbering and no gap in crowdGuestAppearance's colour cycles.
+  const emptySlot = Math.floor((PARTY.crowdSlotCount - 1) / 2);
+  let member = 0;
+  for (let slot = 0; slot < PARTY.crowdSlotCount; slot++) {
+    if (slot === emptySlot) continue;
     slots.push({
-      id: `crowd-${i}`,
+      id: `crowd-${member}`,
       role: 'crowd',
       nameTag: null,
-      appearance: crowdGuestAppearance(i),
-      x: partyRowX(i, PARTY.crowdCount, PARTY.crowdCenterX, PARTY.crowdSpacingPx),
+      appearance: crowdGuestAppearance(member),
+      x: partyRowX(slot, PARTY.crowdSlotCount, PARTY.crowdCenterX, PARTY.crowdSpacingPx),
       // Odd members stand a touch nearer, so the back row isn't a chorus line.
-      groundY: PARTY.crowdGroundY + (i % 2 === 1 ? PARTY.crowdStaggerYPx : 0),
+      groundY: PARTY.crowdGroundY + (member % 2 === 1 ? PARTY.crowdStaggerYPx : 0),
       // Scale cycles small / base / large by index so the crowd reads as
       // individuals rather than one sprite stamped N times.
-      scale: PARTY.crowdScale * (1 + ((i % 3) - 1) * PARTY.crowdScaleStep),
+      scale: PARTY.crowdScale * (1 + ((member % 3) - 1) * PARTY.crowdScaleStep),
       depth: PARTY.crowdDepth,
-      phase01: phaseFor(FRONT_ROW.length + i),
+      phase01: phaseFor(FRONT_ROW.length + member),
     });
+    member++;
   }
 
   return slots;

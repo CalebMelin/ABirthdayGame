@@ -42,6 +42,7 @@ import {
   DEPTHS,
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
+  GABBY_BASE_LAYOUT,
   PALETTE,
   PARTY,
   UI_MIN_TOUCH_PX,
@@ -454,6 +455,15 @@ describe('PARTY constants stay inside the mandated ranges', () => {
     expect(PARTY.crowdCount).toBeLessThanOrEqual(15);
   });
 
+  it('lays the crowd over an ODD grid with exactly one slot left empty', () => {
+    // ODD is what makes the half-step interleave exact (see crowdSpacingPx);
+    // the one empty slot is the centre one, and crowdCount must agree with that
+    // or the constant would describe a crowd the layout does not build.
+    expect(PARTY.crowdSlotCount % 2).toBe(1);
+    expect(PARTY.crowdCount).toBe(PARTY.crowdSlotCount - 1);
+    expect(buildPartyCastSlots().filter((s) => s.role === 'crowd')).toHaveLength(PARTY.crowdCount);
+  });
+
   it('the crowd is drawn BEHIND the front row and reads as further away', () => {
     expect(PARTY.crowdDepth).toBeLessThan(PARTY.frontRowDepth);
     expect(PARTY.crowdGroundY).toBeLessThan(PARTY.frontRowGroundY); // higher on screen
@@ -543,6 +553,20 @@ describe('buildPartyCastSlots layout', () => {
     );
     for (const s of slots) {
       if (s.role !== 'guest') expect(s.nameTag).toBeNull();
+    }
+  });
+
+  it('leaves the screen\'s dead centre to the COUPLE, not to a stranger', () => {
+    // NORTH_STAR §5: "Gabby (player's customized look) + Caleb stand center".
+    // The crowd grid's middle slot lands exactly on centre — i.e. exactly
+    // between them — so it is left empty. Without this, the geometric centre of
+    // the whole payoff screen is an unnamed partygoer's head.
+    const gabby = slots.find((s) => s.role === 'gabby')!;
+    const caleb = slots.find((s) => s.role === 'caleb')!;
+    for (const c of slots.filter((s) => s.role === 'crowd')) {
+      expect(c.x).not.toBe(PARTY.crowdCenterX);
+      // ...and nobody stands in the gap between the two of them at all.
+      expect(c.x > gabby.x && c.x < caleb.x).toBe(false);
     }
   });
 
@@ -759,24 +783,38 @@ describe('PartyScene layout constants (banner / toast / venue / button)', () => 
     for (const s of slots) expect(PARTY.venueGroundY).toBeLessThan(s.groundY);
   });
 
-  it('puts the fence behind the crowd: it starts above, and ends at, the ground', () => {
+  it('puts the fence between the sky and the ground line', () => {
     expect(PARTY.venueFenceTopY).toBeGreaterThan(PARTY.venueSkyMidY);
     expect(PARTY.venueFenceTopY).toBeLessThan(PARTY.venueGroundY);
-    // ...so no fence pixel is ever drawn below the feet of the nearest crowd
-    // member — they stand in FRONT of it, on the patio.
-    for (const s of crowd) expect(PARTY.venueGroundY).toBeLessThan(s.groundY);
+    // (That no fence pixel is drawn below a crowd member's feet follows from
+    // "stands EVERY cast member on the patio" above, which is the stronger
+    // statement — this used to repeat its loop verbatim.)
   });
 
-  it('nests the warm light pools widest-first, centred on the people, on screen', () => {
+  it('nests the warm light rings widest-first, centred on the people, on screen', () => {
+    expect(PARTY.venueGlowPoolWidthPx).toBeLessThan(PARTY.venueGlowHaloWidthPx);
+    expect(PARTY.venueGlowPoolHeightPx).toBeLessThan(PARTY.venueGlowHaloHeightPx);
     expect(PARTY.venueGlowCoreWidthPx).toBeLessThan(PARTY.venueGlowPoolWidthPx);
     expect(PARTY.venueGlowCoreHeightPx).toBeLessThan(PARTY.venueGlowPoolHeightPx);
-    expect(PARTY.venueGlowPoolWidthPx).toBeLessThanOrEqual(DESIGN_WIDTH);
-    // The pool is LIGHT ON THE FLOOR: its centre must sit below the ground line
-    // (never up in the sky) and between the two rows of feet.
+    // The faint outer halo exists to SOFTEN the pool's edge, so it has to be
+    // the dimmest ring — a halo as bright as the pool would just move the hard
+    // curve outward instead of hiding it.
+    expect(PARTY.venueGlowHaloAlpha).toBeLessThan(PARTY.venueGlowPoolAlpha);
+
+    // The pool is LIGHT: its CENTRE must sit on the floor — below the ground
+    // line, never up in the sky — and between the two rows of feet. Only the
+    // centre is pinned, NOT the extent: the rings deliberately reach above
+    // venueGroundY and wash up the fence, which is what light falling on a yard
+    // actually does and what keeps the fence from reading as a flat cut-out
+    // band (see the constant's doc).
     expect(PARTY.venueGlowPoolCenterY).toBeGreaterThan(PARTY.venueGroundY);
     expect(PARTY.venueGlowPoolCenterY).toBeGreaterThan(PARTY.crowdGroundY);
     expect(PARTY.venueGlowPoolCenterY).toBeLessThan(PARTY.frontRowGroundY);
-    for (const alpha of [PARTY.venueGlowPoolAlpha, PARTY.venueGlowCoreAlpha]) {
+    for (const alpha of [
+      PARTY.venueGlowHaloAlpha,
+      PARTY.venueGlowPoolAlpha,
+      PARTY.venueGlowCoreAlpha,
+    ]) {
       expect(alpha).toBeGreaterThan(0);
       expect(alpha).toBeLessThan(1);
     }
@@ -851,18 +889,39 @@ describe('PartyScene layout constants (banner / toast / venue / button)', () => 
     expect(PARTY.bouquetDepth).toBeLessThan(PARTY.nameTagDepth);
   });
 
-  it('holds the bouquet ON Gabby — never floating off her, never at her feet', () => {
+  it('holds the bouquet AT GABBY\'S SIDE — clear of her face, clear of the floor', () => {
+    // She is the one character this gift is about, so the bunch is CARRIED, not
+    // painted across her. The first pass put its centre inside her sprite with
+    // its blossoms at her chin (screenshot-caught); these three properties are
+    // what that failure looked like, stated as geometry.
     const gabby = slots.find((s) => s.role === 'gabby')!;
-    // Horizontally within her own sprite, so it reads as held rather than
-    // hovering beside her.
-    expect(Math.abs(PARTY.bouquetOffsetXPx)).toBeLessThanOrEqual(
-      (SPRITE_WIDTH_PX * gabby.scale) / 2
-    );
-    // Vertically: above her feet (negative) but below the top of her head, and
-    // clear of the ground even on the DOWN frame of her bounce — remembering
-    // that the WRAP hangs below the grip the offset points at.
+    const gabbyLeft = gabby.x - (SPRITE_WIDTH_PX * gabby.scale) / 2;
+    const gabbyRight = gabby.x + (SPRITE_WIDTH_PX * gabby.scale) / 2;
+    const bouquetCenterX = gabby.x + PARTY.bouquetOffsetXPx;
+    const bouquetHalfWidth =
+      ((PARTY.bouquetStemCount - 1) / 2) * PARTY.bouquetSpreadXPx + (16 * PARTY.bouquetScale) / 2;
+
+    // (1) HELD, not floating: the bunch must overlap her silhouette...
+    expect(bouquetCenterX - bouquetHalfWidth).toBeLessThan(gabbyRight);
+    expect(bouquetCenterX + bouquetHalfWidth).toBeGreaterThan(gabbyLeft);
+    // ...but (2) its CENTRE sits outside her sprite, on the far side from
+    // Caleb, so it reads as carried beside her rather than pasted over her.
+    expect(bouquetCenterX).toBeLessThan(gabbyLeft);
+
+    // (3) It must clear her FACE. The rider base texture's head is its top
+    // (hairHeight + faceHeight) of the 48px sprite — read from
+    // GABBY_BASE_LAYOUT, the same layout BootScene actually draws, rather than
+    // from a guessed fraction — so her chin is here:
+    const chinY =
+      gabby.groundY -
+      (SPRITE_HEIGHT_PX - GABBY_BASE_LAYOUT.hairHeight - GABBY_BASE_LAYOUT.faceHeight) *
+        gabby.scale;
+    const blossomTopY =
+      gabby.groundY + PARTY.bouquetOffsetYPx - 24 * PARTY.bouquetScale - PARTY.bouquetLiftYPx;
+    expect(blossomTopY).toBeGreaterThan(chinY);
+
+    // ...and the grip stays off the floor even on the DOWN frame of her bounce.
     expect(PARTY.bouquetOffsetYPx).toBeLessThan(0);
-    expect(-PARTY.bouquetOffsetYPx).toBeLessThan(SPRITE_HEIGHT_PX * gabby.scale);
     expect(-PARTY.bouquetOffsetYPx).toBeGreaterThan(
       PARTY.bouquetGripHeightPx + PARTY.bounceAmplitudePx
     );

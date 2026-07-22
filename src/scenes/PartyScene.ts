@@ -90,8 +90,9 @@ interface PartyDebug {
   toastText: string | null;
   /** The tulip total read from the save on entry. */
   tulips: number;
-  /** Whether Gabby is actually holding the bouquet sprite. */
-  bouquetShown: boolean;
+  /** Whether Gabby is actually holding the bouquet sprite RIGHT NOW — a live
+   * getter, not a frozen boolean, so its present tense stays true. */
+  bouquetShown: () => boolean;
   /** The rider texture key Gabby AND Dallas both render with — the twin joke,
    * exposed so the harness can prove the two really are identical (and that
    * they change TOGETHER when the saved character changes). */
@@ -100,9 +101,12 @@ interface PartyDebug {
   cast: readonly PartyCastMemberInfo[];
   /** Balloon POOL size (constant for the scene's life). */
   balloonCount: number;
-  /** Live per-balloon snapshot. `alive` is equivalent to "on screen": the
-   * flight geometry gives an unpopped balloon a zero-length invisible band, so
-   * the harness counts alive to count visible (see partyBalloons.ts). */
+  /** Live per-balloon snapshot. `alive` stands in for "on screen": the flight
+   * geometry gives an unpopped balloon a ZERO-LENGTH invisible band, so the
+   * only balloons out of view are ones the player just popped. Be exact about
+   * the endpoints, though (the caveat partyBalloons.ts's own doc carries): at
+   * each end of the flight the visible area is exactly 0 for at most a single
+   * frame before the balloon moves or recycles. */
   balloons: () => readonly PartyBalloonInfo[];
   /** Whether the "Credits ->" button has been revealed yet. */
   creditsButtonShown: () => boolean;
@@ -123,6 +127,13 @@ export class PartyScene extends Phaser.Scene {
   private bouquet: Phaser.GameObjects.Container | undefined;
 
   private creditsButton: Phaser.GameObjects.Container | undefined;
+  /** Latched the instant the player commits to leaving, so a SECOND press on
+   * "Credits ->" cannot start CreditsScene again. Phaser's SceneManager.start
+   * on an already-running scene shuts it down and re-creates it, so an
+   * unguarded double-click/two-finger tap RESTARTS the credits — invisible
+   * against ST-4's stub, but ST-4 builds a line-by-line reveal there and this
+   * is the gift's last beat. */
+  private leaving = false;
 
   constructor() {
     super(SCENE_KEYS.party);
@@ -140,6 +151,7 @@ export class PartyScene extends Phaser.Scene {
     this.gabby = undefined;
     this.bouquet = undefined;
     this.creditsButton = undefined;
+    this.leaving = false;
 
     // Matches the venue's top sky band, so nothing flashes pastel-pink for a
     // frame on entry.
@@ -208,6 +220,14 @@ export class PartyScene extends Phaser.Scene {
       this.gabby = undefined;
       this.bouquet = undefined;
       this.creditsButton = undefined;
+      // Drop the DEV snapshot with the scene. Half of it is a frozen literal,
+      // so leaving it behind would let a harness read a plausible-looking party
+      // off a scene that is not running — which matters from ST-6 on, when the
+      // Title screen becomes a SECOND way in and a harness may well read
+      // __party before entering. (Dead-code-eliminated in prod, same as below.)
+      if (import.meta.env.DEV) {
+        delete (this as unknown as { __party?: PartyDebug }).__party;
+      }
     });
 
     // DEV-only live snapshot for the browser harness (dead-code-eliminated from
@@ -217,7 +237,7 @@ export class PartyScene extends Phaser.Scene {
         bannerText: PARTY_BANNER_TEXT,
         toastText,
         tulips,
-        bouquetShown: this.bouquet !== undefined,
+        bouquetShown: () => this.bouquet !== undefined,
         riderTextureKey: cast.riderTextureKey,
         cast: cast.members,
         balloonCount: balloons.count,
@@ -303,18 +323,21 @@ export class PartyScene extends Phaser.Scene {
     // Patio: dark, so the warm pools below actually read as LIGHT.
     band(PARTY.venueGroundY, DESIGN_HEIGHT, PALETTE.plum);
 
-    // The warm light pool: two nested translucent ELLIPSES (widest/dimmest
+    // The warm light pool: THREE nested translucent ELLIPSES (widest/faintest
     // first) rather than bands. A full-width translucent rectangle just
     // lightens the whole floor and reads as a different floor color; an ellipse
-    // reads as light falling on it. Both layers go on ONE Graphics (rather than
-    // two scene.add.ellipse GameObjects) because they are a single static
-    // backdrop element that is drawn once and never moved, tinted or faded
+    // reads as light falling on it. The outermost halo exists only to soften
+    // the outer edge — with two rings the pool's boundary was a crisp curve
+    // that read as a hard-edged oval rug. All three go on ONE Graphics (rather
+    // than three scene.add.ellipse GameObjects) because they are a single
+    // static backdrop element drawn once and never moved, tinted or faded
     // independently — same reason the streamers and the light wire are Graphics.
     const glow = this.add.graphics().setDepth(DEPTHS.background);
     const pool = (widthPx: number, heightPx: number, alpha: number): void => {
       glow.fillStyle(PALETTE.sunsetGlow, alpha);
       glow.fillEllipse(DESIGN_WIDTH / 2, PARTY.venueGlowPoolCenterY, widthPx, heightPx);
     };
+    pool(PARTY.venueGlowHaloWidthPx, PARTY.venueGlowHaloHeightPx, PARTY.venueGlowHaloAlpha);
     pool(PARTY.venueGlowPoolWidthPx, PARTY.venueGlowPoolHeightPx, PARTY.venueGlowPoolAlpha);
     pool(PARTY.venueGlowCoreWidthPx, PARTY.venueGlowCoreHeightPx, PARTY.venueGlowCoreAlpha);
   }
@@ -515,10 +538,28 @@ export class PartyScene extends Phaser.Scene {
       y: pos.y,
       label: CREDITS_BUTTON_LABEL,
       minWidth: PARTY.creditsButtonMinWidthPx,
-      onClick: () => this.scene.start(SCENE_KEYS.credits),
+      onClick: () => this.goToCredits(),
     });
     button.setAlpha(0);
     this.tweens.add({ targets: button, alpha: 1, duration: PARTY.creditsButtonFadeMs });
     this.creditsButton = button;
+  }
+
+  /**
+   * Leaves for the credits — ONCE. `leaving` latches on the first press and is
+   * only cleared by the next `create()`, so a rapid double-click or a
+   * two-finger tap cannot start CreditsScene twice.
+   *
+   * WHY THIS MATTERS EVEN THOUGH IT LOOKS HARMLESS: Phaser's
+   * SceneManager.start() on an already-running scene SHUTS IT DOWN and creates
+   * it again, so the second press is a silent RESTART, not a leak. Against
+   * ST-4's current stub that is invisible; once ST-4 reveals the three credits
+   * lines one by one, a two-finger tap on a phone would visibly snap the reveal
+   * back to line 1 — at the very last beat of the gift.
+   */
+  private goToCredits(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.scene.start(SCENE_KEYS.credits);
   }
 }

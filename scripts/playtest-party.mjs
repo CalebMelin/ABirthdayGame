@@ -40,8 +40,13 @@
 //   7. NO FORCED EXIT: ~9s after entry the party is still the active scene and
 //      the credits have NOT been auto-started.
 //   8. 60FPS: average actualFps >= 55 with the whole scene live (cast + 32
-//      balloons + continuous confetti), sampled after a warmup.
+//      balloons + continuous confetti) AND balloons being popped ~4/sec right
+//      through the sample, so the 168-piece pop pool is actually loaded rather
+//      than dormant.
 //   9. ZERO Matter bodies in the scene, and zero console/page errors throughout.
+//  11. THE VENUE DREW: a smoke gate on the ~180 lines of backdrop (bands, fence
+//      seams, glow ellipses, bulbs, streamers, banner hangers), which is
+//      otherwise covered only by constants arithmetic and eyeballed PNGs.
 //  10. Screenshots (with bouquet, without bouquet, after a character change,
 //      after popping, mid-puff over a cast member, with the Credits button) to
 //      playtest-out/.
@@ -169,16 +174,12 @@ async function tapDesign(page, x, y) {
 async function enterParty(page) {
   await page.evaluate(() => {
     const g = globalThis.__gabbyGame;
-    for (const k of [
-      'GameScene',
-      'PauseScene',
-      'LevelCompleteScene',
-      'LevelSelectScene',
-      'CharacterCreationScene',
-      'TitleScene',
-      'CreditsScene',
-    ]) {
-      if (g.scene.isActive(k)) g.scene.stop(k);
+    // DERIVED from the scene manager, never a hardcoded list: ST-5 and ST-6 add
+    // new ways into the party, and a stale list would silently leave a scene
+    // running behind it stealing input and frames.
+    for (const scene of g.scene.getScenes(false)) {
+      const key = scene.scene.key;
+      if (key !== 'PartyScene' && g.scene.isActive(key)) g.scene.stop(key);
     }
     g.scene.start('PartyScene');
   });
@@ -214,7 +215,7 @@ const READ_PARTY = () => {
     bannerText: d.bannerText,
     toastText: d.toastText,
     tulips: d.tulips,
-    bouquetShown: d.bouquetShown,
+    bouquetShown: d.bouquetShown(),
     riderTextureKey: d.riderTextureKey,
     cast: d.cast.map((m) => ({
       id: m.id,
@@ -259,8 +260,11 @@ function renderedTexts(page) {
   });
 }
 
-const sumPops = (balloons) => balloons.reduce((total, b) => total + b.pops, 0);
-const aliveCount = (balloons) => balloons.filter((b) => b.alive).length;
+// Both default to [] so a poll predicate that samples DURING a scene shutdown
+// (when __party is deleted with the scene, so `balloons` is undefined) reads as
+// "nothing there" instead of throwing.
+const sumPops = (balloons = []) => balloons.reduce((total, b) => total + b.pops, 0);
+const aliveCount = (balloons = []) => balloons.filter((b) => b.alive).length;
 
 /** Poll readParty until `predicate` holds or `timeoutMs` elapses; returns the
  * last sample either way. */
@@ -315,6 +319,13 @@ async function popOneBalloon(page, kind, problems, out) {
   if (popped.length !== 1) {
     problems.push(`${kind}: ${popped.length} balloons popped from one press (want exactly 1)`);
   }
+  if (popped.length === 0) {
+    // Bail out rather than fall through: the respawn check below would otherwise
+    // follow a still-ALIVE balloon, return instantly, and report a nonsense
+    // "replacement re-entered at y=<mid-screen>" that buries the real failure.
+    out.push(record);
+    return;
+  }
   // Census: every balloon that is currently popped must have an input-DISABLED
   // Zone, and every live one an enabled Zone — so a popped balloon can never
   // swallow a press meant for a live balloon drifting behind it.
@@ -327,8 +338,8 @@ async function popOneBalloon(page, kind, problems, out) {
 
   // A replacement floats back in, at the bottom edge (the derived entry knot y,
   // below the screen) rather than where it popped.
-  const index = popped.length > 0 ? popped[0].index : target.index;
-  const back = await pollParty(page, (s) => s.balloons[index].alive, 3000);
+  const index = popped[0].index;
+  const back = await pollParty(page, (s) => s.balloons?.[index]?.alive === true, 3000);
   record.respawnedY = Math.round(back.balloons[index].y);
   record.respawnedAlive = back.balloons[index].alive;
   if (!back.balloons[index].alive) {
@@ -361,18 +372,42 @@ const READ_LAYERS = () => {
   const scene = globalThis.__gabbyGame.scene.getScene('PartyScene');
   const rectDepths = {};
   const textContainers = [];
+  let graphicsObjects = 0;
   for (const o of scene.children.list) {
     if (o.type === 'Rectangle' && o.visible) {
       rectDepths[o.depth] = (rectDepths[o.depth] || 0) + 1;
     }
+    if (o.type === 'Graphics' && o.visible) graphicsObjects++;
     if (o.type === 'Container' && Array.isArray(o.list)) {
       const texts = o.list.filter((c) => c.type === 'Text').map((c) => c.text);
       if (texts.length > 0) textContainers.push({ depth: o.depth, texts });
     }
   }
-  return { rectDepths, textContainers };
+  return { rectDepths, textContainers, graphicsObjects };
 };
 const readLayers = (page) => page.evaluate(READ_LAYERS);
+
+/** Depth buckets that gained visible top-level Rectangles between two censuses. */
+function gainedBuckets(before, after) {
+  return Object.keys(after.rectDepths)
+    .map(Number)
+    .filter((depth) => (after.rectDepths[depth] ?? 0) > (before.rectDepths[depth] ?? 0));
+}
+
+/** Poll readLayers until some depth bucket gains visible Rectangles, or time is
+ * up. A single read races the input pipeline: if both CDP round trips land
+ * inside one 16.7ms frame the puff has not been drawn yet and the census sees
+ * nothing. A puff piece lives 500-1000ms, so a short poll is free. */
+async function pollLayersForGain(page, before, timeoutMs = 250, stepMs = 40) {
+  const start = Date.now();
+  let last = await readLayers(page);
+  while (Date.now() - start < timeoutMs) {
+    if (gainedBuckets(before, last).length > 0) return last;
+    await page.waitForTimeout(stepMs);
+    last = await readLayers(page);
+  }
+  return last;
+}
 
 /** The drawn box of each FRONT-ROW cast member (the six that are not crowd),
  * derived from the placeholder sprite geometry. */
@@ -450,7 +485,7 @@ async function popBehindCastMember(page, problems) {
   const popsBefore = sumPops(sample.balloons);
   await clickDesign(page, found.balloon.x, found.hitY);
   // Read the layers FIRST: a puff piece lives only 0.5-1.0s.
-  const after = await readLayers(page);
+  const after = await pollLayersForGain(page, before);
   // ...then capture it while it is still on screen. Asserting "the puff's depth
   // is above the cast" does not prove the puff LOOKS right over them, and the
   // reason the balloons went behind the cast in the first place was occlusion —
@@ -469,9 +504,7 @@ async function popBehindCastMember(page, problems) {
   });
   const popped = await pollParty(page, (s) => sumPops(s.balloons) > popsBefore, 2000);
 
-  const gained = Object.keys(after.rectDepths)
-    .map(Number)
-    .filter((depth) => (after.rectDepths[depth] ?? 0) > (before.rectDepths[depth] ?? 0));
+  const gained = gainedBuckets(before, after);
   const puffDepth = gained.length === 1 ? gained[0] : null;
   const puffPieces =
     puffDepth === null ? 0 : after.rectDepths[puffDepth] - (before.rectDepths[puffDepth] ?? 0);
@@ -503,6 +536,14 @@ async function popBehindCastMember(page, problems) {
 
   if (poppedBalloon === undefined) {
     problems.push('occluded pop: pressing on a cast member popped nothing');
+  } else if (!poppedWasHidden) {
+    // Without this the check could keep passing while quietly ceasing to test
+    // what it claims: if topOnly ever handed the press to a VISIBLE balloon
+    // drawing on top, the puff-layer assertion below would still hold but the
+    // scenario ("a balloon you cannot see") would no longer be exercised.
+    problems.push(
+      `occluded pop: the balloon that popped (#${poppedBalloon.index}) was NOT behind a cast member — the check no longer exercises a hidden pop`
+    );
   }
   if (puffDepth === null) {
     problems.push(
@@ -655,6 +696,22 @@ async function main() {
     if (base.matterBodies > 0)
       problems.push(`PartyScene holds ${base.matterBodies} Matter bodies (want 0)`);
 
+    // (11) THE VENUE DREW. ~180 lines of bands, fence seams, glow ellipses,
+    // bulbs, streamers and banner hangers are otherwise covered only by
+    // constants arithmetic and eyeballed PNGs — a smoke gate so "the backdrop
+    // silently stopped rendering" cannot pass. Floors, not exact counts: the
+    // 20 fence seams alone clear the rectangle bar, and the glows/wire/ribbons/
+    // hangers clear the Graphics bar.
+    const layers = await readLayers(page);
+    const venue = {
+      backgroundRects: layers.rectDepths[0] ?? 0,
+      graphicsObjects: layers.graphicsObjects,
+    };
+    if (venue.backgroundRects < 20)
+      problems.push(`venue drew only ${venue.backgroundRects} background rectangles`);
+    if (venue.graphicsObjects < 3)
+      problems.push(`venue drew only ${venue.graphicsObjects} Graphics objects`);
+
     await page.screenshot({ path: join(OUT_DIR, 'party-with-bouquet.png') });
     // ...and a close-up on Gabby, because "bouquetShown === true" is not the
     // same as "you can SEE her holding it" at placeholder fidelity.
@@ -696,10 +753,20 @@ async function main() {
     // (8) 60FPS with the whole scene live, and (7) NO FORCED EXIT.
     await page.waitForTimeout(FPS_WARMUP_MS);
     const fpsSamples = [];
+    let popsDuringFps = 0;
     const fpsStart = Date.now();
     while (Date.now() - fpsStart < FPS_SAMPLE_MS) {
       const s = await readParty(page);
       if (s.hasParty) fpsSamples.push(s.fps);
+      // POP WHILE MEASURING. An idle party is the easy case: the 168-piece pop
+      // pool sits dormant and the fps bar never sees the load it exists for.
+      // Popping through the window (~4/sec) keeps several bursts integrating at
+      // once, which is the frame cost worth gating.
+      const spare = pickTarget(s);
+      if (spare) {
+        await clickDesign(page, spare.x, spare.y - BALLOON_BODY_HEIGHT_PX / 2);
+        popsDuringFps++;
+      }
       await page.waitForTimeout(250);
     }
     const avgFps =
@@ -782,8 +849,10 @@ async function main() {
       },
       stillAliveAfterMs: aliveForMs,
       matterBodies: base.matterBodies,
+      venue,
       avgFps,
       minFps,
+      popsDuringFpsWindow: popsDuringFps,
       consoleErrors,
       pageErrors,
     };
@@ -807,7 +876,7 @@ async function main() {
       ? `a press ON "${occ.pressedOn}" popped the balloon hidden behind them and threw ${occ.puffPieces} puff pieces at depth ${occ.puffDepth}, over the cast (${occ.maxCastDepth}) and the name tags (${occ.maxNameTagDepth})`
       : 'occluded-pop check did not run';
     console.log(
-      `PARTY OK: banner "${report.banner}"; name tags ${report.nameTags.join('/')} + ${report.crowd} unnamed partygoers (cast ${report.castSize}); Dallas===Gabby "${report.twin.before.dallas}" and BOTH became "${report.twin.after.dallas}" after a character change; ${report.balloons.count} balloons (${report.balloons.visibleOnEntry} visible, ${report.balloons.zones} hit zones), ${popSummary}; ${occSummary}; toast "${report.toast}" with bouquet, and neither at 0 tulips; Credits button absent at ${report.credits.checkedAtMs}ms, faded in by ${report.credits.appearedAtMs}ms to alpha ${report.credits.finalAlpha}, routes by click AND tap; party still alive after ${report.stillAliveAfterMs}ms with no auto-advance; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; avg ${report.avgFps} fps (min ${report.minFps}); no errors.`
+      `PARTY OK: banner "${report.banner}"; name tags ${report.nameTags.join('/')} + ${report.crowd} unnamed partygoers (cast ${report.castSize}); Dallas===Gabby "${report.twin.before.dallas}" and BOTH became "${report.twin.after.dallas}" after a character change; ${report.balloons.count} balloons (${report.balloons.visibleOnEntry} visible, ${report.balloons.zones} hit zones), ${popSummary}; ${occSummary}; toast "${report.toast}" with bouquet, and neither at 0 tulips; Credits button absent at ${report.credits.checkedAtMs}ms, faded in by ${report.credits.appearedAtMs}ms to alpha ${report.credits.finalAlpha}, routes by click AND tap; party still alive after ${report.stillAliveAfterMs}ms with no auto-advance; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; venue drew ${report.venue.backgroundRects} backdrop rects + ${report.venue.graphicsObjects} Graphics; avg ${report.avgFps} fps (min ${report.minFps}) while popping ${report.popsDuringFpsWindow} balloons through the sample; no errors.`
     );
   }
 }
