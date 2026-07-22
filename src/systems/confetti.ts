@@ -158,6 +158,15 @@ export function confettiRangeAt(u01: number, min: number, max: number): number {
   return min + u01 * (max - min);
 }
 
+/** A piece's edge length, px — `confettiRangeAt` ROUNDED to a whole pixel.
+ * Kept integral because the code this module replaced drew its sizes with
+ * `Phaser.Math.Between` (which returns an integer), and because a pixel-art
+ * game should not ship 11.37px squares. Positions stay sub-pixel, exactly as
+ * they always were: a piece is tumbling and translating every frame. */
+export function confettiPieceSizePx(u01: number, minPx: number, maxPx: number): number {
+  return Math.round(confettiRangeAt(u01, minPx, maxPx));
+}
+
 /**
  * A burst piece's launch direction, radians, in Phaser's screen convention
  * (y grows downward, so -PI/2 is straight UP): straight up plus/minus
@@ -271,7 +280,7 @@ export function createConfettiBurst(
   // never has to re-build shape geometry.
   const pool: BurstPiece[] = [];
   for (let i = 0; i < poolSize; i++) {
-    const size = confettiRangeAt(rng(), opts.sizeMinPx, opts.sizeMaxPx);
+    const size = confettiPieceSizePx(rng(), opts.sizeMinPx, opts.sizeMaxPx);
     const rect = scene.add
       .rectangle(0, 0, size, size, confettiColorAt(colors, rng()))
       .setDepth(opts.depth)
@@ -455,7 +464,7 @@ export function createConfettiFall(
   }
 
   for (let i = 0; i < count; i++) {
-    const size = confettiRangeAt(rng(), opts.sizeMinPx, opts.sizeMaxPx);
+    const size = confettiPieceSizePx(rng(), opts.sizeMinPx, opts.sizeMaxPx);
     const rect = scene.add.rectangle(0, 0, size, size, PALETTE.white).setDepth(opts.depth);
     const piece: FallPiece = { rect, x: 0, y: 0, vx: 0, vy: 0, rotation: 0, spin: 0 };
     // Seed spread over the whole visible band plus the entry band above it.

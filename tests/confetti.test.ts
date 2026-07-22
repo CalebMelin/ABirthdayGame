@@ -18,6 +18,7 @@ import {
   confettiColorAt,
   confettiFadeAlpha,
   confettiLaunchAngleRad,
+  confettiPieceSizePx,
   confettiRangeAt,
   confettiWrapX,
   shouldRecycleFallingConfetti,
@@ -195,6 +196,35 @@ describe('confettiRangeAt', () => {
   it('handles a symmetric range (the +/- spin and drift case)', () => {
     expect(confettiRangeAt(0.5, -8, 8)).toBe(0);
     expect(confettiRangeAt(0.25, -8, 8)).toBe(-4);
+  });
+});
+
+describe('confettiPieceSizePx', () => {
+  it('always returns a WHOLE pixel (matching the Phaser.Math.Between it replaced)', () => {
+    for (let u = 0; u < 1; u += 0.007) {
+      const size = confettiPieceSizePx(u, 8, 16);
+      expect(Number.isInteger(size)).toBe(true);
+    }
+  });
+
+  it('stays inside the configured range', () => {
+    for (let u = 0; u <= 1; u += 0.01) {
+      const size = confettiPieceSizePx(u, 8, 16);
+      expect(size).toBeGreaterThanOrEqual(8);
+      expect(size).toBeLessThanOrEqual(16);
+    }
+  });
+
+  it('spans the whole range, not just one size', () => {
+    const seen = new Set<number>();
+    for (let i = 0; i <= 100; i++) seen.add(confettiPieceSizePx(i / 100, 8, 16));
+    expect(seen.has(8)).toBe(true);
+    expect(seen.has(16)).toBe(true);
+    expect(seen.size).toBe(9); // every integer 8..16
+  });
+
+  it('collapses to the single size when min === max', () => {
+    expect(confettiPieceSizePx(0.37, 10, 10)).toBe(10);
   });
 });
 
