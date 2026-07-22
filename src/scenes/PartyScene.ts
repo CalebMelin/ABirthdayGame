@@ -371,21 +371,23 @@ export class PartyScene extends Phaser.Scene {
    * level-21 backdrops use.
    */
   private drawStreamers(): void {
+    // ONE Graphics for all six ribbons: lineStyle applies to the path that
+    // follows it, so each strokePath() below draws in its own color.
+    const ribbons = this.add.graphics().setDepth(DEPTHS.background);
     PARTY.streamerXsPx.forEach((x, index) => {
-      const ribbon = this.add.graphics().setDepth(DEPTHS.background);
-      ribbon.lineStyle(
+      ribbons.lineStyle(
         PARTY.streamerThicknessPx,
         STREAMER_COLORS[index % STREAMER_COLORS.length],
         1
       );
-      ribbon.beginPath();
-      ribbon.moveTo(x, 0);
+      ribbons.beginPath();
+      ribbons.moveTo(x, 0);
       for (let segment = 1; segment <= PARTY.streamerSegments; segment++) {
         const y = (segment / PARTY.streamerSegments) * PARTY.streamerLengthPx;
         const offsetX = segment % 2 === 0 ? PARTY.streamerAmplitudePx : -PARTY.streamerAmplitudePx;
-        ribbon.lineTo(x + offsetX, y);
+        ribbons.lineTo(x + offsetX, y);
       }
-      ribbon.strokePath();
+      ribbons.strokePath();
     });
   }
 
@@ -440,7 +442,7 @@ export class PartyScene extends Phaser.Scene {
     // BELOW the container origin; the blossoms sit above it.
     const parts: Phaser.GameObjects.GameObject[] = [
       this.add
-        .rectangle(0, 0, PARTY.bouquetWrapWidthPx, PARTY.bouquetWrapHeightPx, PALETTE.outline)
+        .rectangle(0, 0, PARTY.bouquetGripWidthPx, PARTY.bouquetGripHeightPx, PALETTE.outline)
         .setOrigin(0.5, 0),
     ];
 

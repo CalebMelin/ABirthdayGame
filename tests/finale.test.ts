@@ -783,6 +783,11 @@ describe('PartyScene layout constants (banner / toast / venue / button)', () => 
   });
 
   it('stacks banner -> toast -> string lights -> crowd heads with no overlap', () => {
+    // The banner HANGS from the top edge on two drawn strings, so its panel top
+    // must be strictly below y=0 or those strings have nowhere to run.
+    const bannerTop =
+      PARTY.bannerCenterY - panelHalfHeight(PARTY.bannerFontSizePx, PARTY.bannerPadYPx);
+    expect(bannerTop).toBeGreaterThan(0);
     expect(bannerBottom).toBeLessThan(toastTop);
     expect(toastBottom).toBeLessThan(PARTY.lightStringAnchorY);
     const lightsBottom =
@@ -859,7 +864,7 @@ describe('PartyScene layout constants (banner / toast / venue / button)', () => 
     expect(PARTY.bouquetOffsetYPx).toBeLessThan(0);
     expect(-PARTY.bouquetOffsetYPx).toBeLessThan(SPRITE_HEIGHT_PX * gabby.scale);
     expect(-PARTY.bouquetOffsetYPx).toBeGreaterThan(
-      PARTY.bouquetWrapHeightPx + PARTY.bounceAmplitudePx
+      PARTY.bouquetGripHeightPx + PARTY.bounceAmplitudePx
     );
   });
 

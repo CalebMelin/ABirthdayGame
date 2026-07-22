@@ -1813,8 +1813,8 @@ export const PARTY = {
    * vanished against the brown-lit patio, and rather than a cream "paper wrap",
    * which vanished against Gabby's default off-white racing suit. A chunky
    * 14x16 block cannot be confused with a balloon's 3x40 string. */
-  bouquetWrapWidthPx: 14,
-  bouquetWrapHeightPx: 16,
+  bouquetGripWidthPx: 14,
+  bouquetGripHeightPx: 16,
   /** Bouquet render depth — one above the front row so it draws IN FRONT of
    * Gabby (she is holding it), still below nameTagDepth. */
   bouquetDepth: DEPTHS.rider + 1,
