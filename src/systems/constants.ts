@@ -815,6 +815,109 @@ export const POLICE = {
   finalePuffMs: 800,
 } as const;
 
+/** Level 22 "The Party" ARRIVAL tuning (PLAN-09 task 1 / ST-5 — see
+ * src/systems/arrival.ts). NORTH_STAR §5 row 22: the final level "ends at the
+ * party venue -> transitions to PartyScene". Instead of the normal complete
+ * screen, the last stretch is a scripted beat: as Gabby nears the venue the
+ * cutscene TAKES THE PEDALS (EventContext.setInputOverride — never a Matter
+ * force), rides her in whatever her speed, slows her to a walking pace so she
+ * rolls up to the doors, and then — once she crosses the finish flag — the
+ * doors open, warm light spills out, Caleb hops off the back, and the light
+ * takes the screen and hands off to PartyScene.
+ *
+ * THE WHOLE BEAT IS A GIFT AND CAN NEVER FAIL THE PLAYER: it never calls
+ * softFail, and because it drives the pedals itself it carries in a player who
+ * has STOPPED DEAD as readily as one arriving flat out.
+ *
+ * ZERO Matter bodies (level 22 is the tightest level in the game at 99/100 —
+ * see PROGRESS.md): the venue, doors, light spill, standing Caleb and the two
+ * wash rectangles are all plain GameObjects. The placeholder DRAWING dimensions
+ * of the venue/Caleb stay as local documented consts in arrival.ts
+ * (decorations.ts / pickup.ts / police.ts precedent); what lives here is the
+ * GEOMETRY relative to the finish flag, the approach speed, and the finale
+ * pacing. Distances are px at the 1280x720 DESIGN scale (world px for the
+ * geometry); speeds are px per fixed 60 Hz physics STEP (BikeHandle units);
+ * times are ms.
+ *
+ * GEOMETRY, left to right (arrivalGeometry() derives all three from finishX;
+ * tests/arrival.test.ts pins the ordering):
+ *   finishX - rideInLeadPx  -> the cutscene takes the pedals and holds GAS
+ *   finishX - crawlLeadPx   -> it starts holding crawlSpeedPxPerStep instead
+ *   finishX                 -> the flag; GameScene ends the run, onFinish plays
+ *   finishX + doorAheadOfFinishPx -> the venue doorway she coasts up to
+ * `rideInLeadPx` and `doorAheadOfFinishPx` are DEFAULTS; level22.ts's
+ * PartyArrivalEvent authors both explicitly and may override them. */
+export const ARRIVAL = {
+  /** How far BEFORE the finish flag the scripted ride-in takes control, px.
+   * Long enough to read as a deliberate ride-in (~2s at gas-only cruise) and to
+   * re-accelerate a player who rolled to a stop, short enough that the player
+   * keeps the level. */
+  rideInLeadPx: 900,
+  /** How far before the finish flag the ride-in stops accelerating and starts
+   * holding `crawlSpeedPxPerStep`, px. Comfortably longer than the bike's
+   * braking distance from its gas-only cruise (BIKE_TUNING.brakeDampingFactor
+   * stops it from full speed in under a second), so she is already at walking
+   * pace when she crosses the flag. */
+  crawlLeadPx: 360,
+  /** The approach speed the crawl holds, px per physics STEP (BikeHandle.speed
+   * units; the bike's full-gas top speed is 10.8 — see
+   * BIKE_TUNING.maxWheelAngularVelocity). This is the ONE number that decides
+   * where she comes to rest, and it is only tunable EMPIRICALLY: past the flag
+   * GameScene forces both pedals false (the run has ended), so she free-coasts
+   * and nothing can steer where she stops — only the speed she crosses at. At
+   * this value she crosses at ~1.5-2.4 px/step and rolls ~50-80px, coming to
+   * rest comfortably short of the doorway (browser-measured; a run reports its
+   * actual crossing speed and `restX` — see scripts/playtest-arrival.mjs). Do
+   * NOT reason about that distance from frictionAir alone: rolling resistance
+   * and the suspension bleed it far faster than air drag would. Higher = she
+   * runs further past the flag, toward (and eventually past) the doors. */
+  crawlSpeedPxPerStep: 1.8,
+  /** How far PAST the finish flag the venue's doorway centre sits, px. Bounded
+   * by the runway the level actually has: LEVEL.finishMarginPx (500) of ground
+   * exists past the flag, and the venue facade is drawn around this point, so
+   * this plus half the facade width must stay inside it. */
+  doorAheadOfFinishPx: 300,
+
+  // ------------------------------------------------------------ the ride-in
+  /** Door-opening tween duration, ms — both panels swing outward together.
+   * Kicked off when the CRAWL begins (before the flag), so the venue opens up
+   * ahead of her as she rolls in rather than only after the run ends. */
+  doorsOpenMs: 900,
+  /** The warm pool of light spilling out of the open doors: how long it takes
+   * to bloom from nothing to full, ms (runs with the doors). Its SHAPE — three
+   * nested translucent ellipses whose composed falloff is what makes it read as
+   * light rather than as a rug — is placeholder art and lives in arrival.ts. */
+  lightSpillMs: 1100,
+
+  // --------------------------------------------------------------- the finale
+  // Everything below runs AFTER the finish flag, so it must be SELF-DRIVING
+  // (tweens + timed events): GameScene stops calling handle.update() the instant
+  // the run ends — see EventContext.isEnded's doc.
+  /** Delay after the finish before Caleb hops off the back, ms. */
+  hopOffDelayMs: 350,
+  /** How long his hop from the pillion down to the road takes, ms. */
+  hopDownMs: 340,
+  /** How long he then takes to walk from the bike to the doorway (fading out as
+   * he steps inside), ms. */
+  walkInMs: 1000,
+  /** Delay after the finish before the warm light wash starts taking the
+   * screen, ms. Long enough for the hop-off + most of the walk to play. */
+  washDelayMs: 1500,
+  /** Warm light-wash fade-in duration, ms — the doors' light filling the frame. */
+  washFadeMs: 700,
+  /** After the warm wash peaks, a second wash in PartyScene's own night sky
+   * (PALETTE.duskIndigo) fades in over this, ms, so the cut into the party is a
+   * match on colour instead of a flash. */
+  duskFadeMs: 320,
+  /** ms GameScene holds the PartyScene hand-off after the finish (the value
+   * onFinish returns), so the whole finale is visible. MUST exceed
+   * washDelayMs + washFadeMs + duskFadeMs — pinned by tests/arrival.test.ts
+   * rather than restated as arithmetic here — with room to spare, so the screen
+   * SETTLES on PartyScene's own night sky for a breath before the party appears
+   * rather than cutting on the last frame of the fade. */
+  finaleHoldMs: 2800,
+} as const;
+
 /** Pixel font family (to be loaded in a later plan). */
 export const FONT_FAMILY_PIXEL = 'Press Start 2P';
 

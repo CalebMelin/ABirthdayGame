@@ -38,6 +38,8 @@ function requiredEventFor(id: number): LevelEvent | undefined {
       return { type: 'police' };
     case 18:
       return { type: 'billboard', x: 500, text: 'Test billboard' };
+    case 22:
+      return { type: 'partyArrival' };
     default:
       return undefined;
   }
@@ -200,6 +202,7 @@ describe('validateLevels — required scripted events', () => {
     { id: 12, type: 'calebPickup' },
     { id: 15, type: 'police' },
     { id: 18, type: 'billboard' },
+    { id: 22, type: 'partyArrival' },
   ];
 
   for (const { id, type } of requiredCases) {
@@ -232,6 +235,7 @@ describe('validateLevels — defensive/total behavior', () => {
       "Level 12 is missing its required 'calebPickup' event",
       "Level 15 is missing its required 'police' event",
       "Level 18 is missing its required 'billboard' event",
+      "Level 22 is missing its required 'partyArrival' event",
     ]);
   });
 

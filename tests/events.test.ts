@@ -49,7 +49,10 @@ const fakeScene = {
   scene: { key: 'GameScene' },
   add: new Proxy({}, { get: () => () => stubNode() }),
   matter: { world: { on: () => {}, off: () => {} } },
-  time: { now: 0 },
+  // `delayedCall` is a no-op stand-in (it never fires): createArrival schedules
+  // its hop-off + light-wash beats through it from onFinish, and the seam tests
+  // below only need the scheduling call itself not to throw.
+  time: { now: 0, delayedCall: () => stubNode() },
   tweens: { add: () => stubNode(), killTweensOf: () => {} },
   textures: { exists: () => false },
 } as unknown as Parameters<typeof dispatchLevelEvents>[0];
@@ -67,7 +70,7 @@ const fakeCtx = {
   terrain: { heightAt: () => 500 },
   worldLength: 8000,
   finishX: 7500,
-  passenger: { active: false, activate: () => {} },
+  passenger: { active: false, activate: () => {}, hide: () => {} },
   isEnded: () => false,
   softFail: () => {},
   setInputOverride: () => {},
@@ -90,13 +93,14 @@ describe('dispatchLevelEvents', () => {
     expect(dispatchLevelEvents(fakeScene, config, fakeCtx)).toEqual([]);
   });
 
-  it('returns one handle each for traffic / police / calebPickup / wheelieRider / billboard', () => {
+  it('returns one handle for EVERY LevelEvent variant', () => {
     for (const event of [
       { type: 'traffic' },
       { type: 'police' },
       { type: 'calebPickup', x: 6250 },
       { type: 'wheelieRider', x: 6500 },
       { type: 'billboard', x: 500, text: 'hi' },
+      { type: 'partyArrival' },
     ] satisfies LevelEvent[]) {
       const handles = dispatchLevelEvents(fakeScene, configWith([event]), fakeCtx);
       expect(handles).toHaveLength(1);
@@ -164,6 +168,24 @@ describe('dispatchLevelEvents', () => {
       handle.update();
       handle.destroy();
       handle.destroy(); // idempotent — a second teardown must never throw
+    }).not.toThrow();
+  });
+
+  it('the partyArrival handle exposes onFinish() and holds the PartyScene hand-off', () => {
+    const [handle] = dispatchLevelEvents(fakeScene, configWith([{ type: 'partyArrival' }]), fakeCtx);
+    expect(typeof handle.onFinish).toBe('function');
+    // A positive hold is what keeps the finale on screen at all; police.ts is
+    // the only other onFinish consumer and returns one for the same reason.
+    const held = handle.onFinish?.();
+    expect(typeof held).toBe('number');
+    expect(held as number).toBeGreaterThan(0);
+    // Idempotent: GameScene calls it once, but a second call must neither throw
+    // nor start a second finale.
+    expect(handle.onFinish?.()).toBe(held);
+    expect(() => {
+      handle.update(); // terminal after the finish — a no-op, never a re-trigger
+      handle.destroy();
+      handle.destroy();
     }).not.toThrow();
   });
 });

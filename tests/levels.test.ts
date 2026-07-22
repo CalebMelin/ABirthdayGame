@@ -15,7 +15,7 @@ describe('LEVELS', () => {
     );
   });
 
-  it('validates with zero problems end-to-end (unique ids, in-bounds lengths, required events on 7/11/12/15/18)', () => {
+  it('validates with zero problems end-to-end (unique ids, in-bounds lengths, every REQUIRED_EVENTS pair present)', () => {
     expect(validateLevels(LEVELS)).toEqual([]);
   });
 

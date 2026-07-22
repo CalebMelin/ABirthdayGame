@@ -163,13 +163,30 @@ export interface BillboardEvent {
   text: string;
 }
 
+/** Level 22's arrival at the party venue (NORTH_STAR §5 row 22: "Ends at
+ * the party venue → transitions to PartyScene"). Placement is expressed
+ * RELATIVE TO THE FINISH FLAG rather than as absolute world x, because the
+ * whole beat straddles it: the scripted ride-in takes control before the
+ * flag and the venue's doorway stands past it. Both fields are OPTIONAL
+ * config-tunables (the arrival system defaults any omitted one from the
+ * ARRIVAL constants block). */
+export interface PartyArrivalEvent {
+  type: 'partyArrival';
+  /** How far BEFORE the finish flag (px) the scripted ride-in takes over
+   * the pedals, carrying the player in whatever their speed. */
+  rideInLeadPx?: number;
+  /** How far PAST the finish flag (px) the venue's doorway centre sits. */
+  doorAheadOfFinishPx?: number;
+}
+
 /** Every scripted event a level can schedule. */
 export type LevelEvent =
   | TrafficEvent
   | PoliceEvent
   | CalebPickupEvent
   | WheelieRiderEvent
-  | BillboardEvent;
+  | BillboardEvent
+  | PartyArrivalEvent;
 
 // ---------------------------------------------------------------------------
 // LevelConfig — one level's complete data.
@@ -252,13 +269,16 @@ export function getLevelTerrainSpec(config: LevelConfig): TerrainSpec {
 
 /** The (level id, required event type) pairs NORTH_STAR §5 locks in: 7 =
  * invisible-cars traffic, 11 = the wheelie-rider easter egg, 12 = Caleb's
- * pickup, 15 = the police chase, 18 = the billboard easter egg. */
+ * pickup, 15 = the police chase, 18 = the billboard easter egg, 22 = the
+ * arrival at the party venue (the game's finale — the ride-in that hands
+ * off to PartyScene). */
 const REQUIRED_EVENTS: ReadonlyArray<{ id: number; type: LevelEvent['type'] }> = [
   { id: 7, type: 'traffic' },
   { id: 11, type: 'wheelieRider' },
   { id: 12, type: 'calebPickup' },
   { id: 15, type: 'police' },
   { id: 18, type: 'billboard' },
+  { id: 22, type: 'partyArrival' },
 ];
 
 /** Validates a full level set. Returns a list of human-readable problem
@@ -266,8 +286,8 @@ const REQUIRED_EVENTS: ReadonlyArray<{ id: number; type: LevelEvent['type'] }> =
  * (1) every id is an integer, and ids 1..TOTAL_LEVELS are each present
  *     exactly once,
  * (2) every `terrain.length` is within [LEVEL.lengthMinPx, LEVEL.lengthMaxPx],
- * (3) the five NORTH_STAR §5 scripted events are present on their required
- *     level ids.
+ * (3) every REQUIRED_EVENTS pair (the NORTH_STAR §5 scripted events) is
+ *     present on its required level id.
  * Defensive throughout — a malformed/short `configs` array (or malformed
  * entries within it) degrades to problem strings rather than throwing. */
 export function validateLevels(configs: readonly LevelConfig[]): string[] {

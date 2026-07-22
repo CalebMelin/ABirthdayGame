@@ -12,7 +12,9 @@
 // wheelieRider easter egg (PLAN-07 task 2) and level 18's billboard easter egg
 // (PLAN-07 task 3) are now REAL too — the `wheelieRider`/`billboard` cases
 // construct createWheelieRider (src/systems/wheelieRider.ts) / createBillboard
-// (src/systems/billboard.ts). EVERY LevelEvent variant now dispatches to a real
+// (src/systems/billboard.ts) — and level 22's arrival at the party venue
+// (PLAN-09 ST-5) is the `partyArrival` case, constructing createArrival
+// (src/systems/arrival.ts). EVERY LevelEvent variant dispatches to a real
 // system. This never throws.
 //
 // The `switch (event.type)` stays EXHAUSTIVE with a `never` guard in the
@@ -32,6 +34,7 @@ import { createPickup } from '../systems/pickup';
 import { createPolice } from '../systems/police';
 import { createWheelieRider } from '../systems/wheelieRider';
 import { createBillboard } from '../systems/billboard';
+import { createArrival } from '../systems/arrival';
 
 // ---------------------------------------------------------------------------
 // Public seam types (PLAN-06 Task A — the contract every event system + the
@@ -93,13 +96,14 @@ export interface EventContext {
 
 /**
  * Dispatches each of `config.events` (none if absent), returning the live
- * handles GameScene drives. Traffic/pickup/police/wheelieRider/billboard each
- * construct a real system — see the module comment. Never throws.
+ * handles GameScene drives. Every variant constructs a real system — see the
+ * module comment. Never throws.
  *
  * @param scene runtime handle to Phaser's factories — passed straight through
  *   to createTraffic/createPickup/createPolice/createWheelieRider/
- *   createBillboard, each of which spawns cars/plays cutscenes/builds its own
- *   GameObjects directly off it (also used for the dev-only breadcrumb below).
+ *   createBillboard/createArrival, each of which spawns cars/plays cutscenes/
+ *   builds its own GameObjects directly off it (also used for the dev-only
+ *   breadcrumb below).
  * @param ctx the shared {@link EventContext} the real systems will consume.
  */
 export function dispatchLevelEvents(
@@ -113,7 +117,8 @@ export function dispatchLevelEvents(
   if (import.meta.env.DEV && events.length > 0) {
     // Dev-only breadcrumb (Vite strips it from production builds): confirms the
     // loader handed this level's scripted events to the scene, and surfaces the
-    // derived passenger state — useful while verifying levels 7/11/12/15/18.
+    // derived passenger state — useful while verifying the scripted levels
+    // (see REQUIRED_EVENTS in src/levels/types.ts).
     console.debug(
       `[events] level ${config.id} (${scene.scene.key}): ${events.length} event(s), calebPickedUp=${ctx.calebPickedUp}`
     );
@@ -160,6 +165,19 @@ export function dispatchLevelEvents(
         // exactly. Zero Matter bodies, no fixed-step listener, never
         // fails/awards anything.
         handles.push(createBillboard(scene, event, ctx, config.theme));
+        break;
+      case 'partyArrival':
+        // Level 22's finale (PLAN-09 ST-5): the scripted arrival at the party
+        // venue. As Gabby nears the finish the cutscene takes the pedals
+        // (ctx.setInputOverride, never a force) and rides her in whatever her
+        // speed — including from a dead stop — slowing her to a walking pace so
+        // she rolls up to the venue's doors, which open ahead of her with warm
+        // light spilling onto the road. Crossing the flag, onFinish() plays the
+        // hop-off (ctx.passenger.hide() + a standing Caleb walking inside) and
+        // holds the PartyScene hand-off while the light takes the screen. It
+        // never soft-fails and never touches the bike's bodies —
+        // src/systems/arrival.ts.
+        handles.push(createArrival(scene, event, ctx));
         break;
       default: {
         // Exhaustiveness guard: a new LevelEvent variant with no case above
