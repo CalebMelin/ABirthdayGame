@@ -103,10 +103,26 @@ export interface ConfettiKinematics {
  * LevelCompleteScene's private integrator used: for CONSTANT acceleration the
  * closed form is exact, so one 16.7ms step and two 8.35ms steps land on
  * bit-identical position AND velocity (tests/confetti.test.ts asserts exact
- * equality). The semi-implicit form does not — it drifts by g*dt^2/2 per step,
- * i.e. a 120Hz display would have rained subtly differently from a 60Hz one.
- * The visible difference from the old scene code is ~0.125px on the first frame
- * (g=900, dt=1/60), well under one pixel of a piece that is already tumbling.
+ * equality, at 1/2/8/60/240 sub-steps).
+ *
+ * THE DIVERGENCE FROM THE OLD SCENE CODE IS NOT SUB-PIXEL — be honest about it.
+ * Summing both forms gives an exact closed-form gap that GROWS LINEARLY with
+ * elapsed time: `new - old = -g*dt*T/2`. At LevelComplete's own numbers
+ * (g = 900, 60Hz) that is 7.5px per second of flight, and its longest-lived
+ * piece (confettiLifetimeMaxMs = 2.7s) ends up ~20px HIGHER on screen than it
+ * used to — the semi-implicit form OVERSHOT the fall (it applies each step's
+ * end velocity across the whole step), so the exact form falls slightly less
+ * far. Numerically verified: 0.13px after 1 frame, 7.5px at 1.0s, 20.25px at
+ * 2.7s.
+ *
+ * That is accepted deliberately, for two reasons. (1) "Behavior-preserving" and
+ * "identical at 60Hz and 120Hz" are strictly in conflict here: the OLD code
+ * already disagreed with ITSELF by 10.13px at T = 2.7s between a 60Hz and a
+ * 120Hz display, so there was never one behavior to preserve — this form is the
+ * one both refresh rates agree on, and it is the dt -> 0 limit of the old one.
+ * (2) 20px at end-of-life lands on a piece that is tumbling and has been fading
+ * since 60% of its life (confettiFadeStartFrac), in a decorative burst nobody
+ * measures. See DECISIONS.md, 2026-07-22.
  */
 export function stepConfettiKinematics(
   k: ConfettiKinematics,

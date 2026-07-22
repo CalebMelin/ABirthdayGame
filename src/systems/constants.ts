@@ -1484,10 +1484,10 @@ export const PARTY = {
   // PLAN-09 task 2's "Lots of balloons (floating, bobbing, varied colors — at
   // least 20)" + "balloons are tappable/clickable and pop with confetti; endless
   // supply floats in" (see src/systems/partyBalloons.ts). MODEL: a fixed pool,
-  // allocated once, of balloons that drift UP while swaying, recycle from just
-  // below the bottom edge once they clear the top, and pop (with a radial
-  // confetti burst) on a tap/click — then float back in from below after a short
-  // beat, so the supply never runs dry. ZERO Matter bodies; every balloon is a
+  // allocated once, of balloons that drift UP while swaying, re-enter at the
+  // bottom edge the instant they finish sliding off the top, and pop (with a
+  // radial confetti burst) on a tap/click — then re-enter the same way after a
+  // short beat, so the supply never runs dry. ZERO Matter bodies; every balloon is a
   // Container of a tinted Image + a string Rectangle, over its own invisible
   // interactive Zone. The placeholder DRAWING dimensions (the 24x32 tex-balloon
   // size, its scale, the string rect) stay as local documented consts in
@@ -1495,10 +1495,18 @@ export const PARTY = {
   /** How many balloons live on screen at once — and, since the pool is
    * allocated once and recycled forever, also the POOL size. MUST stay >= 20
    * (PLAN-09's acceptance criterion), guarded by tests/partyBalloons.test.ts.
-   * 30 rather than a bare 20 because a balloon spends a slice of each cycle
-   * off-screen (below the bottom edge, or clearing the top), so the count
-   * ACTUALLY VISIBLE at any instant is ~87% of this — 30 keeps that comfortably
-   * above 20 at all times instead of hovering on the line. */
+   *
+   * THE >= 20 VISIBLE GUARANTEE IS STRUCTURAL, NOT STATISTICAL. A rising
+   * balloon is NEVER alive-but-off-screen: partyBalloons.ts derives both flight
+   * endpoints from the drawn body height (BALLOON_ENTRY_KNOT_Y /
+   * BALLOON_RECYCLE_KNOT_Y) so the invisible band is exactly ZERO px long — a
+   * balloon enters the instant it becomes visible and recycles the instant it
+   * stops being. The ONLY balloons out of view are therefore ones the player
+   * just popped, which is bounded by balloonWorstCasePopsPerSec x
+   * balloonRespawnDelayMs. 30 - 5 = 25 >= 20 even while a player mashes
+   * balloons in 12-per-second bursts; tests/partyBalloons.test.ts asserts that
+   * WORST-CASE LOWER BOUND, not an average. Browser-measured floor while a
+   * harness popped 52 balloons in 12s: see DECISIONS.md. */
   balloonCount: 30,
   /** Left/right margin, px, the random spawn x stays inside, so a balloon never
    * straddles a screen edge. Comfortably wider than half a drawn balloon. */
@@ -1515,15 +1523,13 @@ export const PARTY = {
    * in step for long. */
   balloonSwayMinPeriodMs: 2200,
   balloonSwayMaxPeriodMs: 4200,
-  /** How far BELOW the bottom screen edge a recycled balloon re-enters, px.
-   * Deliberately small: every px spent below the edge is a px the balloon is
-   * not visible for, which is what the balloonCount doc's ~87% figure comes
-   * from. */
-  balloonSpawnBelowPx: 60,
-  /** How far ABOVE the top screen edge a balloon's KNOT must rise before it
-   * recycles, px. Must exceed the drawn balloon's height (32 x 2.4 = 76.8) so
-   * it is fully gone before it teleports. */
-  balloonRecycleAbovePx: 140,
+  // NOTE — where a balloon ENTERS and RECYCLES is deliberately NOT tunable
+  // here. Both endpoints are derived from the drawn body height inside
+  // partyBalloons.ts (BALLOON_ENTRY_KNOT_Y / BALLOON_RECYCLE_KNOT_Y), because
+  // the >= 20-visible criterion depends on them being EXACTLY the art geometry:
+  // any "tuned" value reopens a window in which balloons are alive but
+  // off-screen and turns the guarantee back into a statistical one. See that
+  // module and balloonCount's doc above.
   /** Invisible square hit area per balloon, px — decoupled from the (smaller)
    * drawn balloon exactly like pedals.ts's visible-face-vs-hit-Zone split and
    * CHARACTER_CREATE.swatchHitSizePx. MUST equal UI_MIN_TOUCH_PX (NORTH_STAR
@@ -1531,10 +1537,30 @@ export const PARTY = {
    * Overlapping hit areas are expected at this density and are handled by
    * partyBalloons.ts's per-pointer-press dedupe, not by spacing. */
   balloonHitSizePx: UI_MIN_TOUCH_PX,
-  /** Beat between a pop and that balloon floating back in from below, ms —
-   * long enough that the replacement reads as a NEW balloon rather than the
-   * popped one blinking back, short enough that the supply never visibly thins. */
-  balloonRespawnDelayMs: 700,
+  /** Beat between a pop and that balloon floating back in, ms. This is the ONLY
+   * time a balloon is ever out of view (see balloonCount), so it is one of the
+   * two terms in the >= 20-visible worst-case bound — which is why it is short.
+   * There is no "blinking back" risk to buy off with a longer beat: a
+   * replacement always re-enters at the BOTTOM EDGE, nowhere near where the
+   * popped one was, so it reads as a different balloon however quickly it
+   * arrives. (Was 700ms; halved after the browser harness measured 8 balloons
+   * simultaneously out of view under bursty tapping — see
+   * balloonWorstCasePopsPerSec.) */
+  balloonRespawnDelayMs: 400,
+  /** The BURST tap rate the >= 20-visible guarantee is proven against,
+   * pops/sec. Not a behavior knob — nothing rate-limits popping — but the
+   * explicit worst-case assumption tests/partyBalloons.test.ts derives its bound
+   * from, so the number is written down instead of imagined.
+   *
+   * It is deliberately an INSTANTANEOUS BURST rate, not an average, because
+   * that is what the browser harness caught: taps arrive in clusters, and a
+   * 4.2 pops/sec AVERAGE put 8 balloons out of view at once (two clusters
+   * inside one respawn window) — an average-rate bound would have quietly
+   * understated the real dip by 2x. 12/sec is a genuine two-thumb mash burst;
+   * at it, at most ceil(12 x 0.4) = 5 balloons are simultaneously popped,
+   * leaving 25 visible. It also sizes the pop-confetti pool below, so one
+   * assumption drives both. */
+  balloonWorstCasePopsPerSec: 12,
   /** Balloon layer depth. Above DEPTHS.fx (and therefore above nameTagDepth —
    * see that constant) so balloons drift in front of the whole cast, and above
    * confettiFallDepth so the ambient rain reads as BEHIND them. */
@@ -1563,11 +1589,13 @@ export const PARTY = {
   popConfettiSizeMaxPx: 12,
   /** Life fraction (0..1) after which a piece fades 1 -> 0. */
   popConfettiFadeStartFrac: 0.5,
-  /** How many simultaneous pops the shared burst pool covers. A fast tapper
-   * can pop several balloons inside one popConfettiLifetimeMaxMs window; past
-   * this the burst simply draws thinner rather than allocating (see
-   * ConfettiBurstOptions.concurrentBursts). */
-  popConfettiConcurrentBursts: 4,
+  /** How many simultaneous pops the shared burst pool covers. Derived from the
+   * SAME worst case as the visible-count bound: balloonWorstCasePopsPerSec (12)
+   * x popConfettiLifetimeMaxMs (1.0s) = 12 bursts can overlap, so the pool holds
+   * 12 x popConfettiCount = 168 pieces and even a mashing player never sees a
+   * thinned puff. Past this the burst simply draws fewer pieces rather than
+   * allocating (see ConfettiBurstOptions.concurrentBursts). */
+  popConfettiConcurrentBursts: 12,
   /** Pop-confetti layer depth — above the balloons, so a puff draws over the
    * balloons still floating behind it. */
   popConfettiDepth: DEPTHS.fx + 2,

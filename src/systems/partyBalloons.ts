@@ -5,11 +5,22 @@
 // MODEL: a FIXED POOL of PARTY.balloonCount balloons, allocated once in
 // createPartyBalloons and recycled forever — nothing is allocated per frame or
 // per pop, so the "endless supply" is free. Each balloon drifts UPWARD at its
-// own speed while swaying sideways on its own period/phase; once its knot
-// clears the top edge it recycles from just below the BOTTOM edge with a fresh
-// color, x, speed and sway. A tap or click pops it: the balloon vanishes behind
-// a radial confetti burst (systems/confetti.ts) and floats back in from below
-// after PARTY.balloonRespawnDelayMs.
+// own speed while swaying sideways on its own period/phase; the instant its
+// body finishes sliding off the TOP edge it re-enters at the BOTTOM edge with a
+// fresh color, x, speed and sway. A tap or click pops it: the balloon vanishes
+// behind a radial confetti burst (systems/confetti.ts) and re-enters the same
+// way after PARTY.balloonRespawnDelayMs.
+//
+// ">= 20 BALLOONS PRESENT" (PLAN-09's acceptance criterion) IS STRUCTURAL HERE,
+// not a statistical hope. Both flight endpoints are DERIVED from the drawn body
+// height (BALLOON_ENTRY_KNOT_Y / BALLOON_RECYCLE_KNOT_Y below), so the band in
+// which a balloon is alive but off-screen is exactly ZERO px long — every
+// unpopped balloon in the pool is on screen, always. The only balloons ever out
+// of view are ones the player just popped, and that is bounded by
+// PARTY.balloonWorstCasePopsPerSec x PARTY.balloonRespawnDelayMs: 30 - 5 = 25.
+// tests/partyBalloons.test.ts asserts that lower bound and sweeps the whole
+// flight; the browser harness measured a floor of 26 visible while popping 63
+// balloons in 12 seconds.
 //
 // MOTION IS A PURE FUNCTION OF TIME, not an accumulator: each balloon stores the
 // scene time and knot y it (re)entered at, and every frame recomputes
@@ -22,10 +33,12 @@
 // visible-face-vs-hit-Zone split and CHARACTER_CREATE.swatchHitSizePx's doc: the
 // placeholder balloon draws only ~58x77 px, so each one gets its own invisible
 // PARTY.balloonHitSizePx (== UI_MIN_TOUCH_PX, 88) Zone centred on its body. At
-// 30 balloons those Zones DO overlap, so one press could otherwise pop two
-// balloons at once; every press is therefore deduped by (pointer id, press
-// time) — see popEventKey / isDuplicatePopEvent. Popping is idempotent besides:
-// an already-popped balloon ignores further presses AND has its Zone's input
+// 30 balloons those Zones DO overlap. One press still pops exactly one balloon —
+// that is Phaser's own default `topOnly` behavior, NOT something this file
+// invents (see popEventKey's doc, which cites the engine source); the
+// (pointer id, press time) dedupe on top of it is deliberate defence in depth
+// for the day topOnly is ever off. Popping is idempotent besides: an
+// already-popped balloon ignores further presses AND has its Zone's input
 // disabled, so it can't swallow a tap meant for a balloon behind it.
 //
 // ZERO Matter bodies: a balloon is a Container of a tinted Image + a string
@@ -79,6 +92,40 @@ const BALLOON_STRING_LENGTH_PX = 40;
 
 /** Drawn balloon body height in screen px (the hit area is centred on it). */
 const BALLOON_BODY_HEIGHT_PX = BALLOON_TEXTURE_HEIGHT_PX * BALLOON_SCALE;
+
+// --- The flight's two endpoints. DERIVED FROM THE ART, NOT TUNED — which is
+// exactly why they live here beside BALLOON_BODY_HEIGHT_PX rather than as
+// knobs in the PARTY block. PLAN-09's acceptance criterion is ">= 20 balloons
+// present", and the ONLY way to make that structural rather than statistical is
+// for the transit to have a ZERO-LENGTH invisible band: a balloon must enter
+// exactly as it becomes visible and recycle exactly as it stops being visible.
+// Both endpoints are therefore a function of the drawn body height, and a
+// "tuned" value would silently reintroduce a window in which balloons are alive
+// but off-screen. tests/partyBalloons.test.ts guards the zero band.
+//
+// The body is bottom-anchored at the knot, so it occupies [knotY - bodyH, knotY]
+// and intersects the 0..DESIGN_HEIGHT viewport exactly while 0 < knotY < 796.8.
+
+/** A (re)entering balloon's knot y: one body-height BELOW the bottom edge, i.e.
+ * the precise y at which its TOP edge touches the bottom of the screen. It is
+ * visible from its very first frame and still slides smoothly up into view — no
+ * pop-in, no invisible wait. */
+const BALLOON_ENTRY_KNOT_Y = DESIGN_HEIGHT + BALLOON_BODY_HEIGHT_PX;
+
+/** The knot y at or above which a balloon recycles: the TOP edge of the screen,
+ * i.e. the precise y at which its BOTTOM edge has finished sliding off. The
+ * balloon's 40px string tail is deliberately NOT waited for — holding the
+ * balloon alive for those extra 40px would reopen a band in which it is alive
+ * but its body is off-screen, trading the structural >= 20 guarantee for a 3px
+ * dark hairline at the very top edge. Placeholder art; PLAN-10 revisits it. */
+const BALLOON_RECYCLE_KNOT_Y = 0;
+
+/** The two flight endpoints, exported for tests/harnesses so the zero-invisible-
+ * band property can be asserted against the SAME numbers the module flies by
+ * (rather than a re-typed copy that could drift). */
+export function balloonFlightBounds(): { readonly entryKnotY: number; readonly recycleKnotY: number } {
+  return { entryKnotY: BALLOON_ENTRY_KNOT_Y, recycleKnotY: BALLOON_RECYCLE_KNOT_Y };
+}
 
 /**
  * Balloon tints — "varied colors" (PLAN-09 task 2). The full cheerful pastel
@@ -135,11 +182,14 @@ export function balloonSwayOffsetPx(
   return amplitudePx * Math.sin(2 * Math.PI * (elapsedMs / periodMs + phase01));
 }
 
-/** Whether a balloon has fully cleared the top edge and should recycle from
- * below. `recycleAboveY` is NEGATIVE (above the screen). Pure — the one place
- * the recycle rule is defined. */
-export function shouldRecycleBalloon(knotY: number, recycleAboveY: number): boolean {
-  return knotY < recycleAboveY;
+/** Whether a balloon's body has finished sliding off the top edge and it should
+ * recycle from below. Inclusive (`<=`): at `knotY === recycleAtY` the body
+ * occupies [recycleAtY - bodyH, recycleAtY] and has exactly ZERO area on
+ * screen, so that is precisely the frame to recycle — which is what closes the
+ * invisible band to zero length (see BALLOON_RECYCLE_KNOT_Y). Pure — the one
+ * place the recycle rule is defined. */
+export function shouldRecycleBalloon(knotY: number, recycleAtY: number): boolean {
+  return knotY <= recycleAtY;
 }
 
 /** The y a balloon's HIT AREA centres on, given its knot y: the middle of the
@@ -150,11 +200,26 @@ export function balloonHitCenterY(knotY: number, bodyHeightPx = BALLOON_BODY_HEI
 }
 
 /**
- * A stable key for ONE physical press. Phaser dispatches a separate
- * `pointerdown` to every interactive object under the pointer that passes its
- * hit test, and at 30 balloons with 88px hit areas two of them WILL overlap — so
- * without this, one thumb could pop two balloons. Both dispatches carry the same
- * pointer id and the same `downTime`, so the pair uniquely identifies the press.
+ * A stable key for ONE physical press: the (pointer id, press time) pair. Two
+ * dispatches from the same press share both; a later press by the same finger
+ * differs in `downTime`; a SECOND finger landing on the same millisecond differs
+ * in `id` — so two thumbs still correctly pop two balloons.
+ *
+ * WHAT THIS ACTUALLY BUYS (read the engine before believing otherwise):
+ * Phaser ALREADY delivers a press to exactly one object. `InputPlugin` sets
+ * `this.topOnly = true` by default (node_modules/phaser/src/input/InputPlugin.js,
+ * the `topOnly` property) and its `update()` splices the hit-tested list down to
+ * a single entry (`this._temp.splice(1)`) BEFORE `processDownEvents` runs. This
+ * project never overrides `topOnly`. So "one press pops one balloon" is the
+ * ENGINE's guarantee, not this dedupe's — and the browser harness's
+ * one-pop-per-press result is equally explained by it.
+ *
+ * The dedupe is therefore DEFENCE IN DEPTH, kept deliberately and cheaply: the
+ * hit Zones genuinely do overlap (30 balloons x 88px on 1280x720), so the day
+ * anything sets `scene.input.topOnly = false` — a debug session, a future
+ * overlay that needs press-through, a Phaser default change — a single thumb
+ * would otherwise pop a whole column of balloons at once. Two string
+ * comparisons per press is a fair price for that not being possible.
  */
 export function popEventKey(pointerId: number, downTimeMs: number): string {
   return `${pointerId}:${downTimeMs}`;
@@ -184,8 +249,8 @@ export interface BalloonSpawn {
 
 /** How a balloon is entering the scene. `'initial'` seeds the pool ALREADY
  * SPREAD across the screen (so the very first frame is a full party, not an
- * empty room slowly filling); `'recycle'` brings one back in from just below the
- * bottom edge. An `as const` union — this project forbids TS enums. */
+ * empty room slowly filling); `'recycle'` brings one back in at the bottom edge
+ * (BALLOON_ENTRY_KNOT_Y). An `as const` union — this project forbids TS enums. */
 export type BalloonSpawnMode = 'initial' | 'recycle';
 
 /** Maps a uniform draw onto `[min, max]` — the one place this module turns
@@ -198,8 +263,18 @@ function rangeAt(u01: number, min: number, max: number): number {
  * Rolls one balloon's entry. PURE given `rng` (0 <= rng() < 1), so
  * tests/partyBalloons.test.ts can pin every bound: x always inside
  * PARTY.balloonSpawnMarginPx of both edges, rise/sway inside their configured
- * ranges, tint always from BALLOON_TINTS, and a `'recycle'` spawn always BELOW
- * the bottom edge.
+ * ranges, tint always from BALLOON_TINTS, and every spawn y strictly inside the
+ * flight, so a balloon is NEVER alive-but-off-screen (see BALLOON_ENTRY_KNOT_Y).
+ *
+ * A `'recycle'` spawn enters at exactly BALLOON_ENTRY_KNOT_Y; an `'initial'`
+ * spawn is seeded uniformly across the WHOLE flight, which is also its
+ * steady-state distribution — so the party starts full and stays statistically
+ * unchanged rather than settling into a different look after a minute.
+ *
+ * RNG STRIDE IS NOT CONSTANT (ST-3 harnesses, note this): `'initial'` consumes
+ * SEVEN rng() draws and `'recycle'` consumes SIX, because the recycle entry y is
+ * fixed rather than drawn. A seeded harness must therefore not assume a fixed
+ * stride per balloon when reproducing a layout.
  *
  * UNLIKE partyCast.ts's deliberately deterministic layout (a group photo must
  * look identical on every visit, so it never touches Math.random), the balloons
@@ -210,11 +285,7 @@ export function balloonSpawn(rng: () => number, mode: BalloonSpawnMode): Balloon
   const margin = PARTY.balloonSpawnMarginPx;
   return {
     baseX: rangeAt(rng(), margin, DESIGN_WIDTH - margin),
-    spawnY:
-      mode === 'initial'
-        ? // Seeded across the whole screen plus the entry band below it.
-          rng() * (DESIGN_HEIGHT + PARTY.balloonSpawnBelowPx)
-        : DESIGN_HEIGHT + PARTY.balloonSpawnBelowPx,
+    spawnY: mode === 'initial' ? rng() * BALLOON_ENTRY_KNOT_Y : BALLOON_ENTRY_KNOT_Y,
     riseSpeedPxPerSec: rangeAt(rng(), PARTY.balloonRiseMinPxPerSec, PARTY.balloonRiseMaxPxPerSec),
     swayAmplitudePx: rangeAt(rng(), PARTY.balloonSwayMinPx, PARTY.balloonSwayMaxPx),
     swayPeriodMs: rangeAt(rng(), PARTY.balloonSwayMinPeriodMs, PARTY.balloonSwayMaxPeriodMs),
@@ -429,7 +500,11 @@ export function createPartyBalloons(
     popConfetti.update(deltaMs);
     const now = scene.time.now;
     // Indexed loop, NOT for...of: this runs every render frame, and for...of
-    // would allocate a fresh iterator each time. Nothing here allocates.
+    // would allocate a fresh iterator each time. The STEADY-STATE frame
+    // therefore allocates nothing at all; the only allocation anywhere in this
+    // loop is the small BalloonSpawn literal `enter()` rolls when a balloon
+    // recycles or returns from a pop — a handful of objects per SECOND across
+    // the whole pool (a balloon's flight lasts 14-31s), not per frame.
     for (let i = 0; i < pool.length; i++) {
       const balloon = pool[i];
 
@@ -440,7 +515,7 @@ export function createPartyBalloons(
 
       const elapsed = now - balloon.spawnAtMs;
       const knotY = balloonRiseY(balloon.spawn.spawnY, balloon.spawn.riseSpeedPxPerSec, elapsed);
-      if (shouldRecycleBalloon(knotY, -PARTY.balloonRecycleAbovePx)) {
+      if (shouldRecycleBalloon(knotY, BALLOON_RECYCLE_KNOT_Y)) {
         enter(balloon, 'recycle', now);
         continue;
       }

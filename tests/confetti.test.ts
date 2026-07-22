@@ -15,6 +15,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONFETTI_COLORS,
+  createConfettiBurst,
+  createConfettiFall,
   confettiColorAt,
   confettiFadeAlpha,
   confettiLaunchAngleRad,
@@ -25,7 +27,8 @@ import {
   stepConfettiKinematics,
 } from '../src/systems/confetti';
 import type { ConfettiKinematics } from '../src/systems/confetti';
-import { PALETTE } from '../src/systems/constants';
+import { DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE } from '../src/systems/constants';
+import { createFakeScene, cyclingRng } from './fakeScene';
 
 /** A fresh kinematic state, so no test can leak mutation into another. */
 function piece(over: Partial<ConfettiKinematics> = {}): ConfettiKinematics {
@@ -314,5 +317,234 @@ describe('CONFETTI_COLORS', () => {
 
   it('never includes a color that would vanish on the pastel menu background', () => {
     expect(CONFETTI_COLORS).not.toContain(PALETTE.bgPink);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Factory / POOL INVARIANTS. The pure helpers above cover the maths; these
+// cover what actually leaks or degrades in a long-running party — the pooling,
+// recycling and teardown inside the factories. Driven through the shared
+// duck-typed fake scene (tests/fakeScene.ts, the tests/palette.test.ts
+// pattern): no DOM, no runtime Phaser, no browser needed.
+// ---------------------------------------------------------------------------
+
+/** LevelComplete-shaped burst options, small enough to reason about by hand. */
+function burstOptions(over: Partial<Parameters<typeof createConfettiBurst>[1]> = {}) {
+  return {
+    count: 6,
+    speedMinPxPerSec: 300,
+    speedMaxPxPerSec: 300,
+    launchSpreadRad: 1.15,
+    gravityPxPerSec2: 900,
+    spinMaxRadPerSec: 6,
+    lifetimeMinMs: 1000,
+    lifetimeMaxMs: 1000,
+    sizeMinPx: 8,
+    sizeMaxPx: 16,
+    fadeStartFrac: 0.6,
+    depth: 60,
+    rng: cyclingRng([0.1, 0.3, 0.5, 0.7, 0.9]),
+    ...over,
+  };
+}
+
+describe('createConfettiBurst — pool invariants', () => {
+  it('allocates the whole pool up front, hidden, and NEVER grows it', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions({ concurrentBursts: 3 }));
+
+    // count x concurrentBursts, allocated once in create.
+    expect(fake.created).toHaveLength(18);
+    expect(fake.created.every((o) => o.kind === 'rectangle')).toBe(true);
+    expect(fake.created.every((o) => !o.visible)).toBe(true);
+    expect(handle.liveCount()).toBe(0);
+
+    // Ten bursts, each fully aged out — not one new GameObject.
+    for (let i = 0; i < 10; i++) {
+      handle.burst(100, 100);
+      handle.update(2000);
+    }
+    expect(fake.created).toHaveLength(18);
+  });
+
+  it('activates exactly `count` pieces per burst and shows them at the origin', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions({ originSpreadXPx: 0 }));
+
+    handle.burst(640, 96);
+    expect(handle.liveCount()).toBe(6);
+    const visible = fake.created.filter((o) => o.visible);
+    expect(visible).toHaveLength(6);
+    // originSpreadXPx 0 -> every piece starts at the exact burst point (the
+    // balloon-pop case; LevelComplete passes a real spread).
+    for (const piece of visible) {
+      expect(piece.x).toBe(640);
+      expect(piece.y).toBe(96);
+      expect(piece.alpha).toBe(1);
+    }
+  });
+
+  it('RETURNS pieces to the pool at end of life instead of destroying them', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions());
+
+    handle.burst(0, 0);
+    expect(handle.liveCount()).toBe(6);
+    handle.update(999); // just under the 1000ms lifetime
+    expect(handle.liveCount()).toBe(6);
+    handle.update(2); // now past it
+    expect(handle.liveCount()).toBe(0);
+
+    // Hidden, but still ALIVE objects ready for the next pop — the whole point.
+    expect(fake.created.every((o) => !o.visible)).toBe(true);
+    expect(fake.created.every((o) => !o.destroyed)).toBe(true);
+    expect(fake.displayList()).toHaveLength(6);
+  });
+
+  it('reuses the very same Rectangle instances on the next burst', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions());
+
+    handle.burst(0, 0);
+    const firstWave = fake.created.filter((o) => o.visible).slice();
+    handle.update(2000);
+    handle.burst(500, 500);
+    const secondWave = fake.created.filter((o) => o.visible);
+
+    expect(secondWave).toHaveLength(6);
+    for (const piece of secondWave) expect(firstWave).toContain(piece);
+  });
+
+  it('draws a THINNER burst when the pool is exhausted rather than allocating', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions({ concurrentBursts: 1 }));
+
+    handle.burst(0, 0); // fills the pool
+    expect(handle.liveCount()).toBe(6);
+    handle.burst(0, 0); // nothing left to give
+    expect(handle.liveCount()).toBe(6);
+    expect(fake.created).toHaveLength(6); // no growth, no crash
+  });
+
+  it('moves and fades live pieces as time passes', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions());
+
+    handle.burst(300, 300);
+    const piece = fake.created.find((o) => o.visible)!;
+    const startX = piece.x;
+    const startY = piece.y;
+
+    handle.update(100);
+    expect(piece.x !== startX || piece.y !== startY).toBe(true);
+    expect(piece.alpha).toBe(1); // still before fadeStartFrac (0.6 of 1000ms)
+
+    handle.update(600); // now 700ms in, past the fade point
+    expect(piece.alpha).toBeLessThan(1);
+    expect(piece.alpha).toBeGreaterThan(0);
+  });
+
+  it('destroy() frees every Rectangle, and a SECOND destroy() is a no-op', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions());
+    handle.burst(0, 0);
+
+    handle.destroy();
+    expect(fake.live()).toHaveLength(0);
+    expect(fake.displayList()).toHaveLength(0);
+    expect(handle.liveCount()).toBe(0);
+
+    handle.destroy();
+    // Nothing was destroyed twice — the pool was emptied by the first call.
+    expect(fake.created.every((o) => o.destroyCount === 1)).toBe(true);
+  });
+
+  it('is inert after destroy(): burst() and update() neither throw nor allocate', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiBurst(fake.scene, burstOptions());
+    handle.destroy();
+
+    expect(() => {
+      handle.burst(10, 10);
+      handle.update(16);
+    }).not.toThrow();
+    expect(fake.created).toHaveLength(6); // the original pool, nothing new
+    expect(handle.liveCount()).toBe(0);
+  });
+});
+
+/** Party-shaped fall options. */
+function fallOptions(over: Partial<Parameters<typeof createConfettiFall>[1]> = {}) {
+  return {
+    count: 12,
+    spawnAbovePx: 200,
+    fallSpeedMinPxPerSec: 100,
+    fallSpeedMaxPxPerSec: 100,
+    driftMaxPxPerSec: 40,
+    spinMaxRadPerSec: 4,
+    sizeMinPx: 6,
+    sizeMaxPx: 14,
+    depth: 60,
+    rng: cyclingRng([0.2, 0.45, 0.6, 0.85]),
+    ...over,
+  };
+}
+
+describe('createConfettiFall — pool invariants', () => {
+  it('allocates exactly `count` pieces once and keeps every one in the air', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiFall(fake.scene, fallOptions());
+
+    expect(fake.created).toHaveLength(12);
+    expect(handle.liveCount()).toBe(12);
+
+    // A full minute of rain at 60Hz — many recycles, zero allocations.
+    for (let i = 0; i < 3600; i++) handle.update(1000 / 60);
+    expect(fake.created).toHaveLength(12);
+    expect(handle.liveCount()).toBe(12);
+  });
+
+  it('seeds the pool ALREADY SPREAD so the first frame is a full rain', () => {
+    const fake = createFakeScene();
+    createConfettiFall(fake.scene, fallOptions({ count: 40, rng: Math.random }));
+    // Not all queued above the top edge: many pieces start well down-screen.
+    const onScreen = fake.created.filter((o) => o.y > 0 && o.y < DESIGN_HEIGHT);
+    expect(onScreen.length).toBeGreaterThan(10);
+  });
+
+  it('recycles a piece back ABOVE the top once it passes the bottom', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiFall(fake.scene, fallOptions());
+
+    // Long enough that every piece has crossed the screen at least once.
+    for (let i = 0; i < 600; i++) handle.update(1000 / 60);
+    for (const piece of fake.created) {
+      expect(piece.y).toBeLessThanOrEqual(DESIGN_HEIGHT);
+      expect(piece.y).toBeGreaterThanOrEqual(-200);
+    }
+  });
+
+  it('keeps every piece inside the horizontal band despite constant drift', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiFall(fake.scene, fallOptions({ driftMaxPxPerSec: 400 }));
+
+    for (let i = 0; i < 900; i++) handle.update(1000 / 60);
+    for (const piece of fake.created) {
+      expect(piece.x).toBeGreaterThanOrEqual(0);
+      expect(piece.x).toBeLessThanOrEqual(DESIGN_WIDTH);
+    }
+  });
+
+  it('destroy() frees every Rectangle, and a SECOND destroy() is a no-op', () => {
+    const fake = createFakeScene();
+    const handle = createConfettiFall(fake.scene, fallOptions());
+
+    handle.destroy();
+    expect(fake.live()).toHaveLength(0);
+    expect(handle.liveCount()).toBe(0);
+
+    handle.destroy();
+    expect(fake.created.every((o) => o.destroyCount === 1)).toBe(true);
+    expect(() => handle.update(16)).not.toThrow();
   });
 });
