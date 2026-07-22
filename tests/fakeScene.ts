@@ -252,8 +252,30 @@ export function fakePointer(id: number, downTime: number): Phaser.Input.Pointer 
 }
 
 /** A deterministic rng that walks a fixed cycle of draws. Handy where a test
- * needs reproducible spawns without caring about the exact values. */
+ * needs reproducible values and does NOT care whether consecutive consumers
+ * differ from one another.
+ *
+ * CAUTION — this is the wrong tool whenever a test asserts that two consumers
+ * got DIFFERENT values: if the cycle length divides the number of draws each
+ * consumer makes, every consumer sees the identical sequence. (balloonSpawn
+ * draws exactly 7, so a 7-value cycle handed all 32 balloons the same spawn and
+ * quietly made a "the flock re-scatters" assertion unfalsifiable.) Use
+ * seededRandom for those. */
 export function cyclingRng(values: readonly number[]): () => number {
   let i = 0;
   return () => values[i++ % values.length];
+}
+
+/** A deterministic, well-distributed PRNG (mulberry32) in [0, 1). Reproducible
+ * from its seed, but with no short period to accidentally align with a
+ * consumer's draw count — the right default wherever a test needs randomness
+ * that behaves like randomness. */
+export function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }

@@ -4,7 +4,8 @@
 // no longer marks completion — it only DISPLAYS). It renders, top to bottom:
 //   - a "Level N complete!! 🎉" header,
 //   - a cheerful confetti burst (the SHARED systems/confetti.ts burst pool,
-//     behind the content, self-cleaning),
+//     behind the content; pooled rather than self-cleaning — a spent piece is
+//     hidden and returned to the pool, and the whole pool is freed on SHUTDOWN),
 //   - the tulips EARNED THIS LEVEL + the persistent bouquet TOTAL,
 //   - a pixel-postcard NOTE CARD ("Did you know?" for facts / "Psst… 💡" for
 //     hints) whose note text reveals with a skippable TYPEWRITER effect,

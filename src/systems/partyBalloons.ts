@@ -14,13 +14,16 @@
 // ">= 20 BALLOONS PRESENT" (PLAN-09's acceptance criterion) IS STRUCTURAL HERE,
 // not a statistical hope. Both flight endpoints are DERIVED from the drawn body
 // height (BALLOON_ENTRY_KNOT_Y / BALLOON_RECYCLE_KNOT_Y below), so the band in
-// which a balloon is alive but off-screen is exactly ZERO px long — every
-// unpopped balloon in the pool is on screen, always. The only balloons ever out
-// of view are ones the player just popped, and that is bounded by
-// PARTY.balloonWorstCasePopsPerSec x PARTY.balloonRespawnDelayMs: 30 - 5 = 25.
+// which a balloon is alive but off-screen has exactly ZERO length: every
+// unpopped balloon has visible area at every knot y STRICTLY INSIDE its flight,
+// and the two endpoints (where the area is exactly 0) are each touched for at
+// most a single frame before it moves or recycles. The only balloons genuinely
+// out of view are ones the player just popped, bounded by
+// PARTY.balloonWorstCasePopsPerSec against
+// PARTY.balloonRespawnDelayMs + one frame: 32 - 6 = 26.
 // tests/partyBalloons.test.ts asserts that lower bound and sweeps the whole
-// flight; the browser harness measured a floor of 26 visible while popping 63
-// balloons in 12 seconds.
+// flight; the browser harness measured a floor of 28 visible while popping 58
+// balloons in 12.3s (4.7/sec), with at most 4 out of view at once.
 //
 // MOTION IS A PURE FUNCTION OF TIME, not an accumulator: each balloon stores the
 // scene time and knot y it (re)entered at, and every frame recomputes
@@ -33,7 +36,7 @@
 // visible-face-vs-hit-Zone split and CHARACTER_CREATE.swatchHitSizePx's doc: the
 // placeholder balloon draws only ~58x77 px, so each one gets its own invisible
 // PARTY.balloonHitSizePx (== UI_MIN_TOUCH_PX, 88) Zone centred on its body. At
-// 30 balloons those Zones DO overlap. One press still pops exactly one balloon —
+// 32 balloons those Zones DO overlap. One press still pops exactly one balloon —
 // that is Phaser's own default `topOnly` behavior, NOT something this file
 // invents (see popEventKey's doc, which cites the engine source); the
 // (pointer id, press time) dedupe on top of it is deliberate defence in depth
@@ -66,7 +69,7 @@
 // confetti burst. Deliberately nothing audio-related exists here yet.
 import type Phaser from 'phaser';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE, PARTY, TEXTURE_KEYS } from './constants';
-import { createConfettiBurst } from './confetti';
+import { confettiColorAt, confettiRangeAt, createConfettiBurst } from './confetti';
 import type { ConfettiBurstHandle } from './confetti';
 
 // ---------------------------------------------------------------------------
@@ -109,27 +112,27 @@ const BALLOON_BODY_HEIGHT_PX = BALLOON_TEXTURE_HEIGHT_PX * BALLOON_SCALE;
 /** A (re)entering balloon's knot y: one body-height BELOW the bottom edge, i.e.
  * the precise y at which its TOP edge touches the bottom of the screen. It is
  * visible from its very first frame and still slides smoothly up into view — no
- * pop-in, no invisible wait. */
-const BALLOON_ENTRY_KNOT_Y = DESIGN_HEIGHT + BALLOON_BODY_HEIGHT_PX;
+ * pop-in, no invisible wait. Exported so tests/harnesses assert against the
+ * SAME number the module flies by rather than a re-typed copy. */
+export const BALLOON_ENTRY_KNOT_Y = DESIGN_HEIGHT + BALLOON_BODY_HEIGHT_PX;
 
 /** The knot y at or above which a balloon recycles: the TOP edge of the screen,
- * i.e. the precise y at which its BOTTOM edge has finished sliding off. The
- * balloon's 40px string tail is deliberately NOT waited for — holding the
+ * i.e. the precise y at which its BOTTOM edge has finished sliding off.
+ *
+ * The balloon's 40px string tail is deliberately NOT waited for. Holding the
  * balloon alive for those extra 40px would reopen a band in which it is alive
- * but its body is off-screen, trading the structural >= 20 guarantee for a 3px
- * dark hairline at the very top edge. Placeholder art; PLAN-10 revisits it. */
-const BALLOON_RECYCLE_KNOT_Y = 0;
-
-/** The two flight endpoints, exported for tests/harnesses so the zero-invisible-
- * band property can be asserted against the SAME numbers the module flies by
- * (rather than a re-typed copy that could drift). */
-export function balloonFlightBounds(): { readonly entryKnotY: number; readonly recycleKnotY: number } {
-  return { entryKnotY: BALLOON_ENTRY_KNOT_Y, recycleKnotY: BALLOON_RECYCLE_KNOT_Y };
-}
+ * but its body is off-screen — trading the structural >= 20 guarantee for a
+ * cosmetic detail. Be honest about the detail, though: it is a 3px-WIDE but
+ * 40px-LONG dark line that blanks out rather than sliding away, and across a
+ * flock of 32 rising balloons that happens roughly once or twice a second
+ * somewhere along the top edge. Judged the right trade at PLACEHOLDER fidelity;
+ * PLAN-10 can revisit it (e.g. by fading the string over the last few px)
+ * without touching the flight geometry. */
+export const BALLOON_RECYCLE_KNOT_Y = 0;
 
 /**
  * Balloon tints — "varied colors" (PLAN-09 task 2). The full cheerful pastel
- * family plus the two warm theme tones, so a wall of 30 balloons never reads as
+ * family plus the two warm theme tones, so a wall of 32 balloons never reads as
  * three colors repeated ten times. A color SET is presentation content rather
  * than a tunable number (the LEVEL_COMPLETE / decorations.ts precedent), which
  * is why it lives beside the code that draws it instead of in constants.ts.
@@ -215,7 +218,7 @@ export function balloonHitCenterY(knotY: number, bodyHeightPx = BALLOON_BODY_HEI
  * one-pop-per-press result is equally explained by it.
  *
  * The dedupe is therefore DEFENCE IN DEPTH, kept deliberately and cheaply: the
- * hit Zones genuinely do overlap (30 balloons x 88px on 1280x720), so the day
+ * hit Zones genuinely do overlap (32 balloons x 88px on 1280x720), so the day
  * anything sets `scene.input.topOnly = false` — a debug session, a future
  * overlay that needs press-through, a Phaser default change — a single thumb
  * would otherwise pop a whole column of balloons at once. Two string
@@ -253,12 +256,6 @@ export interface BalloonSpawn {
  * (BALLOON_ENTRY_KNOT_Y). An `as const` union — this project forbids TS enums. */
 export type BalloonSpawnMode = 'initial' | 'recycle';
 
-/** Maps a uniform draw onto `[min, max]` — the one place this module turns
- * randomness into a number. */
-function rangeAt(u01: number, min: number, max: number): number {
-  return min + u01 * (max - min);
-}
-
 /**
  * Rolls one balloon's entry. PURE given `rng` (0 <= rng() < 1), so
  * tests/partyBalloons.test.ts can pin every bound: x always inside
@@ -271,10 +268,14 @@ function rangeAt(u01: number, min: number, max: number): number {
  * steady-state distribution — so the party starts full and stays statistically
  * unchanged rather than settling into a different look after a minute.
  *
- * RNG STRIDE IS NOT CONSTANT (ST-3 harnesses, note this): `'initial'` consumes
- * SEVEN rng() draws and `'recycle'` consumes SIX, because the recycle entry y is
- * fixed rather than drawn. A seeded harness must therefore not assume a fixed
- * stride per balloon when reproducing a layout.
+ * RNG BUDGET (ST-3 harnesses, note BOTH parts — a seeded run cannot assume a
+ * fixed stride per balloon):
+ *   - This function draws SEVEN times in `'initial'` mode and SIX in
+ *     `'recycle'`, because the recycle entry y is derived rather than drawn.
+ *   - createPartyBalloons ALSO burns `popConfettiCount x
+ *     popConfettiConcurrentBursts` = 168 draws building the pop-confetti pool
+ *     BEFORE the first balloon is rolled, since it shares this handle's rng.
+ * So balloon i's first draw is number 168 + 7i, not 7i.
  *
  * UNLIKE partyCast.ts's deliberately deterministic layout (a group photo must
  * look identical on every visit, so it never touches Math.random), the balloons
@@ -284,13 +285,27 @@ function rangeAt(u01: number, min: number, max: number): number {
 export function balloonSpawn(rng: () => number, mode: BalloonSpawnMode): BalloonSpawn {
   const margin = PARTY.balloonSpawnMarginPx;
   return {
-    baseX: rangeAt(rng(), margin, DESIGN_WIDTH - margin),
+    // confettiRangeAt / confettiColorAt come from systems/confetti.ts rather
+    // than being re-implemented here: a byte-identical private `rangeAt` used to
+    // sit in this file, and the local tint pick had silently LOST
+    // confettiColorAt's lower clamp (a negative injected draw would have indexed
+    // -1 and produced an undefined tint). Exactly the duplication this module's
+    // own doc cites pixelText.ts about.
+    baseX: confettiRangeAt(rng(), margin, DESIGN_WIDTH - margin),
     spawnY: mode === 'initial' ? rng() * BALLOON_ENTRY_KNOT_Y : BALLOON_ENTRY_KNOT_Y,
-    riseSpeedPxPerSec: rangeAt(rng(), PARTY.balloonRiseMinPxPerSec, PARTY.balloonRiseMaxPxPerSec),
-    swayAmplitudePx: rangeAt(rng(), PARTY.balloonSwayMinPx, PARTY.balloonSwayMaxPx),
-    swayPeriodMs: rangeAt(rng(), PARTY.balloonSwayMinPeriodMs, PARTY.balloonSwayMaxPeriodMs),
+    riseSpeedPxPerSec: confettiRangeAt(
+      rng(),
+      PARTY.balloonRiseMinPxPerSec,
+      PARTY.balloonRiseMaxPxPerSec
+    ),
+    swayAmplitudePx: confettiRangeAt(rng(), PARTY.balloonSwayMinPx, PARTY.balloonSwayMaxPx),
+    swayPeriodMs: confettiRangeAt(
+      rng(),
+      PARTY.balloonSwayMinPeriodMs,
+      PARTY.balloonSwayMaxPeriodMs
+    ),
     swayPhase01: rng(),
-    tint: BALLOON_TINTS[Math.min(BALLOON_TINTS.length - 1, Math.floor(rng() * BALLOON_TINTS.length))],
+    tint: confettiColorAt(BALLOON_TINTS, rng()),
   };
 }
 
@@ -464,6 +479,16 @@ export function createPartyBalloons(
     // area (computed inside Phaser from its width/height) is exactly the region
     // we want — so this file never references Phaser.Geom and stays
     // runtime-Phaser-free (the pedals.ts pattern).
+    //
+    // LOAD-BEARING CREATION ORDER: every container AND every zone sits at the
+    // same PARTY.balloonDepth, so both the render order and Phaser's input
+    // sorting (InputPlugin.sortGameObjects, which falls back to display-list
+    // index once depths tie) are decided by insertion order alone. Because zone
+    // i is added immediately after container i, the two orders agree: the
+    // balloon that DRAWS on top is exactly the one whose zone WINS the hit test
+    // where hit areas overlap. Keep them paired — creating all the containers
+    // first and all the zones after would silently invert that, and taps would
+    // start landing on balloons behind the one under the finger.
     const zone = scene.add
       .zone(0, 0, PARTY.balloonHitSizePx, PARTY.balloonHitSizePx)
       .setDepth(PARTY.balloonDepth);
@@ -516,7 +541,19 @@ export function createPartyBalloons(
       const elapsed = now - balloon.spawnAtMs;
       const knotY = balloonRiseY(balloon.spawn.spawnY, balloon.spawn.riseSpeedPxPerSec, elapsed);
       if (shouldRecycleBalloon(knotY, BALLOON_RECYCLE_KNOT_Y)) {
-        enter(balloon, 'recycle', now);
+        // BACKGROUNDED-TAB GUARD. `scene.time.now` is Phaser's RAW rAF
+        // timestamp (TimeStep.step -> Clock.update sets `this.now = time`), so
+        // it jumps by the whole wall-clock gap when a hidden tab resumes — even
+        // though `delta` itself is smoothed. Without this branch EVERY alive
+        // balloon would be past the recycle line on that one frame, all 32
+        // would re-enter at the identical BALLOON_ENTRY_KNOT_Y, and the flock
+        // would resume as a single horizontal row taking ~10s to disperse —
+        // precisely the artifact the randomised flight exists to prevent.
+        // Overshooting by more than a FULL flight can only mean lost time, so
+        // re-scatter across the whole flight ('initial') instead of queueing at
+        // the entry line.
+        const overshotAWholeFlight = knotY < BALLOON_RECYCLE_KNOT_Y - BALLOON_ENTRY_KNOT_Y;
+        enter(balloon, overshotAWholeFlight ? 'initial' : 'recycle', now);
         continue;
       }
 

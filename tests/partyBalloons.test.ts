@@ -13,7 +13,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   BALLOON_TINTS,
-  balloonFlightBounds,
+  BALLOON_ENTRY_KNOT_Y,
+  BALLOON_RECYCLE_KNOT_Y,
   balloonHitCenterY,
   balloonRiseY,
   balloonSpawn,
@@ -24,7 +25,7 @@ import {
   shouldRecycleBalloon,
 } from '../src/systems/partyBalloons';
 import { DEPTHS, DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE, PARTY, UI_MIN_TOUCH_PX } from '../src/systems/constants';
-import { createFakeScene, cyclingRng, fakePointer } from './fakeScene';
+import { createFakeScene, fakePointer, seededRandom } from './fakeScene';
 
 /** A deterministic rng that walks a fixed list of draws, wrapping — so a spawn
  * roll is fully reproducible without depending on how many draws it makes. */
@@ -57,7 +58,8 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
     // knotY]; how much of that overlaps the 0..DESIGN_HEIGHT viewport is:
     const visibleArea = (knotY: number): number =>
       Math.min(knotY, DESIGN_HEIGHT) - Math.max(knotY - BODY_H, 0);
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
 
     // The two endpoints are EXACTLY the zero-area boundaries — which is what
     // makes them the endpoints, and what leaves no INTERVAL in which a balloon
@@ -73,7 +75,8 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
   });
 
   it('enters and recycles at exactly the visibility boundaries (no tuned slack)', () => {
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
     // Entry: the body's TOP edge exactly touches the bottom of the screen.
     expect(entryKnotY - BODY_H).toBe(DESIGN_HEIGHT);
     // Recycle: the body's BOTTOM edge exactly reaches the top of the screen.
@@ -87,13 +90,13 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
   it('guarantees >= 20 VISIBLE as a worst-case bound, under sustained popping', () => {
     // Because the transit band is zero-length (test above), the only balloons
     // out of view are ones the player just popped. Bound that: a popped balloon
-    // is out of view for exactly the respawn delay (it re-enters ALREADY
-    // visible), so at the declared burst rate at most rate x delay are out at
-    // once. A LOWER BOUND, not an average — the count never legally dips below
-    // this while the player mashes.
-    const maxPoppedAtOnce = Math.ceil(
-      PARTY.balloonWorstCasePopsPerSec * (PARTY.balloonRespawnDelayMs / 1000)
-    );
+    // is out of view for the respawn delay PLUS UP TO ONE FRAME — update()
+    // only tests `now >= respawnAtMs` once per frame, so modelling the window
+    // as the delay alone would understate the worst case by a frame per pop.
+    // A LOWER BOUND, not an average: the count never legally dips below this
+    // while the player mashes.
+    const outOfViewMs = PARTY.balloonRespawnDelayMs + PARTY.balloonWorstCaseFrameMs;
+    const maxPoppedAtOnce = Math.ceil(PARTY.balloonWorstCasePopsPerSec * (outOfViewMs / 1000));
     const worstCaseVisible = PARTY.balloonCount - maxPoppedAtOnce;
     expect(worstCaseVisible).toBeGreaterThanOrEqual(20);
 
@@ -104,10 +107,15 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
     // plausible average, not equal to it.
     expect(PARTY.balloonWorstCasePopsPerSec).toBeGreaterThanOrEqual(10);
 
-    // And the bound must have real headroom, not sit on the line: a future
-    // tweak to any of the three inputs should fail here before it ships a
-    // 20-balloon party.
-    expect(worstCaseVisible).toBeGreaterThanOrEqual(24);
+    // The modelled frame must be a genuinely pessimistic one, or the extra
+    // frame is decoration: this scene measures 60fps, so the floor has to be
+    // meaningfully worse than 16.7ms.
+    expect(PARTY.balloonWorstCaseFrameMs).toBeGreaterThanOrEqual(30);
+
+    // And the bound must have real SLACK over the guard, not sit on the line:
+    // a future tweak to any of the four inputs should fail here before it
+    // ships a 20-balloon party.
+    expect(worstCaseVisible).toBeGreaterThan(24);
   });
 
   it('sizes the pop-confetti pool from that SAME worst case (one assumption)', () => {
@@ -163,7 +171,8 @@ describe('balloonRiseY', () => {
 
   it('eventually clears the top of the screen at the SLOWEST configured speed', () => {
     // The endless supply depends on even the laziest balloon recycling.
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
     const y = balloonRiseY(entryKnotY, PARTY.balloonRiseMinPxPerSec, 120_000); // two minutes
     expect(shouldRecycleBalloon(y, recycleKnotY)).toBe(true);
   });
@@ -172,7 +181,8 @@ describe('balloonRiseY', () => {
     // Sanity on the FEEL, derived independently: the whole flight is
     // entry -> recycle px, so the slowest balloon should take well under a
     // minute (a balloon that took minutes would read as frozen).
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
     const slowestSeconds = (entryKnotY - recycleKnotY) / PARTY.balloonRiseMinPxPerSec;
     expect(slowestSeconds).toBeLessThan(45);
     const fastestSeconds = (entryKnotY - recycleKnotY) / PARTY.balloonRiseMaxPxPerSec;
@@ -241,7 +251,8 @@ describe('balloonSwayOffsetPx', () => {
 });
 
 describe('shouldRecycleBalloon', () => {
-  const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+  const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+  const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
 
   it('holds a balloon anywhere it still has visible area', () => {
     for (const y of [entryKnotY, DESIGN_HEIGHT, 360, 1]) {
@@ -354,14 +365,15 @@ describe('balloonSpawn', () => {
   });
 
   it('always enters at the SAME y on recycle (the derived flight start)', () => {
-    const { entryKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
     for (const u of [0, 0.4, 0.99]) {
       expect(balloonSpawn(constantRng(u), 'recycle').spawnY).toBe(entryKnotY);
     }
   });
 
   it('seeds the INITIAL pool across the WHOLE flight (starts full, stays honest)', () => {
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
     const low = balloonSpawn(constantRng(0.02), 'initial');
     const high = balloonSpawn(constantRng(0.9), 'initial');
     expect(low.spawnY).toBeLessThan(DESIGN_HEIGHT / 2);
@@ -452,12 +464,15 @@ describe('balloonSpawn', () => {
 // ---------------------------------------------------------------------------
 
 describe('createPartyBalloons — pool + interaction invariants', () => {
-  /** Build the flock on a fake scene, with a reproducible rng. */
+  /** Build the flock on a fake scene, with a reproducible rng.
+   *
+   * seededRandom, NOT cyclingRng: balloonSpawn draws exactly 7 values, so any
+   * cycle whose length divides 7 would hand all 32 balloons the identical spawn
+   * and silently make every "the flock is varied / re-scattered" assertion
+   * unfalsifiable (it did, until this suite caught it). */
   function mount(startNowMs = 0) {
     const fake = createFakeScene(startNowMs);
-    const handle = createPartyBalloons(fake.scene, {
-      rng: cyclingRng([0.13, 0.41, 0.67, 0.29, 0.83, 0.55, 0.07]),
-    });
+    const handle = createPartyBalloons(fake.scene, { rng: seededRandom(0xba1100) });
     return { fake, handle };
   }
 
@@ -569,7 +584,7 @@ describe('createPartyBalloons — pool + interaction invariants', () => {
   it('floats a popped balloon back in — visible, tappable, at the derived entry y', () => {
     const { fake, handle } = mount(1000);
     const zones = zonesOf(fake);
-    const { entryKnotY } = balloonFlightBounds();
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
 
     zones[6].fire('pointerdown', fakePointer(1, 1000));
     expect(handle.balloons()[6].alive).toBe(false);
@@ -586,11 +601,25 @@ describe('createPartyBalloons — pool + interaction invariants', () => {
     expect(back.y).toBe(entryKnotY); // enters ALREADY partly on screen
     expect(back.pops).toBe(1); // the counter survives the recycle
     expect(zones[6].inputEnabled).toBe(true); // poppable again
+    // ...and its hit area came back WITH it. Re-enabling input at a stale
+    // position would leave a balloon that looks tappable but answers a press
+    // somewhere else entirely.
+    expect(zones[6].x).toBe(back.x);
+    expect(zones[6].y).toBe(balloonHitCenterY(back.y));
+
+    // It also keeps tracking on the frames AFTER the re-entry.
+    fake.advance(500);
+    handle.update(500);
+    const drifted = handle.balloons()[6];
+    expect(zones[6].x).toBe(drifted.x);
+    expect(zones[6].y).toBe(balloonHitCenterY(drifted.y));
   });
 
-  it('recycles a balloon that rises off the top, without allocating', () => {
+  it('recycles a balloon that rises off the top, without allocating — and its hit Zone follows it every frame', () => {
     const { fake, handle } = mount(0);
-    const { entryKnotY, recycleKnotY } = balloonFlightBounds();
+    const zones = zonesOf(fake);
+    const entryKnotY = BALLOON_ENTRY_KNOT_Y;
+    const recycleKnotY = BALLOON_RECYCLE_KNOT_Y;
     const baseline = fake.created.length;
 
     // Longer than the slowest possible full flight.
@@ -598,14 +627,52 @@ describe('createPartyBalloons — pool + interaction invariants', () => {
     for (let t = 0; t < slowestFlightMs + 2000; t += 100) {
       fake.advance(100);
       handle.update(100);
-      // At no point is a live balloon parked off-screen.
       for (const b of handle.balloons()) {
         if (!b.alive) continue;
+        // At no point is a live balloon parked off-screen.
         expect(b.y).toBeGreaterThan(recycleKnotY);
         expect(b.y).toBeLessThanOrEqual(entryKnotY);
+        // THE HIT AREA TRACKS THE BALLOON. Without the per-frame
+        // zone.setPosition in update(), every balloon would stay tappable only
+        // at its spawn point while drifting visibly away from its own hit
+        // area — the whole flock would look poppable and answer nowhere, and
+        // nothing else in this suite would notice.
+        expect(zones[b.index].x).toBe(b.x);
+        expect(zones[b.index].y).toBe(balloonHitCenterY(b.y));
       }
     }
     expect(fake.created).toHaveLength(baseline);
+  });
+
+  it('re-SCATTERS the flock after a backgrounded tab, instead of forming a row', () => {
+    // scene.time.now is Phaser's raw rAF timestamp, so a hidden tab that
+    // resumes jumps it by the whole wall-clock gap. Every balloon is then far
+    // past the recycle line on one frame; queueing them all at the entry y
+    // would resume the party as a single horizontal row.
+    const { fake, handle } = mount(0);
+    const baseline = fake.created.length;
+
+    fake.advance(5 * 60 * 1000); // five minutes in one frame
+    handle.update(16);
+
+    const ys = handle.balloons().map((b) => b.y);
+    expect(ys.every((y) => y > BALLOON_RECYCLE_KNOT_Y && y <= BALLOON_ENTRY_KNOT_Y)).toBe(true);
+    // Spread across the flight, not stacked on one line.
+    expect(new Set(ys.map((y) => y.toFixed(3))).size).toBeGreaterThan(PARTY.balloonCount / 2);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(BALLOON_ENTRY_KNOT_Y / 2);
+    // Still no allocation, and still exactly one pool.
+    expect(fake.created).toHaveLength(baseline);
+  });
+
+  it('positions each hit Zone on its balloon from the very first frame', () => {
+    // Covers `place()` as well as update(): a balloon must be tappable where it
+    // is drawn before update() has ever run.
+    const { fake, handle } = mount();
+    const zones = zonesOf(fake);
+    for (const b of handle.balloons()) {
+      expect(zones[b.index].x).toBe(b.x);
+      expect(zones[b.index].y).toBe(balloonHitCenterY(b.y));
+    }
   });
 
   it('destroy() frees every object it made, and a SECOND destroy() is a no-op', () => {

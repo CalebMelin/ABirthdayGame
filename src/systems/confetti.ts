@@ -112,7 +112,7 @@ export interface ConfettiKinematics {
  * piece (confettiLifetimeMaxMs = 2.7s) ends up ~20px HIGHER on screen than it
  * used to — the semi-implicit form OVERSHOT the fall (it applies each step's
  * end velocity across the whole step), so the exact form falls slightly less
- * far. Numerically verified: 0.13px after 1 frame, 7.5px at 1.0s, 20.25px at
+ * far. Numerically verified: 0.125px after 1 frame, 7.5px at 1.0s, 20.25px at
  * 2.7s.
  *
  * That is accepted deliberately, for two reasons. (1) "Behavior-preserving" and
@@ -123,6 +123,10 @@ export interface ConfettiKinematics {
  * (2) 20px at end-of-life lands on a piece that is tumbling and has been fading
  * since 60% of its life (confettiFadeStartFrac), in a decorative burst nobody
  * measures. See DECISIONS.md, 2026-07-22.
+ *
+ * (The one-frame figure above is exactly g*dt^2/2 = 900/7200 = 0.125px, not
+ * "about 0.13" — in a comment whose whole job is numerical honesty, the number
+ * is not rounded up.)
  */
 export function stepConfettiKinematics(
   k: ConfettiKinematics,
@@ -294,11 +298,19 @@ export function createConfettiBurst(
   // Allocate the whole pool up front, hidden. Size is rolled once per slot (see
   // the module doc): the pool still spans the full size range, and recycling
   // never has to re-build shape geometry.
+  //
+  // The creation fill is a placeholder (PALETTE.white), NOT a random draw:
+  // burst() sets a real color before a piece is ever made visible, so drawing
+  // one here would be a wasted rng draw per slot — and it would put this
+  // factory's rng budget out of step with createConfettiFall's, which has
+  // always created with PALETTE.white. Each slot therefore costs exactly ONE
+  // draw at construction (its size), which is what partyBalloons.ts's rng-budget
+  // note depends on.
   const pool: BurstPiece[] = [];
   for (let i = 0; i < poolSize; i++) {
     const size = confettiPieceSizePx(rng(), opts.sizeMinPx, opts.sizeMaxPx);
     const rect = scene.add
-      .rectangle(0, 0, size, size, confettiColorAt(colors, rng()))
+      .rectangle(0, 0, size, size, PALETTE.white)
       .setDepth(opts.depth)
       .setVisible(false);
     pool.push({

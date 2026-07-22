@@ -506,7 +506,14 @@ describe('createConfettiFall — pool invariants', () => {
 
   it('seeds the pool ALREADY SPREAD so the first frame is a full rain', () => {
     const fake = createFakeScene();
-    createConfettiFall(fake.scene, fallOptions({ count: 40, rng: Math.random }));
+    // A seeded sweep rather than Math.random: it costs nothing and keeps the
+    // whole suite hermetic. The 40 draws walk the unit interval, so the seed y
+    // values span the full band exactly as a uniform rng would.
+    let step = 0;
+    createConfettiFall(
+      fake.scene,
+      fallOptions({ count: 40, rng: () => ((step++ * 37) % 100) / 100 })
+    );
     // Not all queued above the top edge: many pieces start well down-screen.
     const onScreen = fake.created.filter((o) => o.y > 0 && o.y < DESIGN_HEIGHT);
     expect(onScreen.length).toBeGreaterThan(10);
@@ -530,8 +537,11 @@ describe('createConfettiFall — pool invariants', () => {
 
     for (let i = 0; i < 900; i++) handle.update(1000 / 60);
     for (const piece of fake.created) {
+      // confettiWrapX's real invariant is the HALF-OPEN band [0, width):
+      // x === width is wrapped back to 0, so a `<= DESIGN_WIDTH` assertion
+      // would have accepted a value the function never returns.
       expect(piece.x).toBeGreaterThanOrEqual(0);
-      expect(piece.x).toBeLessThanOrEqual(DESIGN_WIDTH);
+      expect(piece.x).toBeLessThan(DESIGN_WIDTH);
     }
   });
 
