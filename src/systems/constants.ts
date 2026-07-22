@@ -1333,6 +1333,133 @@ export const LEVEL_COMPLETE = {
   confettiFadeStartFrac: 0.6,
 } as const;
 
+/** Party finale tuning (PLAN-09 — see src/systems/partyCast.ts for ST-1's cast,
+ * and later src/systems/partyBalloons.ts + src/scenes/PartyScene.ts). NORTH_STAR
+ * §5's PartyScene: Gabby & Caleb arrive at the venue, the four NAMED guests
+ * (Andrea / Allison / Dallas / Dom) stand with them under floating name tags,
+ * and 8-15 unnamed partygoers mingle BEHIND them.
+ *
+ * PartyScene is a plain (non-Matter) scene at camera zoom 1, exactly like
+ * LevelCompleteScene / TitleScene — so ZERO Matter bodies by construction, NO
+ * zoom compensation anywhere, and every length below is a straight px at the
+ * 1280x720 DESIGN scale (design == screen at zoom 1). Times are ms.
+ *
+ * LAYOUT MODEL (systems/partyCast.ts's buildPartyCastSlots — a PURE function of
+ * the member index and these constants, never Math.random, so the scene looks
+ * identical on every visit and the tests/harnesses can assert exact positions):
+ * TWO rows, each evenly spaced and centered on screen center.
+ *   - FRONT row (6): Andrea, Dallas, Gabby, Caleb, Allison, Dom — left to
+ *     right. Gabby+Caleb straddle the exact center; Dallas sits immediately to
+ *     Gabby's left so the twin joke actually lands (they must be adjacent), and
+ *     the other three named guests flank the pair.
+ *   - BACK row (crowdCount): the unnamed crowd, drawn at a lower depth, higher
+ *     on screen, and smaller — the three cues that read as "further away". No
+ *     name tags (NORTH_STAR §5 gives tags only to the four named guests).
+ * Idle motion is a 2-frame bounce (each member is either DOWN or UP — pixel-art
+ * honest, and explicitly what the plan asks for), phase-staggered per member by
+ * bouncePhaseStep so nobody moves in lockstep.
+ *
+ * As with decorations.ts / pickup.ts / police.ts / tricks.ts, the throwaway
+ * placeholder DRAWING dimensions (the 24x48 base-sprite size, Caleb's hair band,
+ * Allison's ponytail rect) stay as local documented consts in partyCast.ts —
+ * PLAN-10 replaces that art wholesale. Everything TUNABLE (positions, depths,
+ * scales, counts, bounce, name-tag geometry) lives here; the guests' COLORS and
+ * all verbatim copy live in src/data/finale.ts.
+ *
+ * ROOM RESERVED: ST-2 adds its floating/poppable balloon knobs (count, rise
+ * speed, bob, pop timing) and ST-3 adds its scene-layout knobs (venue backdrop,
+ * banner, streamers, ambient confetti, bouquet toast, "Credits ->" button) to
+ * THIS SAME BLOCK — keep them in their own commented sub-sections below. */
+export const PARTY = {
+  // ------------------------------------------------------------ front row
+  /** Front-row center x, px — the row is laid out symmetrically about this. */
+  frontRowCenterX: DESIGN_WIDTH / 2,
+  /** Front-row FEET y, px (sprites are bottom-anchored). Leaves ~220px of floor
+   * below for ST-3's venue floor and its bottom-right "Credits ->" button. */
+  frontRowGroundY: 500,
+  /** Center-to-center spacing between adjacent front-row members, px.
+   * Comfortably wider than a scaled sprite (24 x frontRowScale = 72) so the six
+   * never overlap. */
+  frontRowSpacingPx: 150,
+  /** Uniform scale of the front-row sprites. The 24x48 placeholder rider would
+   * read tiny at native size; 3x makes the named cast the clear focus. */
+  frontRowScale: 3,
+
+  // ---------------------------------------------------------------- crowd
+  /** Number of unnamed background partygoers. MUST stay within NORTH_STAR §5's
+   * 8-15 range (guarded by tests/finale.test.ts). 9 (odd) is what makes the
+   * half-step interleave below work out exactly — see crowdSpacingPx. Together
+   * with the 6 front-row members the venue holds 15 people, alternating every
+   * 75px across the full screen width, which reads as a packed party. */
+  crowdCount: 9,
+  /** Crowd-row center x, px. */
+  crowdCenterX: DESIGN_WIDTH / 2,
+  /** Crowd FEET y, px — higher on screen than the front row (further away). */
+  crowdGroundY: 400,
+  /** Center-to-center spacing between adjacent crowd members, px. EQUAL to
+   * frontRowSpacingPx on purpose: an ODD crowd count centered on the same x as
+   * an EVEN front row lands every crowd member exactly HALF a step (75px) from
+   * its nearest front-row neighbour — i.e. squarely in the gaps, like the back
+   * row of a group photo. That 75px clears the summed sprite half-widths
+   * (36 + 26.4 = 62.4), so no partygoer is ever hidden behind (or mistaken for
+   * a hat on) somebody in front. Guarded by tests/finale.test.ts. */
+  crowdSpacingPx: 150,
+  /** Base crowd sprite scale — smaller than frontRowScale (further away). */
+  crowdScale: 2,
+  /** Per-member scale variation, as a fraction of crowdScale, cycling
+   * -1/0/+1 by index so the crowd reads as individuals rather than clones. */
+  crowdScaleStep: 0.1,
+  /** Extra px added to the FEET y of every odd-indexed crowd member — a slight
+   * front/back stagger so the back row isn't a straight chorus line. Stays well
+   * above frontRowGroundY, so the crowd never invades the front row. */
+  crowdStaggerYPx: 18,
+
+  // --------------------------------------------------------------- depths
+  /** Crowd render depth — BEHIND everything the front row draws. */
+  crowdDepth: DEPTHS.props,
+  /** Front-row (named cast + Gabby + Caleb) render depth. */
+  frontRowDepth: DEPTHS.rider,
+  /** Name-tag render depth — above every cast sprite so a tag is never clipped
+   * by the person in front. Kept below DEPTHS.fx (60) so ST-2's balloons and
+   * ST-3's ambient confetti still have their own layers above the cast. */
+  nameTagDepth: DEPTHS.rider + 5,
+
+  // ---------------------------------------------------------- idle bounce
+  /** 2-frame bounce: how far a member rises on its UP frame, px. Subtle — an
+   * idle/dance tell, not a jump. */
+  bounceAmplitudePx: 6,
+  /** Full down-up cycle period, ms (half down, half up). */
+  bouncePeriodMs: 900,
+  /** Per-member phase offset, as a FRACTION of one bounce cycle (0..1),
+   * multiplied by the member's global index and wrapped. 0.37 is coprime with
+   * 100, so the first 100 members all get distinct phases — far more than the
+   * ~18 the cast ever builds — and nobody bounces in lockstep. */
+  bouncePhaseStep: 0.37,
+
+  // ------------------------------------------------------------ name tags
+  /** Name-tag font size, px (snapped to the 8px pixel grid by pixelText). */
+  nameTagFontSizePx: 16,
+  /** How far ABOVE the top of a guest's head the name tag's CENTER sits, px.
+   * Must exceed half the panel height (nameTagFontSizePx/2 + nameTagPadYPx =
+   * 16) or the tag would overlap the head. Bigger = the tag floats higher. */
+  nameTagGapPx: 26,
+  /** Cream backing-panel padding around the tag text, each side, px. The panel
+   * keeps the plum pixel text legible over a dusk venue backdrop — the same
+   * cream-panel-behind-text convention LEVEL_INTRO's banner uses. */
+  nameTagPadXPx: 12,
+  nameTagPadYPx: 8,
+  /** Name-tag panel outline stroke width, px (the chunky pixel look). */
+  nameTagOutlinePx: 3,
+  /** The tag's OWN subtle bob (on top of its owner's bounce), px. */
+  nameTagBobAmplitudePx: 3,
+  /** The tag's own bob period, ms — deliberately NOT a multiple of
+   * bouncePeriodMs so the tag drifts against its owner instead of locking. */
+  nameTagBobPeriodMs: 1300,
+  /** Phase offset (fraction of a cycle) applied to the tag's bob relative to
+   * its owner's bounce, so tag and body never flip on the same frame. */
+  nameTagBobPhaseOffset: 0.5,
+} as const;
+
 /** Centralized scene keys — all scenes and transitions reference these
  * instead of string literals. See NORTH_STAR.md §4 for the scene flow. */
 export const SCENE_KEYS = {
