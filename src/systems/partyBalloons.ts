@@ -51,13 +51,20 @@
 // the knot). Nothing here touches NORTH_STAR §8's <100-body budget.
 //
 // DEPTH: balloons sit at PARTY.balloonDepth, ABOVE the unnamed crowd but BELOW
-// the front-row cast and their name tags, with the pop puffs one layer higher
-// again. This subtask originally put them in front of everybody (DEPTHS.fx + 1);
-// ST-3's first full-scene screenshot showed 32 balloons burying the party and
-// leaving two of the four name tags unreadable, so they moved behind the people
-// — see PARTY.balloonDepth's doc and DECISIONS.md 2026-07-22. Nothing about
-// popping changed: no cast object is interactive, so every balloon is exactly as
-// tappable as before.
+// the front-row cast and their name tags. This subtask originally put them in
+// front of everybody (DEPTHS.fx + 1); ST-3's first full-scene screenshot showed
+// 32 balloons burying the party and leaving two of the four name tags
+// unreadable, so they moved behind the people — see PARTY.balloonDepth's doc and
+// DECISIONS.md 2026-07-22.
+//
+// WHAT THAT COSTS, STATED HONESTLY (an earlier draft of this paragraph said
+// "nothing"): TAPPABILITY is untouched — no cast object is interactive, so every
+// balloon still takes a press wherever it is. But a balloon drifting through the
+// front row's ~432x144px band is now HIDDEN behind a cast member, and a press
+// there pops a balloon the player cannot see. The POP PUFF is what keeps that
+// press legible, so PARTY.popConfettiDepth deliberately sits ABOVE the whole
+// cast and its name tags rather than one step above the balloons — it is the
+// pop's only guaranteed feedback, and PLAN-10's pop SFX will fire beside it.
 //
 // Like partyCast.ts / confetti.ts (and UNLIKE ui.ts), this module has NO runtime
 // Phaser import: `import type Phaser` is erased at compile time

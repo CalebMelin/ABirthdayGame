@@ -1594,10 +1594,17 @@ export const PARTY = {
    * unreadable — and "all four named characters present with exact names" is a
    * literal PLAN-09 acceptance criterion, so the balloons were losing an
    * argument they were never meant to have. Behind the people is also the more
-   * natural read (balloons drift around a room, they do not fly at the camera),
-   * and it costs the interaction NOTHING: nothing in the cast is interactive, so
-   * every balloon stays exactly as tappable as before. See DECISIONS.md
-   * 2026-07-22 (ST-3). */
+   * natural read (balloons drift around a room, they do not fly at the camera).
+   *
+   * WHAT THE MOVE ACTUALLY COSTS (an earlier draft of this comment claimed
+   * "nothing", which was wrong): TAPPABILITY is unchanged — no cast object is
+   * interactive, so every balloon still takes a press wherever it is. But a
+   * balloon drifting through the front row's ~432x144px band is now HIDDEN
+   * behind a cast member, so a press there pops a balloon the player cannot
+   * see. That band is ~7% of the screen and it is exactly where the eye goes.
+   * The POP PUFF is therefore what has to make the pop legible, which is why
+   * popConfettiDepth below sits ABOVE the cast and its name tags rather than
+   * one step above the balloons. See DECISIONS.md 2026-07-22 (ST-3). */
   balloonDepth: DEPTHS.props + 5,
 
   // --------------------------------------------- balloon-pop confetti burst
@@ -1630,10 +1637,23 @@ export const PARTY = {
    * thinned puff. Past this the burst simply draws fewer pieces rather than
    * allocating (see ConfettiBurstOptions.concurrentBursts). */
   popConfettiConcurrentBursts: 12,
-  /** Pop-confetti layer depth — one above the balloons, so a puff draws over the
-   * balloons still floating behind it (and therefore, like them, behind the
-   * cast; see balloonDepth). */
-  popConfettiDepth: DEPTHS.props + 6,
+  /** Pop-confetti layer depth — above the balloons (so a puff draws over the
+   * flock still floating behind it) AND above the whole cast INCLUDING
+   * nameTagDepth, which is the load-bearing half.
+   *
+   * THE PUFF IS THE POP'S ONLY GUARANTEED FEEDBACK. Once the balloons moved
+   * behind the cast (see balloonDepth), a press landing on one of the six
+   * front-row figures pops a balloon hidden behind them; if the puff were also
+   * behind them — as it was at the first attempt's DEPTHS.props + 6 — the
+   * player would get NOTHING on screen for that press, over ~7% of the screen
+   * and precisely where they are looking. (PLAN-10's pop SFX would then fire
+   * with nothing visible at all.) Puffs are 14 small, ~0.5-1.0s pieces, so
+   * unlike the balloons they cannot re-create the name-tag occlusion that
+   * motivated the move — screenshot-verified over the cast, not assumed.
+   *
+   * Sits just BELOW confettiFallDepth so the ambient rain stays the frontmost
+   * layer; tests/partyBalloons.test.ts pins the whole ladder. */
+  popConfettiDepth: DEPTHS.fx - 1,
 
   // ------------------------------------------ ambient falling confetti
   // PLAN-09's "confetti falling continuously" (task 2, PartyScene) and "confetti
@@ -1658,8 +1678,13 @@ export const PARTY = {
   /** Min/max piece edge size, px. */
   confettiFallSizeMinPx: 6,
   confettiFallSizeMaxPx: 14,
-  /** Ambient-rain layer depth: on DEPTHS.fx, i.e. above the whole cast (and
-   * above nameTagDepth) but BELOW the balloons and their pop puffs. */
+  /** Ambient-rain layer depth: on DEPTHS.fx — the FRONTMOST layer of the party
+   * (above the cast, above nameTagDepth, above the balloons and above their pop
+   * puffs), which is what ST-1's "keep nameTagDepth strictly below DEPTHS.fx"
+   * invariant exists to guarantee. Small tumbling squares read as depth in
+   * front of everything; the large balloons, which do not, sit far below at
+   * balloonDepth. (This comment used to say the rain was BELOW the balloons and
+   * puffs — true only before ST-3 moved that pair down the ladder.) */
   confettiFallDepth: DEPTHS.fx,
 
   // ------------------------------------------------------- venue backdrop

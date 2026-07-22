@@ -132,25 +132,34 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
     expect(PARTY.balloonHitSizePx).toBeGreaterThan(BODY_W);
   });
 
-  it('layers balloons BEHIND the named cast, with their pop puffs just above them', () => {
-    // The whole ladder, bottom-up, in one assertion chain:
-    //   crowd < balloons < pop puffs < front-row cast < name tags < ambient rain
+  it('layers balloons BEHIND the named cast but their pop puffs IN FRONT of it', () => {
+    // The whole ladder, bottom-up, in one chain:
+    //   crowd < balloons < front-row cast < name tags < pop puffs < ambient rain
     //
-    // The balloons/puffs pair moved DOWN this ladder in ST-3 (they used to sit
-    // above everything at DEPTHS.fx + 1): the first full-scene screenshot showed
-    // 32 balloons burying the party with two of the four name tags unreadable,
-    // and "all four named characters present with exact names" is a PLAN-09
-    // acceptance criterion. See PARTY.balloonDepth's doc. Popping is unaffected
-    // — no cast object is interactive.
+    // The BALLOONS moved down this ladder in ST-3 (they used to sit above
+    // everything at DEPTHS.fx + 1): the first full-scene screenshot showed 32 of
+    // them burying the party with two of the four name tags unreadable, and
+    // "all four named characters present with exact names" is a PLAN-09
+    // acceptance criterion. See PARTY.balloonDepth's doc.
     expect(PARTY.balloonDepth).toBeGreaterThan(PARTY.crowdDepth);
-    expect(PARTY.popConfettiDepth).toBeGreaterThan(PARTY.balloonDepth);
-    expect(PARTY.frontRowDepth).toBeGreaterThan(PARTY.popConfettiDepth);
+    expect(PARTY.frontRowDepth).toBeGreaterThan(PARTY.balloonDepth);
     expect(PARTY.nameTagDepth).toBeGreaterThan(PARTY.frontRowDepth);
-    // The ambient rain still falls in FRONT of everyone (small pieces, so it
-    // reads as depth rather than as occlusion) — which is why ST-1's
-    // "nameTagDepth stays below DEPTHS.fx" invariant still has a job.
+
+    // ...but the PUFFS did NOT follow them down, and this is the load-bearing
+    // assertion of the pair. With the balloons behind the cast, a press landing
+    // on one of the six front-row figures pops a balloon the player cannot see;
+    // if the puff were behind them too, that press would produce NOTHING on
+    // screen over ~7% of the screen, right where the player is looking (and
+    // PLAN-10's pop SFX would fire with nothing visible). The puff is the pop's
+    // only guaranteed feedback, so it draws over the cast AND the name tags.
+    expect(PARTY.popConfettiDepth).toBeGreaterThan(PARTY.balloonDepth);
+    expect(PARTY.popConfettiDepth).toBeGreaterThan(PARTY.nameTagDepth);
+
+    // The ambient rain stays the frontmost layer (small pieces, so it reads as
+    // depth rather than as occlusion) — which is why ST-1's "nameTagDepth stays
+    // below DEPTHS.fx" invariant still has a job.
+    expect(PARTY.confettiFallDepth).toBeGreaterThan(PARTY.popConfettiDepth);
     expect(PARTY.nameTagDepth).toBeLessThan(DEPTHS.fx);
-    expect(PARTY.confettiFallDepth).toBeGreaterThan(PARTY.nameTagDepth);
   });
 });
 

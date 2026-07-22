@@ -25,6 +25,12 @@
 //      input-enabled census rather than "this specific balloon popped" — the
 //      88px hit areas overlap by design and Phaser's topOnly delivers the press
 //      to whichever balloon draws on top.
+//   4b. OCCLUDED POP: the balloons draw BEHIND the cast, so a press landing on
+//      one of the six front-row figures pops a balloon the player cannot see.
+//      That press must still produce a VISIBLE puff — the puff layer (found by
+//      observing which depth bucket gains visible Rectangles, not by importing a
+//      constant) must sit above both the cast and the name tags. Without this,
+//      ~7% of the screen is a no-feedback press zone.
 //   5. BOUQUET PAYOFF BOTH WAYS: tulips = N > 0 -> Gabby holds the bouquet and
 //      the toast reads byte-exactly "You brought N tulips to the party!! 🌷";
 //      tulips = 0 -> no bouquet, no toast at all (not a zero-count one).
@@ -37,7 +43,8 @@
 //      balloons + continuous confetti), sampled after a warmup.
 //   9. ZERO Matter bodies in the scene, and zero console/page errors throughout.
 //  10. Screenshots (with bouquet, without bouquet, after a character change,
-//      after popping, with the Credits button) to playtest-out/.
+//      after popping, mid-puff over a cast member, with the Credits button) to
+//      playtest-out/.
 //
 // Usage:
 //   node scripts/playtest-party.mjs
@@ -103,6 +110,13 @@ function oracleToast(count) {
 // its centre (where the invisible 88px hit Zone sits) is half that above the
 // knot y the scene reports. ---
 const BALLOON_BODY_HEIGHT_PX = 32 * 2.4;
+
+// --- Cast sprite oracle, re-derived the same way: BootScene's tex-gabby-base /
+// tex-caleb placeholders are 24x48, bottom-anchored at a member's feet and drawn
+// at that member's own scale. Used to work out which balloons are HIDDEN BEHIND
+// a front-row figure. ---
+const SPRITE_WIDTH_PX = 24;
+const SPRITE_HEIGHT_PX = 48;
 
 /** PLAN-02's 60fps criterion, measured the way scripts/playtest-drive.mjs does:
  * 55 leaves headroom for headless-Chrome scheduling noise while still catching a
@@ -209,6 +223,8 @@ const READ_PARTY = () => {
       textureKey: m.textureKey,
       x: m.x,
       groundY: m.groundY,
+      scale: m.scale,
+      depth: m.depth,
     })),
     balloonCount: d.balloonCount,
     balloons: d.balloons(),
@@ -327,6 +343,194 @@ async function popOneBalloon(page, kind, problems, out) {
   // Let every popped balloon settle back in before the next press, so the next
   // census starts from a full flock.
   await pollParty(page, (s) => aliveCount(s.balloons) === s.balloonCount, 2500);
+}
+
+/**
+ * A depth census of the scene's TOP-LEVEL visible Rectangles, plus the depth of
+ * every Container that renders a Text.
+ *
+ * This is how the puff layer is identified WITHOUT importing a constant: the
+ * only top-level Rectangles that toggle visibility are the pop-confetti pieces
+ * (the ambient rain's 60 are always visible, the venue's are static, and every
+ * other Rectangle in the scene — balloon strings, name-tag panels, the bouquet
+ * grip, the button's face/shadow — lives inside a Container and is therefore off
+ * the display list). So the ONE depth bucket that gains visible rectangles
+ * across a press IS the puff layer, observed rather than assumed.
+ */
+const READ_LAYERS = () => {
+  const scene = globalThis.__gabbyGame.scene.getScene('PartyScene');
+  const rectDepths = {};
+  const textContainers = [];
+  for (const o of scene.children.list) {
+    if (o.type === 'Rectangle' && o.visible) {
+      rectDepths[o.depth] = (rectDepths[o.depth] || 0) + 1;
+    }
+    if (o.type === 'Container' && Array.isArray(o.list)) {
+      const texts = o.list.filter((c) => c.type === 'Text').map((c) => c.text);
+      if (texts.length > 0) textContainers.push({ depth: o.depth, texts });
+    }
+  }
+  return { rectDepths, textContainers };
+};
+const readLayers = (page) => page.evaluate(READ_LAYERS);
+
+/** The drawn box of each FRONT-ROW cast member (the six that are not crowd),
+ * derived from the placeholder sprite geometry. */
+function frontRowBoxes(sample) {
+  return sample.cast
+    .filter((m) => m.role !== 'crowd')
+    .map((m) => ({
+      id: m.id,
+      depth: m.depth,
+      left: m.x - (SPRITE_WIDTH_PX * m.scale) / 2,
+      right: m.x + (SPRITE_WIDTH_PX * m.scale) / 2,
+      top: m.groundY - SPRITE_HEIGHT_PX * m.scale,
+      bottom: m.groundY,
+    }));
+}
+
+/** A live balloon whose hit centre lands ON one of the six front-row figures —
+ * i.e. a balloon the player CANNOT SEE, because ST-3 moved the flock behind the
+ * cast. Pressing there must still produce a visible puff. */
+function pickOccludedTarget(sample) {
+  if (!sample.hasParty) return undefined;
+  const boxes = frontRowBoxes(sample);
+  for (const balloon of sample.balloons) {
+    if (!balloon.alive) continue;
+    const hitY = balloon.y - BALLOON_BODY_HEIGHT_PX / 2;
+    const dx = balloon.x - sample.creditsPos.x;
+    const dy = hitY - sample.creditsPos.y;
+    if (Math.hypot(dx, dy) <= 260) continue; // the button would take the press
+    const box = boxes.find(
+      (b) => balloon.x >= b.left && balloon.x <= b.right && hitY >= b.top && hitY <= b.bottom
+    );
+    if (box) return { balloon, box, hitY };
+  }
+  return undefined;
+}
+
+/**
+ * THE REGRESSION GUARD FOR ST-3's DEPTH REVERSAL. Balloons now drift BEHIND the
+ * cast, so a press landing on one of the six front-row figures pops a balloon
+ * the player cannot see — over roughly 7% of the screen, exactly where the eye
+ * goes. The pop PUFF is therefore the only guaranteed feedback for that press,
+ * and it must draw ABOVE the cast and its name tags. (It did not, at first: the
+ * puffs went down the ladder with the balloons, and the press produced nothing
+ * at all on screen.)
+ *
+ * Asserts the LAYER, observed from the display list — the puff layer is the one
+ * depth bucket that gains visible rectangles across the press — rather than a
+ * constant, and reports whether the balloon that actually popped was itself
+ * behind a figure.
+ */
+async function popBehindCastMember(page, problems) {
+  // Let the PREVIOUS pops' puffs expire first. popConfettiLifetimeMaxMs is 1.0s
+  // and the earlier checks only wait for balloons to respawn (~0.4s), so without
+  // this the "before" census still holds pieces in flight and the delta below
+  // undercounts this pop's burst (measured: 13 of 14).
+  await page.waitForTimeout(1200);
+
+  const sample = await pollParty(page, (s) => pickOccludedTarget(s) !== undefined, 20_000);
+  const found = pickOccludedTarget(sample);
+  if (!found) {
+    problems.push('occluded pop: no balloon ever drifted behind a front-row cast member');
+    return null;
+  }
+
+  const boxes = frontRowBoxes(sample);
+  const maxCastDepth = Math.max(...boxes.map((b) => b.depth));
+  const tagDepths = sample.hasParty
+    ? (await readLayers(page)).textContainers
+        .filter((c) => c.texts.some((t) => ORACLE_NAMES.includes(t)))
+        .map((c) => c.depth)
+    : [];
+  const maxTagDepth = tagDepths.length > 0 ? Math.max(...tagDepths) : null;
+
+  const before = await readLayers(page);
+  const popsBefore = sumPops(sample.balloons);
+  await clickDesign(page, found.balloon.x, found.hitY);
+  // Read the layers FIRST: a puff piece lives only 0.5-1.0s.
+  const after = await readLayers(page);
+  // ...then capture it while it is still on screen. Asserting "the puff's depth
+  // is above the cast" does not prove the puff LOOKS right over them, and the
+  // reason the balloons went behind the cast in the first place was occlusion —
+  // so the fix has to be eyeballed too. The clip covers the pressed figure AND
+  // the name tag above them.
+  const popBox = await canvasBox(page);
+  await page.screenshot({ path: join(OUT_DIR, 'party-pop-over-cast.png') });
+  await page.screenshot({
+    path: join(OUT_DIR, 'party-pop-over-cast-closeup.png'),
+    clip: {
+      x: vx(popBox, Math.max(0, found.balloon.x - 190)),
+      y: vy(popBox, 350),
+      width: (380 / DESIGN_W) * popBox.width,
+      height: (270 / DESIGN_H) * popBox.height,
+    },
+  });
+  const popped = await pollParty(page, (s) => sumPops(s.balloons) > popsBefore, 2000);
+
+  const gained = Object.keys(after.rectDepths)
+    .map(Number)
+    .filter((depth) => (after.rectDepths[depth] ?? 0) > (before.rectDepths[depth] ?? 0));
+  const puffDepth = gained.length === 1 ? gained[0] : null;
+  const puffPieces =
+    puffDepth === null ? 0 : after.rectDepths[puffDepth] - (before.rectDepths[puffDepth] ?? 0);
+
+  const poppedBalloon = popped.balloons.find(
+    (b) => b.pops > (sample.balloons[b.index]?.pops ?? 0)
+  );
+  const poppedWasHidden =
+    poppedBalloon !== undefined &&
+    frontRowBoxes(popped).some(
+      (b) =>
+        poppedBalloon.x >= b.left &&
+        poppedBalloon.x <= b.right &&
+        poppedBalloon.y - BALLOON_BODY_HEIGHT_PX / 2 >= b.top &&
+        poppedBalloon.y - BALLOON_BODY_HEIGHT_PX / 2 <= b.bottom
+    );
+
+  const record = {
+    pressedOn: found.box.id,
+    pressedAt: { x: Math.round(found.balloon.x), y: Math.round(found.hitY) },
+    occludingDepth: found.box.depth,
+    maxCastDepth,
+    maxNameTagDepth: maxTagDepth,
+    puffDepth,
+    puffPieces,
+    poppedIndex: poppedBalloon?.index ?? null,
+    poppedWasHiddenBehindCast: poppedWasHidden,
+  };
+
+  if (poppedBalloon === undefined) {
+    problems.push('occluded pop: pressing on a cast member popped nothing');
+  }
+  if (puffDepth === null) {
+    problems.push(
+      `occluded pop: could not identify one puff layer (${gained.length} depth buckets grew)`
+    );
+  } else {
+    if (puffPieces <= 0) problems.push('occluded pop: no puff pieces became visible');
+    // The layer was EMPTY beforehand (see the settle above), so every piece
+    // counted is this pop's — the delta IS the burst, not a partial view of it.
+    if ((before.rectDepths[puffDepth] ?? 0) !== 0) {
+      problems.push(
+        `occluded pop: puff layer already held ${before.rectDepths[puffDepth]} pieces before the press`
+      );
+    }
+    if (puffDepth <= maxCastDepth) {
+      problems.push(
+        `occluded pop: puff draws at depth ${puffDepth}, BEHIND the cast (${maxCastDepth}) — an invisible pop`
+      );
+    }
+    if (maxTagDepth !== null && puffDepth <= maxTagDepth) {
+      problems.push(
+        `occluded pop: puff draws at depth ${puffDepth}, behind the name tags (${maxTagDepth})`
+      );
+    }
+  }
+
+  await pollParty(page, (s) => aliveCount(s.balloons) === s.balloonCount, 2500);
+  return record;
 }
 
 /** A live balloon whose hit centre is comfortably inside the screen and far from
@@ -471,6 +675,10 @@ async function main() {
     await popOneBalloon(page, 'tap', problems, pops);
     await page.screenshot({ path: join(OUT_DIR, 'party-after-pops.png') });
 
+    // (4c) A press ON A CAST MEMBER pops the balloon hidden behind them — and
+    // the puff must still be visible, or that press produces nothing at all.
+    const occluded = await popBehindCastMember(page, problems);
+
     // (6) CREDITS BUTTON: absent on entry, fades in, then routes.
     const enteredAt = await enterParty(page);
     const early = await readParty(page);
@@ -563,6 +771,7 @@ async function main() {
         visibleOnEntry: aliveCount(base.balloons),
         zones: base.zonesTotal,
         pops,
+        occludedPop: occluded,
       },
       credits: {
         shownAtEntry: early.creditsShown,
@@ -593,8 +802,12 @@ async function main() {
     const popSummary = report.balloons.pops
       .map((p) => `${p.kind} popped ${p.poppedCount} (back in at y=${p.respawnedY})`)
       .join('; ');
+    const occ = report.balloons.occludedPop;
+    const occSummary = occ
+      ? `a press ON "${occ.pressedOn}" popped the balloon hidden behind them and threw ${occ.puffPieces} puff pieces at depth ${occ.puffDepth}, over the cast (${occ.maxCastDepth}) and the name tags (${occ.maxNameTagDepth})`
+      : 'occluded-pop check did not run';
     console.log(
-      `PARTY OK: banner "${report.banner}"; name tags ${report.nameTags.join('/')} + ${report.crowd} unnamed partygoers (cast ${report.castSize}); Dallas===Gabby "${report.twin.before.dallas}" and BOTH became "${report.twin.after.dallas}" after a character change; ${report.balloons.count} balloons (${report.balloons.visibleOnEntry} visible, ${report.balloons.zones} hit zones), ${popSummary}; toast "${report.toast}" with bouquet, and neither at 0 tulips; Credits button absent at ${report.credits.checkedAtMs}ms, faded in by ${report.credits.appearedAtMs}ms to alpha ${report.credits.finalAlpha}, routes by click AND tap; party still alive after ${report.stillAliveAfterMs}ms with no auto-advance; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; avg ${report.avgFps} fps (min ${report.minFps}); no errors.`
+      `PARTY OK: banner "${report.banner}"; name tags ${report.nameTags.join('/')} + ${report.crowd} unnamed partygoers (cast ${report.castSize}); Dallas===Gabby "${report.twin.before.dallas}" and BOTH became "${report.twin.after.dallas}" after a character change; ${report.balloons.count} balloons (${report.balloons.visibleOnEntry} visible, ${report.balloons.zones} hit zones), ${popSummary}; ${occSummary}; toast "${report.toast}" with bouquet, and neither at 0 tulips; Credits button absent at ${report.credits.checkedAtMs}ms, faded in by ${report.credits.appearedAtMs}ms to alpha ${report.credits.finalAlpha}, routes by click AND tap; party still alive after ${report.stillAliveAfterMs}ms with no auto-advance; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; avg ${report.avgFps} fps (min ${report.minFps}); no errors.`
     );
   }
 }

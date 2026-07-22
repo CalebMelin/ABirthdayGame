@@ -149,9 +149,11 @@ export class PartyScene extends Phaser.Scene {
     this.drawStringLights();
     this.drawStreamers();
 
-    // Ambient rain (DEPTHS.fx): the ONE layer that falls in front of everybody,
-    // cast and balloons alike. Small tumbling squares read as depth there; the
-    // balloons, which are large, deliberately do not (see PARTY.balloonDepth).
+    // Ambient rain (DEPTHS.fx): the frontmost layer of the party, falling in
+    // front of the cast and the balloons alike. Small tumbling squares read as
+    // depth there; the large balloons deliberately do not, and sit far below
+    // (see PARTY.balloonDepth — their pop puffs, however, come back up above the
+    // cast, because they are the pop's only guaranteed feedback).
     this.confetti = createConfettiFall(this, {
       count: PARTY.confettiFallCount,
       spawnAbovePx: PARTY.confettiFallSpawnAbovePx,
