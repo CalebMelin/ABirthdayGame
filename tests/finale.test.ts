@@ -30,6 +30,7 @@ import {
   crowdGuestAppearance,
   partyGuestRemap,
   partyGuestVariantKey,
+  tulipTallyText,
 } from '../src/data/finale';
 import type { AuthoredGuestAppearance, NamedGuest } from '../src/data/finale';
 import {
@@ -134,6 +135,19 @@ const ORACLE_CREDIT_3 = fromCodePoints(
   0x32, 0x32, 0x6e, 0x64, // 22nd
   0x21, 0x21, 0x21 // !!!
 );
+
+/** U+00D7 MULTIPLICATION SIGN — the second, riskier non-ASCII code point in the
+ * credits tally (the tulip above is the first). */
+const ORACLE_TIMES = String.fromCodePoint(0x00d7);
+
+/** tulip + ' ' + times + ' ' + N + ' collected' */
+function oracleTulipTally(count: number): string {
+  const tail = fromCodePoints(
+    0x20,
+    0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x65, 0x64 // collected
+  );
+  return `${ORACLE_TULIP} ${ORACLE_TIMES} ${count}${tail}`;
+}
 
 /** True iff every code point is 7-bit ASCII. */
 function isPureAscii(text: string): boolean {
@@ -247,6 +261,45 @@ describe('CREDITS_LINES are byte-exact, in order (NORTH_STAR §5)', () => {
     for (const line of CREDITS_LINES) {
       for (const ch of banned) expect(line).not.toContain(ch);
     }
+  });
+});
+
+describe('tulipTallyText is byte-exact (CreditsScene, PLAN-09 task 3)', () => {
+  it('renders "<tulip> <times> N collected" for any count', () => {
+    for (const count of [0, 1, 7, 13, 999]) {
+      expect(tulipTallyText(count)).toBe(oracleTulipTally(count));
+    }
+  });
+
+  it('is NOT gated on a positive count (unlike the bouquet toast)', () => {
+    // The party toast congratulates and is hidden at 0; this is a tally, so it
+    // must render a real string at 0 rather than an empty one.
+    expect(tulipTallyText(0)).toContain('0');
+    expect(tulipTallyText(0).length).toBeGreaterThan(0);
+  });
+
+  it('carries EXACTLY two non-ASCII code points: U+1F337 then U+00D7', () => {
+    // The whole reason this lives in data/finale.ts rather than in the scene:
+    // swapping the multiplication sign for an ASCII 'x' (or a literal glyph a
+    // re-encode could mangle) must fail here, not only in the browser harness.
+    const nonAscii = [...tulipTallyText(13)].filter((c) => c.codePointAt(0)! >= 128);
+    expect(nonAscii).toEqual([ORACLE_TULIP, ORACLE_TIMES]);
+    expect(nonAscii[0].codePointAt(0)).toBe(0x1f337);
+    expect(nonAscii[1].codePointAt(0)).toBe(0x00d7);
+  });
+
+  it('keeps the count between the multiplication sign and the word', () => {
+    const units = Array.from(tulipTallyText(42));
+    expect(units[0]).toBe(ORACLE_TULIP);
+    expect(units[2]).toBe(ORACLE_TIMES);
+    expect(tulipTallyText(42).endsWith('42 collected')).toBe(true);
+  });
+
+  it('is pure ASCII apart from those two code points', () => {
+    const stripped = [...tulipTallyText(5)]
+      .filter((c) => c !== ORACLE_TULIP && c !== ORACLE_TIMES)
+      .join('');
+    expect(isPureAscii(stripped)).toBe(true);
   });
 });
 
@@ -1147,9 +1200,10 @@ describe('CreditsScene layout + pacing constants (ST-4)', () => {
   });
 
   it('keeps the widest plausible tulip tally on screen', () => {
-    // "<tulip> <times> 999 collected" — 999 is far past anything reachable, so
-    // this is a real upper bound. Counted in CODE POINTS (the tulip is one).
-    const widest = Array.from('\u{1F337} \u{00D7} 999 collected').length;
+    // Measured on the REAL builder at 999 tulips — far past anything reachable,
+    // so this is a genuine upper bound, and a longer tally would fail here.
+    // Counted in CODE POINTS (the tulip is one).
+    const widest = Array.from(tulipTallyText(999)).length;
     expect(widest * CREDITS.tulipLineFontSizePx).toBeLessThanOrEqual(DESIGN_WIDTH);
   });
 

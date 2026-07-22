@@ -15,15 +15,27 @@
 // the crowd's colors; both of those modules are themselves runtime-Phaser-free.)
 //
 // ASCII discipline (house rule, mirroring data/notes.ts): every rendered string
-// below is pure 7-bit ASCII except the ONE tulip emoji in the bouquet toast,
-// which is written as the explicit `\u{1F337}` escape so an editor re-encoding
-// this file can never mangle it into tofu.
+// below is pure 7-bit ASCII except for TWO code points — U+1F337 TULIP (in the
+// bouquet toast and the credits tally) and U+00D7 MULTIPLICATION SIGN (in the
+// credits tally) — each written as an explicit `\u{...}` escape so an editor
+// re-encoding this file can never mangle it into tofu, and each pinned by
+// tests/finale.test.ts against its own code-point oracle.
+//
+// NOT EVERYTHING HERE IS EQUALLY UNTOUCHABLE, and the difference is worth
+// stating: the guest NAMES, the banner, the toast and the three credits lines
+// are LOCKED personal content (CLAUDE.md Rule 4 — never reworded, full stop).
+// `tulipTallyText` is plan-specified RENDERED COPY rather than personal content,
+// so a documented, screenshot-driven fallback to an ASCII form would have been
+// legitimate had its glyphs not rendered. It lives here anyway because this
+// module is the one home for PLAN-09's rendered copy and because its two
+// non-ASCII code points are exactly the kind of thing that must be pinned by a
+// unit test rather than only by a browser harness.
 //
 // WHO CONSUMES WHAT (the later PLAN-09 subtasks):
 //   - src/systems/partyCast.ts (ST-1)  -> NAMED_GUESTS + the remap/variant-key
 //                                         helpers + crowdGuestAppearance.
 //   - src/scenes/PartyScene.ts (ST-3)  -> PARTY_BANNER_TEXT + bouquetToastText.
-//   - src/scenes/CreditsScene.ts (ST-4)-> CREDITS_LINES.
+//   - src/scenes/CreditsScene.ts (ST-4)-> CREDITS_LINES + tulipTallyText.
 import { MARKERS } from '../systems/palette';
 import type { ColorRemap } from '../systems/palette';
 import { resolveEyes, resolveHair } from './characters';
@@ -63,6 +75,35 @@ export const CREDITS_LINES: readonly string[] = [
   'Created for Gabriella Novelli',
   'Happy 22nd!!!',
 ];
+
+/**
+ * The tulip tally CreditsScene renders under its divider (PLAN-09 task 3's
+ * "<tulip> <times> N collected"), with the player's persisted total
+ * substituted. Shown at EVERY count including zero — unlike the party's
+ * bouquet toast above, which congratulates and is therefore gated on
+ * `tulips > 0`, this is a factual tally.
+ *
+ * TWO NON-ASCII CODE POINTS, both written as escapes and both verified to
+ * render as REAL GLYPHS rather than tofu before being kept (the level-2
+ * tutorial-sign precedent, DECISIONS.md 2026-07-16 / 2026-07-22):
+ *   - `\u{1F337}` TULIP — the system colour emoji, already proven on screen by
+ *     `bouquetToastText` above.
+ *   - `\u{00D7}` MULTIPLICATION SIGN — Press Start 2P's own glyph. NOTE that a
+ *     width measurement can NOT establish this: the font is fixed-width and its
+ *     .notdef box advances exactly as far as a real glyph, so an advance probe
+ *     only rules out a fallback font. What proves it is the drawn INK (compared
+ *     against unassigned/private-use control code points in
+ *     scripts/playtest-credits.mjs) plus a tight screenshot read by eye.
+ *
+ * Lives HERE rather than in the scene so it gets the same treatment as every
+ * other rendered string in this plan: tests/finale.test.ts pins it against an
+ * INDEPENDENT code-point oracle, so quietly swapping the multiplication sign
+ * for an ASCII 'x' — or changing the spacing — fails the suite instead of only
+ * the browser harness.
+ */
+export function tulipTallyText(count: number): string {
+  return `\u{1F337} \u{00D7} ${count} collected`;
+}
 
 // ---------------------------------------------------------------------------
 // Guest appearance model.

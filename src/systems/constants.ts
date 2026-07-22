@@ -1945,29 +1945,37 @@ export const CREDITS = {
    * credits never changes palette — and the pastel confetti reads far better
    * falling through a deep indigo than through black. */
   backgroundColor: PALETTE.duskIndigo,
-  /** Fill colour for EVERY string on this screen. Deliberately NOT pixelText's
-   * default TEXT_COLOR (plum #4a2c40) — that one is tuned for the pastel-pink
-   * menus and is effectively illegible on the dark field above. Cream on
-   * duskIndigo measures ~10.3:1 contrast (WCAG AAA is 7:1). Any text ever added
-   * to this scene must set this colour explicitly; createPixelText does not
-   * take one, so the scene calls `.setColor(hexToCss(CREDITS.textColor))`. */
+  /** Fill colour for every string drawn straight ONTO THE DARK FIELD above —
+   * the credit lines and the tulip tally. Deliberately NOT pixelText's default
+   * TEXT_COLOR (plum #4a2c40), which is tuned for the pastel-pink menus and is
+   * effectively illegible here; cream on duskIndigo measures ~10.3:1 contrast
+   * (WCAG AAA is 7:1). createPixelText takes no colour, so CreditsScene applies
+   * this through one `creditsText()` helper.
+   *
+   * IT IS NOT "every string on the screen", and the difference matters: the two
+   * button labels sit inside ui.ts's CREAM faces and the fresh-start
+   * confirmation's title and body sit on its CREAM panel, so all four keep the
+   * plum default on purpose (the same convention the party's name tags and
+   * banner use). Repainting those in this colour would render cream on cream. */
   textColor: PALETTE.cream,
 
   // ------------------------------------------------------- the three lines
   /** Centre y of each credit line, px — ONE ENTRY PER data/finale.ts
    * CREDITS_LINES entry, in the same order (tests/finale.test.ts pins the count
    * and that they run top-down). The gap before the third is deliberately
-   * larger than the gap between the first two: "Happy 22nd!!!" is the
-   * punchline, so it gets air and its own bigger font instead of reading as the
-   * third item in a list. */
+   * larger than the gap between the first two: the LAST line is the punchline,
+   * so it gets air and its own bigger font instead of reading as the third item
+   * in a list. (The lines themselves are in data/finale.ts — deliberately not
+   * re-typed here, so this comment cannot drift from them.) */
   lineCenterYsPx: [156, 220, 300],
-  /** Font size of the two "Created ..." lines, px (snapped to the 8px pixel
-   * grid by pixelText). Press Start 2P advances exactly one font size per
-   * character, so the longest — "Created for Gabriella Novelli", 29 chars —
-   * measures 29 x 32 = 928px, comfortably inside DESIGN_WIDTH. */
+  /** Font size of the first two credit lines, px (snapped to the 8px pixel grid
+   * by pixelText). Press Start 2P advances exactly one font size per character,
+   * so the longest of them (29 chars) measures 29 x 32 = 928px, comfortably
+   * inside DESIGN_WIDTH — tests/finale.test.ts re-derives that from the real
+   * CREDITS_LINES rather than trusting this number. */
   lineFontSizePx: 32,
-  /** Font size of the LAST line, px. Bigger, because it is the one sentence the
-   * whole game exists to say. 13 chars x 40 = 520px. */
+  /** Font size of the LAST credit line, px. Bigger, because it is the one
+   * sentence the whole game exists to say. 13 chars x 40 = 520px. */
   finalLineFontSizePx: 40,
 
   // ------------------------------------------------------------ the reveal
@@ -1984,7 +1992,7 @@ export const CREDITS = {
    * revealLineIntervalMs so a line has settled before the next one starts. */
   revealLineFadeMs: 350,
   /** Beat AFTER the last line before anything below the divider appears, ms —
-   * the pause that lets "Happy 22nd!!!" land on its own. */
+   * the pause that lets the final line land on its own. */
   revealTailDelayMs: 600,
   /** Fade duration of the below-the-divider content (heart, divider, tulip
    * line), ms.
@@ -2000,8 +2008,8 @@ export const CREDITS = {
 
   // -------------------------------------------------------------- the heart
   // PLAN-09 task 3's "A tiny heart somewhere. Tasteful." Centred directly under
-  // "Happy 22nd!!!" and above the divider, so it reads as a signature ON the
-  // message rather than as decoration floating in a corner.
+  // the LAST credit line and above the divider, so it reads as a signature ON
+  // the message rather than as decoration floating in a corner.
   /** Heart centre y, px. */
   heartCenterY: 364,
   /** Heart bounding-box size, px. TINY is the brief — smaller than the smallest

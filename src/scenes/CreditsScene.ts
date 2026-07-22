@@ -2,33 +2,36 @@
 // screen, and THE LAST THING THE RECIPIENT OF THIS GIFT EVER SEES.
 //
 // A dark dusk field with the party's confetti still falling, on which the three
-// VERBATIM credit lines appear one at a time:
-//
-//     Created by Caleb Melin
-//     Created for Gabriella Novelli
-//     Happy 22nd!!!
-//
-// then a tiny heart, a divider, the tulips she collected, and two ways on:
+// VERBATIM credit lines of src/data/finale.ts's CREDITS_LINES appear one at a
+// time, then a tiny heart, a divider, the tulips she collected, and two ways on:
 // "Play again?" (to the Title with EVERY gabby22.* key untouched) and a clearly
 // secondary "Fresh start" (which wipes the save — behind an in-scene
 // confirmation, never window.confirm).
 //
-// VERBATIM CONTENT (CLAUDE.md Rule 4 / NORTH_STAR §7): the three lines are
-// IMPORTED from src/data/finale.ts's CREDITS_LINES and never re-typed here.
-// "Happy 22nd!!!" has THREE exclamation marks. tests/finale.test.ts already
-// guards that constant byte-exactly against an independent code-point oracle,
-// and scripts/playtest-credits.mjs re-checks it against a second, separate
-// oracle on what actually reached the screen. The only copy authored in this
-// file is UI chrome — the button labels, the confirmation's wording and the
-// tulip tally — which is the LevelCompleteScene/PartyScene precedent for their
-// own button labels.
+// VERBATIM CONTENT (CLAUDE.md Rule 4 / NORTH_STAR §7): the credit lines and the
+// tulip tally are IMPORTED from src/data/finale.ts (CREDITS_LINES and
+// tulipTallyText) and are NEVER re-typed anywhere in this file — not in code and
+// not in a comment, because a hand-typed "documentation copy" of locked personal
+// content is exactly what drifts. Read them there. tests/finale.test.ts guards
+// both byte-exactly against independent code-point oracles, and
+// scripts/playtest-credits.mjs re-checks them against second, separate oracles
+// on what actually reached the screen. The only copy authored in THIS file is UI
+// chrome — the button labels and the confirmation's wording — which is the
+// LevelCompleteScene/PartyScene precedent for their own button labels.
 //
-// LEGIBILITY IS A DESIGN CONSTRAINT HERE, NOT A DETAIL. `createPixelText`
-// defaults to TEXT_COLOR (plum #4a2c40), which is tuned for the pastel-pink
-// menus and is effectively invisible on this background. EVERY string on this
-// screen therefore sets CREDITS.textColor explicitly (cream, ~10.3:1 contrast
-// on duskIndigo) — there is a helper below, `creditsText`, so no call site can
-// forget.
+// LEGIBILITY IS A DESIGN CONSTRAINT HERE, NOT A DETAIL — AND IT CUTS BOTH WAYS.
+// `createPixelText` defaults to TEXT_COLOR (plum #4a2c40), which is tuned for the
+// pastel-pink menus and is effectively invisible on this background. So every
+// string drawn straight ONTO THE DARK FIELD — the three credit lines and the
+// tulip tally — goes through the `creditsText` helper below, which applies
+// CREDITS.textColor (cream, ~10.3:1 contrast on duskIndigo).
+//
+// The strings that sit on a CREAM SURFACE deliberately keep the plum default and
+// MUST NOT be "fixed" to cream: the two button labels (inside ui.ts's cream
+// faces) and the fresh-start confirmation's title and body (on its cream panel).
+// Cream on cream would be the actual bug. The rule is therefore:
+//   dark field  -> this.creditsText(...)
+//   cream panel/button face -> createPixelText(...) with its default.
 //
 // A plain (non-Matter) scene at camera zoom 1 like LevelCompleteScene /
 // PartyScene — ZERO Matter bodies (it never touches `this.matter`), NO zoom
@@ -60,11 +63,13 @@ import {
 import { createPixelButton, createPixelPanel, createPixelText } from '../systems/ui';
 import { createConfettiFall } from '../systems/confetti';
 import type { ConfettiFallHandle } from '../systems/confetti';
-import { CREDITS_LINES } from '../data/finale';
+import { CREDITS_LINES, tulipTallyText } from '../data/finale';
 import { getSave } from '../systems/save';
 
 // ---------------------------------------------------------------------------
-// UI chrome authored here (NOT personal content — see the module doc).
+// UI chrome authored here (NOT personal content — see the module doc). The
+// rendered COPY that is not chrome (the credit lines, the tulip tally) lives in
+// src/data/finale.ts and is imported above.
 // ---------------------------------------------------------------------------
 
 /** The primary way on: back to the Title with progress KEPT. */
@@ -98,25 +103,6 @@ const CONFIRM_CANCEL_LABEL = 'Keep my progress';
 
 /** CONFIRM. Named for what it DOES. */
 const CONFIRM_ERASE_LABEL = 'Erase it all';
-
-/**
- * The tally under the divider — PLAN-09 task 3's "🌷 × N collected".
- *
- * BOTH non-ASCII characters are written as explicit `\u{...}` escapes, never as
- * literal glyphs in source (the data/notes.ts / data/finale.ts discipline, so an
- * editor re-encoding this file can never mangle them): U+1F337 TULIP and U+00D7
- * MULTIPLICATION SIGN. Escaping is necessary but not sufficient — a code point
- * the font stack cannot draw renders as a tofu box — so BOTH were
- * screenshot-verified in real Chrome at this exact size before being kept, the
- * same way the level-2 tutorial sign's em dash was (DECISIONS.md 2026-07-16 and
- * 2026-07-22). The tulip is already proven by the party's bouquet toast.
- *
- * Shown at EVERY count including zero — see CREDITS.tulipLineCenterY's doc for
- * why this differs from the party toast's tulips > 0 gate.
- */
-function tulipLineText(count: number): string {
-  return `\u{1F337} \u{00D7} ${count} collected`;
-}
 
 // ---------------------------------------------------------------------------
 // Placeholder DRAWING dimensions (PLAN-10 replaces the art). The established
@@ -250,7 +236,7 @@ export class CreditsScene extends Phaser.Scene {
     this.buildCreditLines();
 
     const tulips = getSave().getTulips();
-    this.tallyText = tulipLineText(tulips);
+    this.tallyText = tulipTallyText(tulips);
 
     // Tap/click ANYWHERE skips the reveal (LevelCompleteScene's courtesy to
     // impatient players). Removed on SHUTDOWN so it can't stack across
@@ -315,10 +301,12 @@ export class CreditsScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ text
-  /** Centered pixel text in THIS screen's colour. Every string on the credits
-   * goes through here — createPixelText's default plum is unreadable on the
-   * dark field, and a helper is how that stops being something a call site can
-   * forget. */
+  /** Centered pixel text in the DARK-FIELD colour. Everything drawn straight
+   * onto the background goes through here, because createPixelText's default
+   * plum is unreadable there — and a helper is how that stops being something a
+   * call site can forget. Text on a CREAM surface (the button labels, the
+   * confirmation's title and body) deliberately does NOT use this: see the
+   * module doc's two-way legibility rule. */
   private creditsText(
     x: number,
     y: number,
@@ -529,9 +517,12 @@ export class CreditsScene extends Phaser.Scene {
       CREDITS.confirmPanelHeightPx
     ).setDepth(DEPTHS.overlay + 1);
 
-    // The panel face is cream, so its text uses the DEFAULT plum — the same
-    // cream-panel-behind-plum-text convention the name tags and the party
-    // banner use. This is the one place on the screen that is not cream-on-dark.
+    // ON PURPOSE, NOT AN OVERSIGHT: the panel face is cream, so its title and
+    // body use createPixelText's DEFAULT plum rather than the scene's cream —
+    // the same cream-panel-behind-plum-text convention the party's name tags and
+    // banner use, and the same reason the two button labels below keep the
+    // default too (ui.ts faces are cream). Switching these to CREDITS.textColor
+    // would render cream on cream. See the module doc's two-way rule.
     const title = createPixelText(
       this,
       cx,

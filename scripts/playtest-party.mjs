@@ -589,7 +589,21 @@ function pickTarget(sample) {
   });
 }
 
-/** One "Credits ->" routing assertion by a real click OR tap. */
+/**
+ * One "Credits ->" routing assertion by a real click OR tap.
+ *
+ * THE SETTLE BELOW IS LOAD-BEARING, not padding. Phaser queues a freshly created
+ * interactive Game Object in `InputPlugin._pendingInsertion` and only splices it
+ * into the hit-test list `_list` on the NEXT scene pre-update. This button is
+ * built inside a `time.delayedCall`, so the frame on which `creditsShown` flips
+ * true is a frame on which the button cannot yet be hit-tested: a press landing
+ * in that ~16ms window reaches the SCENE's pointer handling but never the
+ * button, and the check fails with a "the button did nothing" that looks exactly
+ * like a real regression. A human cannot press inside 16ms of a button fading
+ * in; CDP can. Diagnosed live while building scripts/playtest-credits.mjs (whose
+ * `pollAndSettle` carries the same note) — this is PLAN-09's primary acceptance
+ * gate, so it settles rather than races.
+ */
 async function checkCreditsRoute(page, kind, problems) {
   await enterParty(page);
   const shown = await pollParty(page, (s) => s.creditsShown, 8000);
@@ -597,6 +611,7 @@ async function checkCreditsRoute(page, kind, problems) {
     problems.push(`credits via ${kind}: button never appeared`);
     return;
   }
+  await page.waitForTimeout(SETTLE_MS);
   const fire = kind === 'tap' ? tapDesign : clickDesign;
   await fire(page, shown.creditsPos.x, shown.creditsPos.y);
   try {

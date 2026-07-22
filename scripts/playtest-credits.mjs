@@ -23,11 +23,13 @@
 //      ANYWHERE skips straight to all three.
 //   3. THE TULIP LINE: gabby22.tulips is seeded to a known N and the rendered
 //      line must read "<U+1F337> <U+00D7> N collected" byte-exactly. Both
-//      non-ASCII glyphs are PROVED to have rendered rather than tofu'd, two ways:
-//      (a) an ink-bitmap comparison in a 2D canvas against a PRIVATE-USE code
-//      point that no font can have, and (b) an advance-width probe (Press Start
-//      2P advances exactly one font size per glyph; the Courier New fallback
-//      would advance 0.6x). A tight screenshot crop is captured for the eye.
+//      non-ASCII glyphs are PROVED to have rendered rather than tofu'd by their
+//      DRAWN INK, compared in a 2D canvas against a PRIVATE-USE code point no
+//      font can define. The advance-width probe beside it is a WEAKER, DIFFERENT
+//      claim and is NOT the proof: Press Start 2P is fixed-width and its own
+//      .notdef box advances exactly as far as a real glyph, so width only rules
+//      out a fallback font (Courier New would advance 0.6x). A tight screenshot
+//      crop is captured for the eye.
 //   4. "Play again?" routes to TitleScene by BOTH click and tap, and EVERY
 //      gabby22.* key is byte-identical before and after (raw localStorage,
 //      seeded with a real partially-completed save first).
@@ -36,9 +38,12 @@
 //      NOT navigate (the underlying buttons are input-disabled); CANCEL leaves
 //      every gabby22.* key untouched and re-enables both buttons; CONFIRM clears
 //      every gabby22.* key and lands on the Title. Both paths are exercised.
-//   6. DOUBLE-PRESS GUARD: TitleScene.create is instrumented with a counter, and
-//      a rapid double-press on "Play again?" AND on "Erase it all" must each
-//      produce exactly ONE create.
+//   6. REPEAT-PRESS GUARD: TitleScene.create is instrumented with a counter. A
+//      rapid double-CLICK (one mouse pointer, pressed twice) on "Play again?"
+//      and a genuine TWO-FINGER TAP (two CDP touch points at once) on the
+//      destructive "Erase it all" must each produce exactly ONE create — with a
+//      falsifiability control asserting the two-finger tap really did arrive as
+//      TWO pointer-downs rather than one.
 //   7. NO DEAD ENDS, driven end to end: PartyScene -> "Credits ->" -> Credits ->
 //      "Play again?" -> Title, asserting every hop.
 //   8. A TINY HEART is present (the DEV flag plus a real Graphics object).
@@ -168,9 +173,13 @@ async function tapDesign(page, x, y) {
   const box = await canvasBox(page);
   await page.touchscreen.tap(vx(box, x), vy(box, y));
 }
-/** Two presses as fast as the input pipeline allows, without moving between
- * them — the rapid double-click / two-finger-tap a `leaving` latch exists for. */
-async function doublePressDesign(page, x, y) {
+/**
+ * A rapid DOUBLE-CLICK: two presses of the SAME mouse pointer as fast as the
+ * input pipeline allows, with no movement between them. This is the mouse half
+ * of what the `leaving` latch exists for — see twoFingerTapDesign below for the
+ * touch half, which is a genuinely different thing (two pointers, not one).
+ */
+async function doubleClickDesign(page, x, y) {
   const box = await canvasBox(page);
   await page.mouse.move(vx(box, x), vy(box, y));
   await page.mouse.down();
@@ -178,6 +187,73 @@ async function doublePressDesign(page, x, y) {
   await page.mouse.down();
   await page.mouse.up();
 }
+
+/**
+ * A genuine TWO-FINGER TAP: two distinct touch points landing and lifting
+ * together, both inside the same button — the press a phone delivers when a
+ * thumb and a finger arrive at once, and the literal case ST-3 added the
+ * `leaving` latch for.
+ *
+ * Playwright's `touchscreen.tap` drives ONE point, so this goes through raw CDP.
+ * The two points are spread horizontally so both land on the (>= 340px wide)
+ * button rather than on top of each other.
+ */
+async function twoFingerTapDesign(page, x, y, spreadPx = 60) {
+  const box = await canvasBox(page);
+  const client = await page.context().newCDPSession(page);
+  const point = (dx, id) => ({
+    x: vx(box, x + dx),
+    y: vy(box, y),
+    radiusX: 6,
+    radiusY: 6,
+    force: 1,
+    id,
+  });
+  try {
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [point(-spreadPx, 1), point(spreadPx, 2)],
+    });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await client.detach();
+  }
+}
+
+/**
+ * Makes sure the game actually HAS enough touch pointers for the two-finger tap
+ * above to be two pointers rather than one.
+ *
+ * Phaser defaults to a single touch pointer. The game tops itself up in
+ * systems/pedals.ts (`scene.input.addPointer`) the first time GameScene runs, so
+ * by the time a real player reaches the credits two fingers genuinely are two
+ * pointers. This harness enters CreditsScene directly and never plays a level,
+ * so it performs the same top-up itself — otherwise a "two-finger tap" would be
+ * silently collapsed into one pointer and the check would be theatre. The
+ * falsifiability control in main() proves the delivery really is 2.
+ */
+function ensureMultiTouch(page) {
+  return page.evaluate(() => {
+    const input = globalThis.__gabbyGame.input;
+    if (input.pointers.length < 3) input.addPointer(3 - input.pointers.length);
+    return input.pointers.length;
+  });
+}
+
+/** Counts scene-level POINTER_DOWN events on CreditsScene until read back —
+ * the falsifiability control for twoFingerTapDesign: one physical two-finger tap
+ * must arrive as TWO pointer-downs, or the "two fingers" claim is empty. */
+async function armPointerDownCounter(page) {
+  await page.evaluate(() => {
+    const scene = globalThis.__gabbyGame.scene.getScene('CreditsScene');
+    globalThis.__downCount = 0;
+    globalThis.__countDown = () => {
+      globalThis.__downCount++;
+    };
+    scene.input.on('pointerdown', globalThis.__countDown);
+  });
+}
+const readPointerDowns = (page) => page.evaluate(() => globalThis.__downCount ?? 0);
 
 /** Enter CreditsScene directly (scene-manager bypass), stopping every other
  * active scene first so nothing lingers behind it stealing input or frames. The
@@ -324,15 +400,18 @@ function renderedTexts(page) {
  * PROVE THE TWO NON-ASCII GLYPHS REALLY RENDERED (rather than tofu'd), in the
  * page, with the exact font stack and size CreditsScene draws the tally at.
  *
- * Two independent signals:
- *   - INK: each character is drawn into a 2D canvas and its lit pixels reduced
- *     to a count + a positional hash. A PRIVATE-USE code point (U+E123) is the
- *     control: no font can define it, so whatever the browser draws for it IS
- *     this stack's "missing glyph" rendering. A character whose ink signature
- *     differs from that control drew a real glyph.
- *   - ADVANCE: Press Start 2P advances exactly one font size (24px) per glyph;
- *     the 'Courier New' fallback in FONT_STACK_PIXEL advances 0.6x (14.4px). An
- *     advance of exactly 24 therefore says the pixel font itself supplied it.
+ * Two signals, and they prove DIFFERENT things — do not conflate them:
+ *   - INK (this is the proof). Each character is drawn into a 2D canvas and its
+ *     lit pixels reduced to a count + a positional hash. A PRIVATE-USE code
+ *     point (U+E123) is the control: no font can define it, so whatever the
+ *     browser draws for IT is this stack's "missing glyph" rendering. A
+ *     character whose ink signature differs from that control drew a real glyph.
+ *   - ADVANCE (a weaker, separate claim). Press Start 2P advances exactly one
+ *     font size (24px) per glyph; the 'Courier New' fallback in
+ *     FONT_STACK_PIXEL advances 0.6x (14.4px). So an advance of exactly 24 says
+ *     the PIXEL FONT supplied the glyph rather than a fallback — it does NOT say
+ *     the glyph is real, because that font's .notdef box is fixed-width too and
+ *     advances identically. Width alone would happily pass a tofu box.
  */
 function glyphProbe(page) {
   return page.evaluate(() => {
@@ -446,6 +525,10 @@ async function main() {
   try {
     await page.goto(DEV_URL, { waitUntil: 'domcontentloaded' });
     await waitForScene(page, 'TitleScene');
+    // Match the pointer budget a real player arrives with (see ensureMultiTouch).
+    const pointerCount = await ensureMultiTouch(page);
+    if (pointerCount < 3)
+      problems.push(`only ${pointerCount} pointers available — no real two-finger tap is possible`);
     await seedSave(page, SEEDED_SAVE);
 
     // ------------------------------------------------ (1)+(2) reveal + lines
@@ -558,8 +641,11 @@ async function main() {
           `glyph ${name}: renders identically to a private-use code point — it is TOFU, not a glyph`
         );
     }
-    // Advance: the multiplication sign must come from Press Start 2P itself
-    // (one font size per glyph), not from the Courier New fallback (0.6x).
+    // Advance: a SECONDARY check, deliberately NOT the tofu proof above — it
+    // only says the multiplication sign came from Press Start 2P itself (one
+    // font size per glyph) rather than from the Courier New fallback (0.6x).
+    // That font's own .notdef box advances 24 as well, so this would pass on
+    // tofu; the ink comparison above is what rules tofu out.
     if (glyphs.times.advance !== glyphs.letterA.advance)
       problems.push(
         `glyph times: advance ${glyphs.times.advance} != an ASCII glyph's ${glyphs.letterA.advance} — it came from a fallback font`
@@ -663,8 +749,17 @@ async function main() {
     const toErase = await pollAndSettle(page, (s) => s.confirmShowing, 2000);
     if (!toErase.confirmShowing) problems.push('erase: the confirmation never opened');
     await armTitleCreateCounter(page);
-    // (6) DOUBLE-PRESS on the destructive button too.
-    await doublePressDesign(page, toErase.confirmErasePos.x, toErase.confirmErasePos.y);
+    // (6) A genuine TWO-FINGER TAP on the DESTRUCTIVE button — the phone case
+    // the `leaving` latch was added for, and the one where an unguarded second
+    // press would also run resetAll() twice. The control below proves the tap
+    // really arrived as two pointer-downs and not one.
+    await armPointerDownCounter(page);
+    await twoFingerTapDesign(page, toErase.confirmErasePos.x, toErase.confirmErasePos.y);
+    const eraseDowns = await readPointerDowns(page);
+    if (eraseDowns !== 2)
+      problems.push(
+        `two-finger tap: the scene saw ${eraseDowns} pointer-down(s), not 2 — the multi-touch check is not testing two fingers`
+      );
     try {
       await waitForScene(page, 'TitleScene', 6000);
     } catch {
@@ -676,13 +771,15 @@ async function main() {
     if (Object.keys(afterErase).length > 0)
       problems.push(`erase: gabby22.* keys survived resetAll(): ${JSON.stringify(afterErase)}`);
     if (eraseTitleCreates !== 1)
-      problems.push(`erase double-press: TitleScene.create ran ${eraseTitleCreates} times (want 1)`);
+      problems.push(
+        `erase two-finger tap: TitleScene.create ran ${eraseTitleCreates} times (want 1)`
+      );
 
-    // ------------------------------- (6) double-press guard on "Play again?"
+    // ------------------------------- (6) double-CLICK guard on "Play again?"
     await seedSave(page, SEEDED_SAVE);
     ready = await enterCreditsReady(page, problems, 'double press');
     await armTitleCreateCounter(page);
-    await doublePressDesign(page, ready.playAgainPos.x, ready.playAgainPos.y);
+    await doubleClickDesign(page, ready.playAgainPos.x, ready.playAgainPos.y);
     try {
       await waitForScene(page, 'TitleScene', 6000);
     } catch {
@@ -776,7 +873,12 @@ async function main() {
         pressBlockedWhileOpen: !blocked.titleActive && blocked.confirmShowing,
         keysAfterErase: Object.keys(afterErase),
       },
-      doublePress: { playAgain: playAgainTitleCreates, erase: eraseTitleCreates },
+      repeatPress: {
+        pointerBudget: pointerCount,
+        doubleClickPlayAgainTitleCreates: playAgainTitleCreates,
+        twoFingerTapEraseTitleCreates: eraseTitleCreates,
+        twoFingerTapPointerDowns: eraseDowns,
+      },
       chain,
       consoleErrors,
       pageErrors,
@@ -795,7 +897,7 @@ async function main() {
   } else {
     const g = report.tulipLine.glyphs;
     console.log(
-      `CREDITS OK: the three lines byte-exact and centred — "${report.lines.join('" / "')}" (last one with THREE '!') — revealed line by line (saw ${report.reveal.partialLines}/3 partway, complete after ${report.reveal.completedNaturallyAfterMs}ms) and a tap anywhere skips ${report.reveal.skip.revealedBefore}/3 straight to 3/3; tally "${report.tulipLine.text}" rendered with the tulip and the x both REAL glyphs (ink ${g.tulip.ink}/${g.times.ink} vs the private-use control's ${g.missing.ink}; x advances ${g.times.advance}px like an ASCII glyph); a tiny heart is drawn; ${report.confettiRects} confetti pieces still falling; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; "Play again?" routes to the Title by click AND tap with all ${Object.keys(report.playAgainKeepsSave.before).length} gabby22.* keys byte-identical; "Fresh start" opens a confirm that swallows presses aimed at the buttons under it, cancel leaves every key untouched and re-enables both, and confirm leaves ${report.freshStart.keysAfterErase.length} keys behind; rapid double-presses started the Title exactly ${report.doublePress.playAgain}/${report.doublePress.erase} times; party -> credits -> title with no dead ends; no errors.`
+      `CREDITS OK: the three lines byte-exact and centred — "${report.lines.join('" / "')}" (last one with THREE '!') — revealed line by line (saw ${report.reveal.partialLines}/3 partway, complete after ${report.reveal.completedNaturallyAfterMs}ms) and a tap anywhere skips ${report.reveal.skip.revealedBefore}/3 straight to 3/3; tally "${report.tulipLine.text}" rendered, with the tulip and the multiplication sign both proven REAL GLYPHS by their drawn ink (${g.tulip.ink}/${g.times.ink} lit px vs the private-use control's ${g.missing.ink}) — the ${g.times.advance}px advance only rules out a fallback font, since the pixel font's own tofu box advances the same; a tiny heart is drawn; ${report.confettiRects} confetti pieces still falling; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; "Play again?" routes to the Title by click AND tap with all ${Object.keys(report.playAgainKeepsSave.before).length} gabby22.* keys byte-identical; "Fresh start" opens a confirm that swallows presses aimed at the buttons under it, cancel leaves every key untouched and re-enables both, and confirm leaves ${report.freshStart.keysAfterErase.length} keys behind; a rapid double-CLICK on "Play again?" and a genuine TWO-FINGER TAP on "Erase it all" (${report.repeatPress.twoFingerTapPointerDowns} pointer-downs, ${report.repeatPress.pointerBudget} pointers available) each started the Title exactly ${report.repeatPress.doubleClickPlayAgainTitleCreates}/${report.repeatPress.twoFingerTapEraseTitleCreates} times; party -> credits -> title with no dead ends; no errors.`
     );
   }
 }
