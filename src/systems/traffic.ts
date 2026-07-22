@@ -9,7 +9,7 @@
 // passenger.ts), so they never touch NORTH_STAR §8's <100-body budget. Collision
 // is a MANUAL JS overlap against ctx.bike.x each frame (see isTrafficCollision).
 //
-// Like bike.ts / terrain.ts / passenger.ts (and UNLIKE decorations.ts), this
+// Like bike.ts / terrain.ts / passenger.ts (and UNLIKE ui.ts), this
 // module has NO runtime Phaser import and does NOT import ui.ts — its only
 // non-type imports are the pure constants — so it stays import-safe in Node.
 // The pure helpers below (lane fraction, lane y, collision predicate, spawn

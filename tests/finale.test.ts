@@ -35,10 +35,12 @@ import type { AuthoredGuestAppearance, NamedGuest } from '../src/data/finale';
 import {
   buildPartyCastSlots,
   castBounceOffsetPx,
+  castTextureSource,
   partyRowX,
 } from '../src/systems/partyCast';
-import { PARTY } from '../src/systems/constants';
+import { DEPTHS, DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE, PARTY } from '../src/systems/constants';
 import { MARKERS } from '../src/systems/palette';
+import { resolveEyes, resolveHair } from '../src/data/characters';
 
 // ---------------------------------------------------------------------------
 // Independent oracles. Each string is assembled from explicit code points so it
@@ -269,9 +271,19 @@ describe('guest appearance invariants', () => {
 
   it('Dom is blonde and NOT Caleb-brown (they must stay distinguishable)', () => {
     const dom = GUEST_DOM.appearance as AuthoredGuestAppearance;
-    const andrea = GUEST_ANDREA.appearance as AuthoredGuestAppearance;
-    // Andrea's brown is the same warm mid-brown Caleb's hair band uses.
-    expect(dom.hairColor).not.toBe(andrea.hairColor);
+    // The REAL invariant (NORTH_STAR §5 / DECISIONS.md 2026-07-15): Dom must
+    // never share Caleb's hair, since blonde-Dom is exactly why Caleb is
+    // brown-haired. Asserted against PALETTE.brown — the literal colour
+    // partyCast.ts paints Caleb's hair band — so retuning Andrea (or any other
+    // guest) can't silently take this guard with it.
+    expect(dom.hairColor).not.toBe(PALETTE.brown);
+    expect(dom.hairColor).toBe(resolveHair('blonde').color);
+    // ...and no OTHER named guest is blonde either, so the tag-less crowd aside,
+    // Dom is unambiguous in the front row.
+    const otherBlondes = NAMED_GUESTS.filter(
+      (g) => g.appearance.kind === 'authored' && g.appearance.hairColor === dom.hairColor
+    );
+    expect(otherBlondes.map((g) => g.name)).toEqual([ORACLE_DOM]);
   });
 
   it('no authored color equals a MARKERS value (recolor safety)', () => {
@@ -294,6 +306,52 @@ describe('crowd appearance is deterministic and varied', () => {
   it('is a pure function of the index (same index -> identical look)', () => {
     for (let i = 0; i < 20; i++) {
       expect(crowdGuestAppearance(i)).toEqual(crowdGuestAppearance(i));
+    }
+  });
+
+  it('pins concrete looks, so a silent reorder of the colour lists fails', () => {
+    // Without this, the "distinct combos"/"adjacent differ" properties below all
+    // still hold after someone shuffles CROWD_*_COLORS — and every crowd member
+    // silently changes appearance. Pinned against the game's own swatch data
+    // (resolveHair/resolveEyes), not re-hardcoded hex.
+    expect(crowdGuestAppearance(0)).toEqual({
+      kind: 'authored',
+      hairColor: resolveHair('brown').color,
+      suitColor: CROWD_SUIT_COLORS[0],
+      eyeColor: resolveEyes('blue').color,
+      hairStyle: 'band',
+    });
+    expect(crowdGuestAppearance(1)).toEqual({
+      kind: 'authored',
+      hairColor: resolveHair('blonde').color,
+      suitColor: CROWD_SUIT_COLORS[1],
+      eyeColor: resolveEyes('green').color,
+      hairStyle: 'band',
+    });
+    // Each channel advances on its OWN cycle (5 / 6 / 4), so index 5 wraps hair
+    // back to the head of the list while suit and eye do not.
+    expect(crowdGuestAppearance(5).hairColor).toBe(resolveHair('brown').color);
+    expect(crowdGuestAppearance(5).suitColor).toBe(CROWD_SUIT_COLORS[5]);
+    expect(crowdGuestAppearance(5).eyeColor).toBe(resolveEyes('green').color);
+  });
+
+  it('draws its hair/eye tones from the game\'s OWN swatch data', () => {
+    // The comment in data/finale.ts claims these are the real swatches; this
+    // makes that true rather than aspirational.
+    for (const id of ['brown', 'blonde', 'black', 'ginger']) {
+      expect(CROWD_HAIR_COLORS).toContain(resolveHair(id).color);
+    }
+    for (const id of ['blue', 'green', 'brown', 'grey']) {
+      expect(CROWD_EYE_COLORS).toContain(resolveEyes(id).color);
+    }
+  });
+
+  it('has no duplicate tones within any colour list', () => {
+    // resolveHair/resolveEyes fall back to the default swatch for an unknown
+    // id, so a renamed/retired swatch would silently collapse two entries into
+    // one and quietly halve the crowd's variety.
+    for (const list of [CROWD_HAIR_COLORS, CROWD_SUIT_COLORS, CROWD_EYE_COLORS]) {
+      expect(new Set(list).size).toBe(list.length);
     }
   });
 
@@ -399,8 +457,42 @@ describe('PARTY constants stay inside the mandated ranges', () => {
     expect(PARTY.nameTagDepth).toBeGreaterThan(PARTY.frontRowDepth);
   });
 
+  it('leaves the DEPTHS.fx layer free for ST-2 balloons / ST-3 confetti', () => {
+    // The PARTY block doc states this; ST-2's balloons depend on being able to
+    // draw above the cast without fighting the tags for a layer.
+    expect(PARTY.nameTagDepth).toBeLessThan(DEPTHS.fx);
+    expect(PARTY.crowdDepth).toBeLessThan(DEPTHS.fx);
+  });
+
   it('the tag gap clears the panel half-height (a tag never overlaps a head)', () => {
-    expect(PARTY.nameTagGapPx).toBeGreaterThan(PARTY.nameTagFontSizePx / 2 + PARTY.nameTagPadYPx);
+    // partyCast.ts sizes the panel from the label's MEASURED height, so model it
+    // as `lineHeight * fontSize + 2 * padY`. Browser-measured, Press Start 2P
+    // single line at 8/16/24/32/40px: Phaser reports height EXACTLY 1.0x the
+    // font size. MAX_LINE_HEIGHT_FACTOR is the conservative bound that still
+    // holds if the pixel font fails to load and FONT_STACK_PIXEL falls back to
+    // Courier New.
+    const MAX_LINE_HEIGHT_FACTOR = 1.5;
+    const panelHalfHeight =
+      (MAX_LINE_HEIGHT_FACTOR * PARTY.nameTagFontSizePx + PARTY.nameTagPadYPx * 2) / 2;
+    expect(PARTY.nameTagGapPx).toBeGreaterThan(panelHalfHeight);
+  });
+
+  it('keeps adjacent name-tag panels from colliding', () => {
+    // Press Start 2P is fixed-width with an advance of exactly one font size per
+    // character (browser-measured: "Allison" renders 7 x 16 = 112px wide), so a
+    // panel is `name.length * fontSize + 2 * padX` wide. The four tags sit on
+    // front-row members, so two adjacent tags are frontRowSpacingPx apart.
+    // Without this, bumping nameTagFontSizePx to 24 would overlap
+    // "Andrea"/"Dallas" with nothing failing.
+    const panelWidth = (name: string): number =>
+      name.length * PARTY.nameTagFontSizePx + PARTY.nameTagPadXPx * 2;
+    for (const a of NAMED_GUESTS) {
+      for (const b of NAMED_GUESTS) {
+        expect(panelWidth(a.name) / 2 + panelWidth(b.name) / 2).toBeLessThan(
+          PARTY.frontRowSpacingPx
+        );
+      }
+    }
   });
 });
 
@@ -485,6 +577,48 @@ describe('buildPartyCastSlots layout', () => {
       expect(slots.find((s) => s.id === name)!.appearance).not.toBeNull();
     }
   });
+});
+
+describe('castTextureSource — THE TWIN JOKE (NORTH_STAR §5)', () => {
+  const slots = buildPartyCastSlots();
+  const bySource = (id: string) => castTextureSource(slots.find((s) => s.id === id)!);
+
+  it('routes Dallas and Gabby to the SAME source: the player character', () => {
+    // This is the load-bearing assertion. createPartyCast's textureKeyFor is a
+    // plain switch over this function, and the 'player' branch returns the one
+    // riderTextureKey buildCharacterTextures produced — so both resolving to
+    // 'player' IS "Dallas's sprite is a copy of the player's current Gabby",
+    // and it stays true for every character the player can pick.
+    expect(bySource(ORACLE_DALLAS)).toBe('player');
+    expect(bySource('gabby')).toBe('player');
+    expect(bySource(ORACLE_DALLAS)).toBe(bySource('gabby'));
+  });
+
+  it('routes NOBODY else to the player texture', () => {
+    const playerSourced = slots.filter((s) => castTextureSource(s) === 'player').map((s) => s.id);
+    expect(playerSourced.sort()).toEqual([ORACLE_DALLAS, 'gabby'].sort());
+  });
+
+  it('routes Caleb to his own placeholder, never to the player texture', () => {
+    // Caleb must never inherit Gabby's look just because he has no authored
+    // colors — the role check has to come FIRST in castTextureSource.
+    expect(bySource('caleb')).toBe('caleb');
+  });
+
+  it('routes the other three named guests and the whole crowd to authored swaps', () => {
+    for (const name of [ORACLE_ANDREA, ORACLE_ALLISON, ORACLE_DOM]) {
+      expect(bySource(name)).toBe('authored');
+    }
+    for (const s of slots.filter((s) => s.role === 'crowd')) {
+      expect(castTextureSource(s)).toBe('authored');
+    }
+  });
+
+  it('is total — every slot resolves to one of the three known sources', () => {
+    for (const s of slots) {
+      expect(['caleb', 'player', 'authored']).toContain(castTextureSource(s));
+    }
+  });
 
   it('never stacks two members at the same x', () => {
     const xs = slots.map((s) => s.x);
@@ -505,13 +639,13 @@ describe('buildPartyCastSlots layout', () => {
     }
   });
 
-  it('keeps every member fully on screen (1280x720 design space)', () => {
+  it('keeps every member fully on screen (the design viewport)', () => {
     for (const s of slots) {
       const halfWidth = (SPRITE_WIDTH_PX * s.scale) / 2;
       expect(s.x - halfWidth).toBeGreaterThanOrEqual(0);
-      expect(s.x + halfWidth).toBeLessThanOrEqual(1280);
+      expect(s.x + halfWidth).toBeLessThanOrEqual(DESIGN_WIDTH);
       expect(s.groundY).toBeGreaterThan(0);
-      expect(s.groundY).toBeLessThanOrEqual(720);
+      expect(s.groundY).toBeLessThanOrEqual(DESIGN_HEIGHT);
       // Heads (and their name tags) stay above the top edge of the screen.
       expect(s.groundY - SPRITE_HEIGHT_PX * s.scale - PARTY.nameTagGapPx).toBeGreaterThan(0);
     }

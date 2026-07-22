@@ -21,19 +21,21 @@
 // NORTH_STAR §8's <100-body budget — same discipline as passenger.ts /
 // traffic.ts / pickup.ts / wheelieRider.ts. It never references scene.matter.
 //
-// Like bike.ts / terrain.ts / passenger.ts / traffic.ts / pickup.ts (and UNLIKE
-// decorations.ts), this module has NO runtime Phaser import — `import type
-// Phaser` is erased at compile time (verbatimModuleSyntax + erasableSyntaxOnly)
-// — and it draws text through the import-safe `pixelText` helper rather than
-// ui.ts (which DOES carry a runtime Phaser import). So the pure layout/bounce
-// helpers below are unit-testable in plain Node (tests/finale.test.ts), and
-// createPartyCast only ever CALLS METHODS on the runtime `scene` handle it is
-// given (same contract as createBike).
+// Like bike.ts / terrain.ts / passenger.ts / traffic.ts / pickup.ts /
+// decorations.ts (and UNLIKE ui.ts, the one module that still carries a runtime
+// `import Phaser` — for createPixelButton's Phaser.Geom hit area), this module
+// has NO runtime Phaser import: `import type Phaser` is erased at compile time
+// (verbatimModuleSyntax + erasableSyntaxOnly). It therefore draws text through
+// the import-safe `pixelText` helper rather than ui.ts. So the pure
+// layout/bounce/texture-source helpers below are unit-testable in plain Node
+// (tests/finale.test.ts), and createPartyCast only ever CALLS METHODS on the
+// runtime `scene` handle it is given (same contract as createBike).
 //
 // PLACEHOLDER ART (PLAN-10 replaces it): guests are palette swaps of the ONE
-// marker-composite rider base texture, plus cheap overlay rectangles for the
-// hair silhouettes. Every tunable NUMBER lives in constants.ts's PARTY block;
-// every COLOR and every verbatim NAME lives in src/data/finale.ts.
+// marker-composite rider base texture (except Caleb, who keeps the raw
+// tex-caleb placeholder), plus cheap overlay rectangles for the hair
+// silhouettes. Every tunable NUMBER lives in constants.ts's PARTY block; every
+// COLOR and every verbatim NAME lives in src/data/finale.ts.
 import type Phaser from 'phaser';
 import { PARTY, PALETTE, TEXTURE_KEYS } from './constants';
 import { pixelText } from './pixelText';
@@ -92,11 +94,14 @@ export interface PartyCastSlot {
 
 /** One front-row entry, left to right. Written as VALUES (not names or roster
  * indices) so "Dallas stands next to Gabby" is checked by the compiler and can
- * never be broken by a typo or a later reorder of NAMED_GUESTS. */
-interface FrontRowEntry {
-  readonly role: PartyCastRole;
-  readonly guest: NamedGuest | null;
-}
+ * never be broken by a typo or a later reorder of NAMED_GUESTS. A DISCRIMINATED
+ * UNION on `role`, so a nonsense entry like `{ role: 'gabby', guest: GUEST_DOM }`
+ * (or a `'guest'` entry with nobody in it) is not even expressible. `'crowd'` is
+ * absent by construction — the crowd is a separate generated row, never authored
+ * into the front line. */
+type FrontRowEntry =
+  | { readonly role: 'guest'; readonly guest: NamedGuest }
+  | { readonly role: 'gabby' | 'caleb' };
 
 /**
  * The front row, left to right (see the PARTY block's LAYOUT MODEL):
@@ -107,8 +112,8 @@ interface FrontRowEntry {
 const FRONT_ROW: readonly FrontRowEntry[] = [
   { role: 'guest', guest: GUEST_ANDREA },
   { role: 'guest', guest: GUEST_DALLAS },
-  { role: 'gabby', guest: null },
-  { role: 'caleb', guest: null },
+  { role: 'gabby' },
+  { role: 'caleb' },
   { role: 'guest', guest: GUEST_ALLISON },
   { role: 'guest', guest: GUEST_DOM },
 ];
@@ -164,7 +169,7 @@ export function buildPartyCastSlots(): readonly PartyCastSlot[] {
   };
 
   FRONT_ROW.forEach((entry, i) => {
-    const guest = entry.guest;
+    const guest = entry.role === 'guest' ? entry.guest : null;
     slots.push({
       id: guest ? guest.name : entry.role,
       role: entry.role,
@@ -174,7 +179,9 @@ export function buildPartyCastSlots(): readonly PartyCastSlot[] {
       groundY: PARTY.frontRowGroundY,
       scale: PARTY.frontRowScale,
       depth: PARTY.frontRowDepth,
-      phase01: phaseFor(slots.length),
+      // Global (whole-cast) index, so a front-row member and a crowd member can
+      // never share a phase.
+      phase01: phaseFor(i),
     });
   });
 
@@ -188,14 +195,35 @@ export function buildPartyCastSlots(): readonly PartyCastSlot[] {
       // Odd members stand a touch nearer, so the back row isn't a chorus line.
       groundY: PARTY.crowdGroundY + (i % 2 === 1 ? PARTY.crowdStaggerYPx : 0),
       // Scale cycles small / base / large by index so the crowd reads as
-      // individuals rather than one sprite stamped 12 times.
+      // individuals rather than one sprite stamped N times.
       scale: PARTY.crowdScale * (1 + ((i % 3) - 1) * PARTY.crowdScaleStep),
       depth: PARTY.crowdDepth,
-      phase01: phaseFor(slots.length),
+      phase01: phaseFor(FRONT_ROW.length + i),
     });
   }
 
   return slots;
+}
+
+/** Where a cast member's texture comes from. `'player'` is THE TWIN JOKE: both
+ * Gabby and Dallas resolve to it, so they render with the very same
+ * `buildCharacterTextures` rider key. `'authored'` means a `tex-party|` palette
+ * swap built from the member's own colors; `'caleb'` is the raw placeholder. An
+ * `as const` union — this project forbids TS enums. */
+export type CastTextureSource = 'caleb' | 'player' | 'authored';
+
+/**
+ * The PURE texture-sourcing decision, extracted out of createPartyCast's
+ * closure precisely so the twin invariant is unit-testable rather than only
+ * observable in a browser: `castTextureSource(dallasSlot) ===
+ * castTextureSource(gabbySlot) === 'player'` is the real, load-bearing
+ * assertion (tests/finale.test.ts), one step closer to what matters than
+ * "Dallas's appearance is null". createPartyCast's `textureKeyFor` is nothing
+ * but a switch over this.
+ */
+export function castTextureSource(slot: PartyCastSlot): CastTextureSource {
+  if (slot.role === 'caleb') return 'caleb';
+  return slot.appearance === null ? 'player' : 'authored';
 }
 
 // ---------------------------------------------------------------------------
@@ -227,18 +255,18 @@ const PONYTAIL_TOP_INSET_PX = 4;
 // Runtime factory (calls scene methods only — see module doc).
 // ---------------------------------------------------------------------------
 
-/** What the scene needs to know about one built cast member — the layout facts
- * plus the texture it actually rendered with, so a harness can prove e.g. that
- * Dallas's key IS Gabby's key. */
-export interface PartyCastMemberInfo {
-  readonly id: string;
-  readonly role: PartyCastRole;
-  readonly nameTag: string | null;
+/** What the scene needs to know about one built cast member: EVERY layout fact
+ * from its slot (including `phase01`, so a consumer can sync its own decoration
+ * to a member's bounce — ST-3 anchors Gabby's tulip bouquet to hers — without
+ * re-deriving the layout) plus the texture it actually rendered with, so a
+ * harness can prove e.g. that Dallas's key IS Gabby's key.
+ *
+ * Derived from PartyCastSlot rather than restated, so the field list can never
+ * drift out of sync. Only `appearance` is dropped: it is the internal
+ * texture-authoring input, and `textureKey` is the resolved answer a consumer
+ * actually wants. */
+export interface PartyCastMemberInfo extends Omit<PartyCastSlot, 'appearance'> {
   readonly textureKey: string;
-  readonly x: number;
-  readonly groundY: number;
-  readonly scale: number;
-  readonly depth: number;
 }
 
 /** The handle PartyScene holds: create-once (createPartyCast) /
@@ -290,17 +318,38 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
   // that is worth NOT having a second, subtly-different way to build Gabby.
   const { riderTextureKey } = buildCharacterTextures(scene, opts.character);
 
-  /** The texture a member renders with. Gabby and Dallas deliberately share
-   * ONE key (the twin joke); Caleb uses the raw placeholder. */
+  /** The texture a member renders with — a plain switch over the pure
+   * `castTextureSource` decision (which is where the Gabby/Dallas twin
+   * invariant is defined and unit-tested). */
   function textureKeyFor(slot: PartyCastSlot): string {
-    if (slot.role === 'caleb') return TEXTURE_KEYS.caleb;
-    if (slot.appearance === null) return riderTextureKey;
-    return recolorTexture(
-      scene,
-      TEXTURE_KEYS.gabbyBase,
-      partyGuestVariantKey(slot.appearance),
-      partyGuestRemap(slot.appearance)
-    );
+    const source = castTextureSource(slot);
+    switch (source) {
+      case 'caleb':
+        return TEXTURE_KEYS.caleb;
+      case 'player':
+        return riderTextureKey;
+      case 'authored': {
+        // castTextureSource only answers 'authored' when appearance is
+        // non-null; re-reading it here is what lets TS narrow the union (and
+        // costs nothing). The fallback keeps this total rather than throwing
+        // over a cosmetic texture — same spirit as recolorTexture's own guards.
+        const appearance = slot.appearance;
+        if (appearance === null) return TEXTURE_KEYS.gabbyBase;
+        return recolorTexture(
+          scene,
+          TEXTURE_KEYS.gabbyBase,
+          partyGuestVariantKey(appearance),
+          partyGuestRemap(appearance)
+        );
+      }
+      default: {
+        // Exhaustiveness guard: a new CastTextureSource with no case above
+        // makes `source` no longer `never` here -> compile error. Unreachable
+        // at runtime.
+        const _exhaustive: never = source;
+        return _exhaustive;
+      }
+    }
   }
 
   /** A member's figure: the bottom-anchored sprite plus any hair-silhouette
@@ -340,9 +389,9 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
   }
 
   /** A floating name tag: plum pixel text on a cream panel (the same
-   * cream-panel-behind-text convention LEVEL_INTRO's banner and pickup.ts's
-   * toast use), so a name stays legible over a dusk venue. Built text-first so
-   * the panel can be sized to the measured label. */
+   * cream-panel-behind-text convention LEVEL_INTRO's banner uses), so a name
+   * stays legible over a dusk venue. Built text-first so the panel can be sized
+   * to the MEASURED label rather than a guessed font metric. */
   function buildNameTag(name: string, x: number, y: number): Phaser.GameObjects.Container {
     const label = pixelText(scene, 0, 0, name, PARTY.nameTagFontSizePx);
     const panel = scene.add
@@ -372,21 +421,19 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
     const tag = slot.nameTag === null ? null : buildNameTag(slot.nameTag, slot.x, tagBaseY);
 
     built.push({ slot, figure, tag, tagBaseY });
-    members.push({
-      id: slot.id,
-      role: slot.role,
-      nameTag: slot.nameTag,
-      textureKey,
-      x: slot.x,
-      groundY: slot.groundY,
-      scale: slot.scale,
-      depth: slot.depth,
-    });
+    // Spread the slot minus `appearance` (see PartyCastMemberInfo) so adding a
+    // layout field to PartyCastSlot never needs a second edit here.
+    const { appearance, ...slotInfo } = slot;
+    void appearance;
+    members.push({ ...slotInfo, textureKey });
   }
 
   function update(): void {
     const now = scene.time.now;
-    for (const member of built) {
+    // Indexed loop, NOT for...of: this runs every render frame, and for...of
+    // would allocate a fresh iterator each time. Nothing here allocates.
+    for (let i = 0; i < built.length; i++) {
+      const member = built[i];
       const bounce = castBounceOffsetPx(
         now,
         member.slot.phase01,

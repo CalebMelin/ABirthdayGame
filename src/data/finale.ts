@@ -10,8 +10,9 @@
 // PURE data + pure helpers only: no Phaser import of any kind, no scene/canvas
 // access, no storage — the same import-safety contract as data/notes.ts and
 // data/characters.ts, so this stays importable from plain-Node Vitest. (It
-// imports MARKERS + the ColorRemap TYPE from systems/palette.ts, exactly as
-// data/characters.ts does; palette.ts is itself runtime-Phaser-free.)
+// imports MARKERS + the ColorRemap TYPE from systems/palette.ts exactly as
+// data/characters.ts does, plus data/characters.ts's own swatch resolvers for
+// the crowd's colors; both of those modules are themselves runtime-Phaser-free.)
 //
 // ASCII discipline (house rule, mirroring data/notes.ts): every rendered string
 // below is pure 7-bit ASCII except the ONE tulip emoji in the bouquet toast,
@@ -25,6 +26,7 @@
 //   - src/scenes/CreditsScene.ts (ST-4)-> CREDITS_LINES.
 import { MARKERS } from '../systems/palette';
 import type { ColorRemap } from '../systems/palette';
+import { resolveEyes, resolveHair } from './characters';
 
 // ---------------------------------------------------------------------------
 // Verbatim copy (CLAUDE.md Rule 4). Do not touch without Caleb.
@@ -198,14 +200,16 @@ export const NAMED_GUESTS: readonly NamedGuest[] = [
 // ever builds.
 // ---------------------------------------------------------------------------
 
-/** Crowd hair tones (5) — a mix of the game's hair swatches plus two extra
- * party-crowd shades, so the back row reads as a varied group. */
+/** Crowd hair tones (5) — four of the game's OWN hair swatches (HAIR_OPTIONS in
+ * data/characters.ts, read through its total by-id resolver so this can never
+ * drift from the swatches a player actually sees, and never needs re-editing if
+ * a swatch is retuned) plus one crowd-only shade for extra variety. */
 export const CROWD_HAIR_COLORS: readonly number[] = [
-  0x6b4423, // brown
-  0xf2d16b, // blonde
-  0x2a2320, // black
-  0xc65d2e, // ginger
-  0x8a6f9c, // plum-ish (crowd-only)
+  resolveHair('brown').color,
+  resolveHair('blonde').color,
+  resolveHair('black').color,
+  resolveHair('ginger').color,
+  0x8a6f9c, // plum-ish — crowd-only, deliberately not a player hair swatch
 ];
 
 /** Crowd outfit tones (6) — pulled from the game's pastel PALETTE family so the
@@ -219,12 +223,14 @@ export const CROWD_SUIT_COLORS: readonly number[] = [
   0xcf8a70, // brick
 ];
 
-/** Crowd eye tones (4). Barely visible at crowd scale, but varied for free. */
+/** Crowd eye tones (4) — the game's OWN eye swatches (EYE_OPTIONS in
+ * data/characters.ts, via the same total by-id resolver as the hair list
+ * above). Barely visible at crowd scale, but varied for free. */
 export const CROWD_EYE_COLORS: readonly number[] = [
-  0x5b8fd6, // blue
-  0x5fa463, // green
-  0x6b4a2b, // brown
-  0x8a8f96, // grey
+  resolveEyes('blue').color,
+  resolveEyes('green').color,
+  resolveEyes('brown').color,
+  resolveEyes('grey').color,
 ];
 
 /**

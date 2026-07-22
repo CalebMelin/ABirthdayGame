@@ -1440,8 +1440,16 @@ export const PARTY = {
   /** Name-tag font size, px (snapped to the 8px pixel grid by pixelText). */
   nameTagFontSizePx: 16,
   /** How far ABOVE the top of a guest's head the name tag's CENTER sits, px.
-   * Must exceed half the panel height (nameTagFontSizePx/2 + nameTagPadYPx =
-   * 16) or the tag would overlap the head. Bigger = the tag floats higher. */
+   * Must exceed HALF THE PANEL HEIGHT or the tag would overlap the head — and
+   * partyCast.ts sizes that panel from the label's MEASURED height, not from
+   * this font size, so the margin is really
+   * `(lineHeight * nameTagFontSizePx + 2 * nameTagPadYPx) / 2`. Browser-measured
+   * (Press Start 2P, single line, sizes 8-40): Phaser reports a Text height of
+   * EXACTLY 1.0 x the font size, so today that is (16 + 16)/2 = 16 and the tag's
+   * panel clears the head by 10px. The 26 here keeps clearance even at a
+   * conservative 1.5x line height (a font-load failure falling back through
+   * FONT_STACK_PIXEL to Courier New) -> (24 + 16)/2 = 20 < 26. Guarded against
+   * that 1.5x bound in tests/finale.test.ts. Bigger = the tag floats higher. */
   nameTagGapPx: 26,
   /** Cream backing-panel padding around the tag text, each side, px. The panel
    * keeps the plum pixel text legible over a dusk venue backdrop — the same
@@ -1456,7 +1464,10 @@ export const PARTY = {
    * bouncePeriodMs so the tag drifts against its owner instead of locking. */
   nameTagBobPeriodMs: 1300,
   /** Phase offset (fraction of a cycle) applied to the tag's bob relative to
-   * its owner's bounce, so tag and body never flip on the same frame. */
+   * its owner's bounce — it starts the tag on the opposite half of the cycle so
+   * the tag drifts against its owner from the very first frame, rather than the
+   * two beginning locked and only separating as the differing periods pull them
+   * apart. */
   nameTagBobPhaseOffset: 0.5,
 } as const;
 
