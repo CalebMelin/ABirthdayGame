@@ -41,8 +41,9 @@
 // FIX, not to paper over here.
 //
 // Assertions (gate the process exit code):
-//   - every EVENT-FREE level (all except NORTH_STAR-§5's special-content
-//     ids 7/11/12/15/18) must finish;
+//   - every level except the five warn-only special-content ones
+//     (EVENT_LEVEL_IDS — see its doc, which explains why level 22's own
+//     scripted finale is NOT among them) must finish;
 //   - every level's Matter body count must stay under NORTH_STAR §8's <100
 //     budget;
 //   - zero console/page errors fire across the whole run.
@@ -73,12 +74,17 @@ const DESIGN_H = 720;
 // hardcoded mirrors of src/data/characters.ts, each commented "IN SYNC
 // WITH").
 const TOTAL_LEVELS = 22;
-/** IN SYNC WITH src/levels/types.ts's REQUIRED_EVENTS ids / NORTH_STAR §5's
- * special-content rows: traffic(7), wheelieRider(11), calebPickup(12),
- * police(15), billboard(18). PLAN-05 stubs every one of these as a no-op,
- * so they're expected to finish gas-only today same as any other level —
- * but they're excluded from the GATED assertion (see header) since a later
- * plan's real implementation could legitimately need more than gas alone. */
+/** The levels whose gas-only completion is reported but NOT gated: traffic(7),
+ * wheelieRider(11), calebPickup(12), police(15), billboard(18) — the
+ * NORTH_STAR §5 special-content rows whose real implementations could
+ * legitimately need more than gas alone (level 7 in fact does, by design).
+ *
+ * NOT the same list as src/levels/types.ts's REQUIRED_EVENTS, and deliberately
+ * so: level 22 also carries a required event now (PLAN-09 ST-5's `partyArrival`
+ * finale), but that cutscene DRIVES THE PEDALS ITSELF and can never fail the
+ * player, so it must stay under the STRICT gate below — if the arrival ever
+ * stops delivering a gas-only player to the party, this sweep has to fail, not
+ * warn. (scripts/playtest-arrival.mjs gates it in far more detail.) */
 const EVENT_LEVEL_IDS = [7, 11, 12, 15, 18];
 /** Per-level drive timeout. Generous headroom over NORTH_STAR's 20-45s
  * "beatable by a mediocre player" window — real gas-only runs measured on
