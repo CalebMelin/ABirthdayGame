@@ -3,7 +3,8 @@
 // straight to PartyScene on level 22, and marks progress itself, so this scene
 // no longer marks completion — it only DISPLAYS). It renders, top to bottom:
 //   - a "Level N complete!! 🎉" header,
-//   - a cheerful confetti burst (behind the content, self-cleaning),
+//   - a cheerful confetti burst (the SHARED systems/confetti.ts burst pool,
+//     behind the content, self-cleaning),
 //   - the tulips EARNED THIS LEVEL + the persistent bouquet TOTAL,
 //   - a pixel-postcard NOTE CARD ("Did you know?" for facts / "Psst… 💡" for
 //     hints) whose note text reveals with a skippable TYPEWRITER effect,
@@ -25,7 +26,6 @@ import Phaser from 'phaser';
 import {
   DESIGN_WIDTH,
   PASTEL_BG_COLOR,
-  PALETTE,
   DEPTHS,
   SCENE_KEYS,
   TEXTURE_KEYS,
@@ -33,6 +33,8 @@ import {
   LEVEL_COMPLETE,
 } from '../systems/constants';
 import { createPixelText, createPixelButton, createPixelPanel } from '../systems/ui';
+import { createConfettiBurst } from '../systems/confetti';
+import type { ConfettiBurstHandle } from '../systems/confetti';
 import { getSave } from '../systems/save';
 import { selectNote } from '../systems/notes';
 import type { NoteStyle } from '../data/notes';
@@ -50,30 +52,6 @@ const CARD_TITLE_FACT = 'Did you know?';
  * them (mirrors data/notes.ts's escaped-emoji discipline). Renders as
  * "Psst… 💡". */
 const CARD_TITLE_HINT = 'Psst\u{2026} \u{1F4A1}';
-
-/** Cheerful confetti colors cycled at random across the burst pieces. Kept a
- * local presentation const (a color SET, not a tunable number — the
- * decorations.ts / tricks.ts precedent for scene-local placeholder look). */
-const CONFETTI_COLORS = [
-  PALETTE.coral,
-  PALETTE.sunshine,
-  PALETTE.mint,
-  PALETTE.sky,
-  PALETTE.lavender,
-  PALETTE.grass,
-] as const;
-
-/** One live confetti piece, integrated per-frame in update(). */
-interface ConfettiPiece {
-  obj: Phaser.GameObjects.Rectangle;
-  /** Velocity, px/sec. */
-  vx: number;
-  vy: number;
-  /** Tumble spin, rad/sec. */
-  spin: number;
-  ageMs: number;
-  lifeMs: number;
-}
 
 /** DEV-only live snapshot the browser playtest harness
  * (scripts/playtest-levelcomplete.mjs) reads off the scene to assert the
@@ -114,8 +92,14 @@ export class LevelCompleteScene extends Phaser.Scene {
   private revealElapsedMs = 0;
   private revealComplete = false;
 
-  // --- confetti state ---
-  private confetti: ConfettiPiece[] = [];
+  /** The shared confetti system's burst pool (systems/confetti.ts) — created
+   * per entry, fired once, destroyed on shutdown. This scene used to carry its
+   * own private ConfettiPiece/spawnConfetti/updateConfetti; PLAN-09 ST-2 needed
+   * the very same integrator for the party balloons' pop puffs and both finale
+   * scenes' continuous rain, so it was extracted rather than copied a fourth
+   * time (see confetti.ts's module doc). The knobs are still this scene's own
+   * LEVEL_COMPLETE.confetti* values, untouched. */
+  private confetti: ConfettiBurstHandle | undefined;
 
   constructor() {
     super(SCENE_KEYS.levelComplete);
@@ -129,7 +113,7 @@ export class LevelCompleteScene extends Phaser.Scene {
   create(): void {
     // Per-entry reset — Phaser reuses the scene instance across scene.start(),
     // so fields must be reset here (same discipline as GameScene.create()).
-    this.confetti = [];
+    this.confetti = undefined;
     this.revealUnits = [];
     this.revealElapsedMs = 0;
     this.revealComplete = false;
@@ -144,8 +128,26 @@ export class LevelCompleteScene extends Phaser.Scene {
     const earned = Math.max(0, total - this.tulipsAtStart);
 
     // Confetti first, at DEPTHS.fx (behind the header/tally/card/buttons at
-    // DEPTHS.ui) so it never obscures the text it celebrates.
-    this.spawnConfetti();
+    // DEPTHS.ui) so it never obscures the text it celebrates. One upward fan
+    // burst from just under the header — the pool is sized to exactly one burst
+    // (concurrentBursts defaults to 1) because that is all this scene ever
+    // fires.
+    this.confetti = createConfettiBurst(this, {
+      count: LEVEL_COMPLETE.confettiCount,
+      originSpreadXPx: LEVEL_COMPLETE.confettiOriginSpreadXPx,
+      speedMinPxPerSec: LEVEL_COMPLETE.confettiSpeedMinPxPerSec,
+      speedMaxPxPerSec: LEVEL_COMPLETE.confettiSpeedMaxPxPerSec,
+      launchSpreadRad: LEVEL_COMPLETE.confettiLaunchSpreadRad,
+      gravityPxPerSec2: LEVEL_COMPLETE.confettiGravityPxPerSec2,
+      spinMaxRadPerSec: LEVEL_COMPLETE.confettiSpinMaxRadPerSec,
+      lifetimeMinMs: LEVEL_COMPLETE.confettiLifetimeMinMs,
+      lifetimeMaxMs: LEVEL_COMPLETE.confettiLifetimeMaxMs,
+      sizeMinPx: LEVEL_COMPLETE.confettiSizeMinPx,
+      sizeMaxPx: LEVEL_COMPLETE.confettiSizeMaxPx,
+      fadeStartFrac: LEVEL_COMPLETE.confettiFadeStartFrac,
+      depth: DEPTHS.fx,
+    });
+    this.confetti.burst(cx, LEVEL_COMPLETE.confettiOriginY);
 
     // Header.
     const headerText = `Level ${this.level} complete!! ${HEADER_EMOJI}`;
@@ -212,8 +214,8 @@ export class LevelCompleteScene extends Phaser.Scene {
     // flying if the player leaves early.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.off(Phaser.Input.Events.POINTER_DOWN, this.skipTypewriter, this);
-      for (const p of this.confetti) p.obj.destroy();
-      this.confetti = [];
+      this.confetti?.destroy();
+      this.confetti = undefined;
       this.bodyText = undefined;
     });
 
@@ -240,7 +242,7 @@ export class LevelCompleteScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    this.updateConfetti(delta);
+    this.confetti?.update(delta);
     this.updateTypewriter(delta);
   }
 
@@ -345,52 +347,5 @@ export class LevelCompleteScene extends Phaser.Scene {
   /** Tap/click-anywhere handler: skip the typewriter to the full text. */
   private skipTypewriter(): void {
     if (!this.revealComplete) this.completeReveal();
-  }
-
-  // ----------------------------------------------------------- confetti
-  private spawnConfetti(): void {
-    const c = LEVEL_COMPLETE;
-    const cx = DESIGN_WIDTH / 2;
-    for (let i = 0; i < c.confettiCount; i++) {
-      const size = Phaser.Math.Between(c.confettiSizeMinPx, c.confettiSizeMaxPx);
-      const color = CONFETTI_COLORS[Phaser.Math.Between(0, CONFETTI_COLORS.length - 1)];
-      const x = cx + Phaser.Math.Between(-c.confettiOriginSpreadXPx, c.confettiOriginSpreadXPx);
-      const rect = this.add.rectangle(x, c.confettiOriginY, size, size, color).setDepth(DEPTHS.fx);
-      // Launch up (-90deg) with a fan spread; gravity pulls it back down.
-      const dir = -Math.PI / 2 + Phaser.Math.FloatBetween(-c.confettiLaunchSpreadRad, c.confettiLaunchSpreadRad);
-      const speed = Phaser.Math.Between(c.confettiSpeedMinPxPerSec, c.confettiSpeedMaxPxPerSec);
-      this.confetti.push({
-        obj: rect,
-        vx: Math.cos(dir) * speed,
-        vy: Math.sin(dir) * speed,
-        spin: Phaser.Math.FloatBetween(-c.confettiSpinMaxRadPerSec, c.confettiSpinMaxRadPerSec),
-        ageMs: 0,
-        lifeMs: Phaser.Math.Between(c.confettiLifetimeMinMs, c.confettiLifetimeMaxMs),
-      });
-    }
-  }
-
-  private updateConfetti(delta: number): void {
-    if (this.confetti.length === 0) return;
-    const dt = delta / 1000;
-    const g = LEVEL_COMPLETE.confettiGravityPxPerSec2;
-    const fadeStart = LEVEL_COMPLETE.confettiFadeStartFrac;
-    const survivors: ConfettiPiece[] = [];
-    for (const p of this.confetti) {
-      p.ageMs += delta;
-      if (p.ageMs >= p.lifeMs) {
-        p.obj.destroy();
-        continue;
-      }
-      p.vy += g * dt;
-      p.obj.x += p.vx * dt;
-      p.obj.y += p.vy * dt;
-      p.obj.rotation += p.spin * dt;
-      const lifeFrac = p.ageMs / p.lifeMs;
-      p.obj.alpha =
-        lifeFrac <= fadeStart ? 1 : Math.max(0, 1 - (lifeFrac - fadeStart) / (1 - fadeStart));
-      survivors.push(p);
-    }
-    this.confetti = survivors;
   }
 }

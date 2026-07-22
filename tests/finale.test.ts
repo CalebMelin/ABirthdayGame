@@ -577,48 +577,6 @@ describe('buildPartyCastSlots layout', () => {
       expect(slots.find((s) => s.id === name)!.appearance).not.toBeNull();
     }
   });
-});
-
-describe('castTextureSource — THE TWIN JOKE (NORTH_STAR §5)', () => {
-  const slots = buildPartyCastSlots();
-  const bySource = (id: string) => castTextureSource(slots.find((s) => s.id === id)!);
-
-  it('routes Dallas and Gabby to the SAME source: the player character', () => {
-    // This is the load-bearing assertion. createPartyCast's textureKeyFor is a
-    // plain switch over this function, and the 'player' branch returns the one
-    // riderTextureKey buildCharacterTextures produced — so both resolving to
-    // 'player' IS "Dallas's sprite is a copy of the player's current Gabby",
-    // and it stays true for every character the player can pick.
-    expect(bySource(ORACLE_DALLAS)).toBe('player');
-    expect(bySource('gabby')).toBe('player');
-    expect(bySource(ORACLE_DALLAS)).toBe(bySource('gabby'));
-  });
-
-  it('routes NOBODY else to the player texture', () => {
-    const playerSourced = slots.filter((s) => castTextureSource(s) === 'player').map((s) => s.id);
-    expect(playerSourced.sort()).toEqual([ORACLE_DALLAS, 'gabby'].sort());
-  });
-
-  it('routes Caleb to his own placeholder, never to the player texture', () => {
-    // Caleb must never inherit Gabby's look just because he has no authored
-    // colors — the role check has to come FIRST in castTextureSource.
-    expect(bySource('caleb')).toBe('caleb');
-  });
-
-  it('routes the other three named guests and the whole crowd to authored swaps', () => {
-    for (const name of [ORACLE_ANDREA, ORACLE_ALLISON, ORACLE_DOM]) {
-      expect(bySource(name)).toBe('authored');
-    }
-    for (const s of slots.filter((s) => s.role === 'crowd')) {
-      expect(castTextureSource(s)).toBe('authored');
-    }
-  });
-
-  it('is total — every slot resolves to one of the three known sources', () => {
-    for (const s of slots) {
-      expect(['caleb', 'player', 'authored']).toContain(castTextureSource(s));
-    }
-  });
 
   it('never stacks two members at the same x', () => {
     const xs = slots.map((s) => s.x);
@@ -683,6 +641,48 @@ describe('castTextureSource — THE TWIN JOKE (NORTH_STAR §5)', () => {
     const phases = slots.map((s) => s.phase01);
     expect(phases.some((p) => p < 0.5)).toBe(true);
     expect(phases.some((p) => p >= 0.5)).toBe(true);
+  });
+});
+
+describe('castTextureSource — THE TWIN JOKE (NORTH_STAR §5)', () => {
+  const slots = buildPartyCastSlots();
+  const bySource = (id: string) => castTextureSource(slots.find((s) => s.id === id)!);
+
+  it('routes Dallas and Gabby to the SAME source: the player character', () => {
+    // This is the load-bearing assertion. createPartyCast's textureKeyFor is a
+    // plain switch over this function, and the 'player' branch returns the one
+    // riderTextureKey buildCharacterTextures produced — so both resolving to
+    // 'player' IS "Dallas's sprite is a copy of the player's current Gabby",
+    // and it stays true for every character the player can pick.
+    expect(bySource(ORACLE_DALLAS)).toBe('player');
+    expect(bySource('gabby')).toBe('player');
+    expect(bySource(ORACLE_DALLAS)).toBe(bySource('gabby'));
+  });
+
+  it('routes NOBODY else to the player texture', () => {
+    const playerSourced = slots.filter((s) => castTextureSource(s) === 'player').map((s) => s.id);
+    expect(playerSourced.sort()).toEqual([ORACLE_DALLAS, 'gabby'].sort());
+  });
+
+  it('routes Caleb to his own placeholder, never to the player texture', () => {
+    // Caleb must never inherit Gabby's look just because he has no authored
+    // colors — the role check has to come FIRST in castTextureSource.
+    expect(bySource('caleb')).toBe('caleb');
+  });
+
+  it('routes the other three named guests and the whole crowd to authored swaps', () => {
+    for (const name of [ORACLE_ANDREA, ORACLE_ALLISON, ORACLE_DOM]) {
+      expect(bySource(name)).toBe('authored');
+    }
+    for (const s of slots.filter((s) => s.role === 'crowd')) {
+      expect(castTextureSource(s)).toBe('authored');
+    }
+  });
+
+  it('is total — every slot resolves to one of the three known sources', () => {
+    for (const s of slots) {
+      expect(['caleb', 'player', 'authored']).toContain(castTextureSource(s));
+    }
   });
 });
 

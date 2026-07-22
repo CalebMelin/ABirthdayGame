@@ -422,9 +422,11 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
 
     built.push({ slot, figure, tag, tagBaseY });
     // Spread the slot minus `appearance` (see PartyCastMemberInfo) so adding a
-    // layout field to PartyCastSlot never needs a second edit here.
+    // layout field to PartyCastSlot never needs a second edit here. No `void
+    // appearance` is needed to satisfy `noUnusedLocals`: TypeScript deliberately
+    // exempts a binding that exists only to be omitted by a rest sibling — this
+    // IS the sanctioned "drop one property" idiom.
     const { appearance, ...slotInfo } = slot;
-    void appearance;
     members.push({ ...slotInfo, textureKey });
   }
 

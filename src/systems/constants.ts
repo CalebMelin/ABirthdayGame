@@ -1224,9 +1224,17 @@ export const LEVEL_INTRO = {
  * scale (design == screen at zoom 1) and every time is ms. Per CLAUDE.md's
  * "no magic numbers in scene code", EVERY Y position, font size, spacing, the
  * note-card geometry, the typewriter speed, and all the confetti-burst knobs
- * live here; only the two card-title literals and the confetti COLOR set stay
- * as local consts in the scene (presentation content, not tunable numbers —
- * the decorations.ts / tricks.ts precedent). */
+ * live here; only the two card-title literals stay as local consts in the scene
+ * (presentation content, not tunable numbers — the decorations.ts / tricks.ts
+ * precedent).
+ *
+ * The confetti* knobs below stayed HERE (rather than moving into a shared
+ * CONFETTI block) when PLAN-09 ST-2 extracted the integrator into
+ * src/systems/confetti.ts: they are this screen's own FEEL, tuned to pop up past
+ * its 40px header on a pastel menu, and nothing else wants the same numbers.
+ * The shared module takes them as options; the party's balloon-pop puff and the
+ * finale scenes' ambient rain carry their own values in the PARTY block. One
+ * number, one home — see confetti.ts's module doc and DECISIONS.md. */
 export const LEVEL_COMPLETE = {
   // ------------------------------------------------------------- header
   /** "Level N complete!! 🎉" header center Y, px (near the top). */
@@ -1366,10 +1374,12 @@ export const LEVEL_COMPLETE = {
  * scales, counts, bounce, name-tag geometry) lives here; the guests' COLORS and
  * all verbatim copy live in src/data/finale.ts.
  *
- * ROOM RESERVED: ST-2 adds its floating/poppable balloon knobs (count, rise
- * speed, bob, pop timing) and ST-3 adds its scene-layout knobs (venue backdrop,
- * banner, streamers, ambient confetti, bouquet toast, "Credits ->" button) to
- * THIS SAME BLOCK — keep them in their own commented sub-sections below. */
+ * ROOM RESERVED: ST-2 has now added its balloon knobs, its balloon-pop confetti
+ * burst, and the ambient falling-confetti knobs BOTH finale scenes share (the
+ * three sub-sections at the bottom of the block); ST-3 adds its remaining
+ * scene-layout knobs (venue backdrop, banner, streamers, bouquet toast,
+ * "Credits ->" button) to THIS SAME BLOCK — keep them in their own commented
+ * sub-sections below. */
 export const PARTY = {
   // ------------------------------------------------------------ front row
   /** Front-row center x, px — the row is laid out symmetrically about this. */
@@ -1469,6 +1479,125 @@ export const PARTY = {
    * two beginning locked and only separating as the differing periods pull them
    * apart. */
   nameTagBobPhaseOffset: 0.5,
+
+  // ------------------------------------------------------------- balloons
+  // PLAN-09 task 2's "Lots of balloons (floating, bobbing, varied colors — at
+  // least 20)" + "balloons are tappable/clickable and pop with confetti; endless
+  // supply floats in" (see src/systems/partyBalloons.ts). MODEL: a fixed pool,
+  // allocated once, of balloons that drift UP while swaying, recycle from just
+  // below the bottom edge once they clear the top, and pop (with a radial
+  // confetti burst) on a tap/click — then float back in from below after a short
+  // beat, so the supply never runs dry. ZERO Matter bodies; every balloon is a
+  // Container of a tinted Image + a string Rectangle, over its own invisible
+  // interactive Zone. The placeholder DRAWING dimensions (the 24x32 tex-balloon
+  // size, its scale, the string rect) stay as local documented consts in
+  // partyBalloons.ts, exactly as the cast's sprite dimensions do.
+  /** How many balloons live on screen at once — and, since the pool is
+   * allocated once and recycled forever, also the POOL size. MUST stay >= 20
+   * (PLAN-09's acceptance criterion), guarded by tests/partyBalloons.test.ts.
+   * 30 rather than a bare 20 because a balloon spends a slice of each cycle
+   * off-screen (below the bottom edge, or clearing the top), so the count
+   * ACTUALLY VISIBLE at any instant is ~87% of this — 30 keeps that comfortably
+   * above 20 at all times instead of hovering on the line. */
+  balloonCount: 30,
+  /** Left/right margin, px, the random spawn x stays inside, so a balloon never
+   * straddles a screen edge. Comfortably wider than half a drawn balloon. */
+  balloonSpawnMarginPx: 70,
+  /** Min/max upward drift speed, px/sec. Each balloon draws its own, so the
+   * flock never rises as one sheet — this is the main thing that keeps a
+   * recycled pool from re-forming into rows. */
+  balloonRiseMinPxPerSec: 26,
+  balloonRiseMaxPxPerSec: 58,
+  /** Min/max horizontal sway amplitude, px (the "bobbing"). */
+  balloonSwayMinPx: 6,
+  balloonSwayMaxPx: 22,
+  /** Min/max full sway cycle period, ms. Wide range so no two balloons sway
+   * in step for long. */
+  balloonSwayMinPeriodMs: 2200,
+  balloonSwayMaxPeriodMs: 4200,
+  /** How far BELOW the bottom screen edge a recycled balloon re-enters, px.
+   * Deliberately small: every px spent below the edge is a px the balloon is
+   * not visible for, which is what the balloonCount doc's ~87% figure comes
+   * from. */
+  balloonSpawnBelowPx: 60,
+  /** How far ABOVE the top screen edge a balloon's KNOT must rise before it
+   * recycles, px. Must exceed the drawn balloon's height (32 x 2.4 = 76.8) so
+   * it is fully gone before it teleports. */
+  balloonRecycleAbovePx: 140,
+  /** Invisible square hit area per balloon, px — decoupled from the (smaller)
+   * drawn balloon exactly like pedals.ts's visible-face-vs-hit-Zone split and
+   * CHARACTER_CREATE.swatchHitSizePx. MUST equal UI_MIN_TOUCH_PX (NORTH_STAR
+   * §8) — a drawn balloon is only ~58x77, so without this a thumb would miss.
+   * Overlapping hit areas are expected at this density and are handled by
+   * partyBalloons.ts's per-pointer-press dedupe, not by spacing. */
+  balloonHitSizePx: UI_MIN_TOUCH_PX,
+  /** Beat between a pop and that balloon floating back in from below, ms —
+   * long enough that the replacement reads as a NEW balloon rather than the
+   * popped one blinking back, short enough that the supply never visibly thins. */
+  balloonRespawnDelayMs: 700,
+  /** Balloon layer depth. Above DEPTHS.fx (and therefore above nameTagDepth —
+   * see that constant) so balloons drift in front of the whole cast, and above
+   * confettiFallDepth so the ambient rain reads as BEHIND them. */
+  balloonDepth: DEPTHS.fx + 1,
+
+  // --------------------------------------------- balloon-pop confetti burst
+  // The tiny radial puff a popped balloon leaves behind (systems/confetti.ts's
+  // createConfettiBurst at launchSpreadRad = PI). Small and quick on purpose —
+  // it is a tap's worth of delight, not LevelComplete's celebration burst.
+  // FORWARD-NOTE (PLAN-10 owns ALL audio): the balloon-pop SFX hooks in at the
+  // single `pop()` call site in partyBalloons.ts, right beside this burst.
+  /** Pieces per pop. */
+  popConfettiCount: 14,
+  /** Min/max initial speed, px/sec (gentler than LevelComplete's burst). */
+  popConfettiSpeedMinPxPerSec: 140,
+  popConfettiSpeedMaxPxPerSec: 320,
+  /** Downward acceleration on the puff, px/sec^2. */
+  popConfettiGravityPxPerSec2: 700,
+  /** Max absolute tumble spin, rad/sec. */
+  popConfettiSpinMaxRadPerSec: 8,
+  /** Min/max piece lifetime, ms — short, so a pop is a blink not a shower. */
+  popConfettiLifetimeMinMs: 500,
+  popConfettiLifetimeMaxMs: 1000,
+  /** Min/max piece edge size, px (smaller than LevelComplete's burst). */
+  popConfettiSizeMinPx: 6,
+  popConfettiSizeMaxPx: 12,
+  /** Life fraction (0..1) after which a piece fades 1 -> 0. */
+  popConfettiFadeStartFrac: 0.5,
+  /** How many simultaneous pops the shared burst pool covers. A fast tapper
+   * can pop several balloons inside one popConfettiLifetimeMaxMs window; past
+   * this the burst simply draws thinner rather than allocating (see
+   * ConfettiBurstOptions.concurrentBursts). */
+  popConfettiConcurrentBursts: 4,
+  /** Pop-confetti layer depth — above the balloons, so a puff draws over the
+   * balloons still floating behind it. */
+  popConfettiDepth: DEPTHS.fx + 2,
+
+  // ------------------------------------------ ambient falling confetti
+  // PLAN-09's "confetti falling continuously" (task 2, PartyScene) and "confetti
+  // still falling" (task 3, CreditsScene) — systems/confetti.ts's
+  // createConfettiFall. The knobs live here, in the PARTY block, because both
+  // finale scenes share one look; ST-3/ST-4 are the consumers.
+  /** Pieces in the air at once — also the pool size (the rain recycles them
+   * forever and never grows). */
+  confettiFallCount: 60,
+  /** Height of the band ABOVE the top edge that pieces enter from, px, so the
+   * rain drifts in rather than popping into existence at y = 0. */
+  confettiFallSpawnAbovePx: 200,
+  /** Min/max downward speed, px/sec. Slow — this is ambient decor behind a
+   * scene people are reading, not a celebration burst. */
+  confettiFallSpeedMinPxPerSec: 60,
+  confettiFallSpeedMaxPxPerSec: 150,
+  /** Max absolute sideways drift, px/sec (a piece that drifts off one edge
+   * wraps back in the other side). */
+  confettiFallDriftMaxPxPerSec: 40,
+  /** Max absolute tumble spin, rad/sec. */
+  confettiFallSpinMaxRadPerSec: 4,
+  /** Min/max piece edge size, px. */
+  confettiFallSizeMinPx: 6,
+  confettiFallSizeMaxPx: 14,
+  /** Ambient-rain layer depth: on DEPTHS.fx, i.e. above the whole cast (and
+   * above nameTagDepth) but BELOW the balloons and their pop puffs. */
+  confettiFallDepth: DEPTHS.fx,
 } as const;
 
 /** Centralized scene keys — all scenes and transitions reference these
