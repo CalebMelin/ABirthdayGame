@@ -1384,9 +1384,15 @@ export const PARTY = {
   // ------------------------------------------------------------ front row
   /** Front-row center x, px — the row is laid out symmetrically about this. */
   frontRowCenterX: DESIGN_WIDTH / 2,
-  /** Front-row FEET y, px (sprites are bottom-anchored). Leaves ~220px of floor
-   * below for ST-3's venue floor and its bottom-right "Credits ->" button. */
-  frontRowGroundY: 500,
+  /** Front-row FEET y, px (sprites are bottom-anchored). ST-1 parked this at
+   * 500 pending ST-3's real venue; the finished scene moved it DOWN to 570
+   * because the first full-scene screenshot showed the cast crowded into the
+   * upper-middle with ~220px of empty floor under them — the party read as
+   * happening at the back of an empty room. At 570 the front row stands in the
+   * lower-middle of the frame and still clears the bottom-right "Credits ->"
+   * button (whose face top edge is at 604); tests/finale.test.ts guards that
+   * gap. */
+  frontRowGroundY: 570,
   /** Center-to-center spacing between adjacent front-row members, px.
    * Comfortably wider than a scaled sprite (24 x frontRowScale = 72) so the six
    * never overlap. */
@@ -1404,8 +1410,10 @@ export const PARTY = {
   crowdCount: 9,
   /** Crowd-row center x, px. */
   crowdCenterX: DESIGN_WIDTH / 2,
-  /** Crowd FEET y, px — higher on screen than the front row (further away). */
-  crowdGroundY: 400,
+  /** Crowd FEET y, px — higher on screen than the front row (further away).
+   * Moved 400 -> 470 with frontRowGroundY (see its doc), keeping the same
+   * 100px front/back separation while the whole party sits lower in frame. */
+  crowdGroundY: 470,
   /** Center-to-center spacing between adjacent crowd members, px. EQUAL to
    * frontRowSpacingPx on purpose: an ODD crowd count centered on the same x as
    * an EVEN front row lands every crowd member exactly HALF a step (75px) from
@@ -1430,8 +1438,10 @@ export const PARTY = {
   /** Front-row (named cast + Gabby + Caleb) render depth. */
   frontRowDepth: DEPTHS.rider,
   /** Name-tag render depth — above every cast sprite so a tag is never clipped
-   * by the person in front. Kept below DEPTHS.fx (60) so ST-2's balloons and
-   * ST-3's ambient confetti still have their own layers above the cast. */
+   * by the person in front. Kept below DEPTHS.fx (60) so the ambient confetti
+   * rain still has its own layer above the cast. (The BALLOONS moved BELOW the
+   * cast in ST-3 — see balloonDepth — precisely because at the original
+   * above-everything depth they made two of these four tags unreadable.) */
   nameTagDepth: DEPTHS.rider + 5,
 
   // ---------------------------------------------------------- idle bounce
@@ -1575,10 +1585,20 @@ export const PARTY = {
    * balloonWorstCasePopsPerSec this changes no behavior — it is the assumption
    * written down, so tests/partyBalloons.test.ts can derive against it. */
   balloonWorstCaseFrameMs: 34,
-  /** Balloon layer depth. Above DEPTHS.fx (and therefore above nameTagDepth —
-   * see that constant) so balloons drift in front of the whole cast, and above
-   * confettiFallDepth so the ambient rain reads as BEHIND them. */
-  balloonDepth: DEPTHS.fx + 1,
+  /** Balloon layer depth: ABOVE the crowd (DEPTHS.props) so the flock weaves
+   * through the room, but BELOW the front row (DEPTHS.rider) and the name tags.
+   *
+   * ST-2 originally put this at DEPTHS.fx + 1, in FRONT of everybody. The first
+   * full-scene screenshot (ST-3) killed that: 32 balloons at 58x77px drawn over
+   * the cast hid most of the party and left two of the four name tags
+   * unreadable — and "all four named characters present with exact names" is a
+   * literal PLAN-09 acceptance criterion, so the balloons were losing an
+   * argument they were never meant to have. Behind the people is also the more
+   * natural read (balloons drift around a room, they do not fly at the camera),
+   * and it costs the interaction NOTHING: nothing in the cast is interactive, so
+   * every balloon stays exactly as tappable as before. See DECISIONS.md
+   * 2026-07-22 (ST-3). */
+  balloonDepth: DEPTHS.props + 5,
 
   // --------------------------------------------- balloon-pop confetti burst
   // The tiny radial puff a popped balloon leaves behind (systems/confetti.ts's
@@ -1610,9 +1630,10 @@ export const PARTY = {
    * thinned puff. Past this the burst simply draws fewer pieces rather than
    * allocating (see ConfettiBurstOptions.concurrentBursts). */
   popConfettiConcurrentBursts: 12,
-  /** Pop-confetti layer depth — above the balloons, so a puff draws over the
-   * balloons still floating behind it. */
-  popConfettiDepth: DEPTHS.fx + 2,
+  /** Pop-confetti layer depth — one above the balloons, so a puff draws over the
+   * balloons still floating behind it (and therefore, like them, behind the
+   * cast; see balloonDepth). */
+  popConfettiDepth: DEPTHS.props + 6,
 
   // ------------------------------------------ ambient falling confetti
   // PLAN-09's "confetti falling continuously" (task 2, PartyScene) and "confetti
@@ -1640,6 +1661,184 @@ export const PARTY = {
   /** Ambient-rain layer depth: on DEPTHS.fx, i.e. above the whole cast (and
    * above nameTagDepth) but BELOW the balloons and their pop puffs. */
   confettiFallDepth: DEPTHS.fx,
+
+  // ------------------------------------------------------- venue backdrop
+  // ST-3's warm-lit BACKYARD AT DUSK (PLAN-09 task 2's "Venue"). PLACEHOLDER-ERA
+  // art, built entirely from scene.add.rectangle/graphics out of the existing
+  // PALETTE — PLAN-10 replaces it wholesale, so these are LAYOUT numbers (where
+  // the bands sit), not art. Every value is a screen y/px at the 1280x720 design
+  // scale (design == screen at zoom 1), listed TOP-DOWN.
+  //
+  // CONTINUITY WITH LEVEL 22: the same duskIndigo -> plum -> sunsetGlow dusk ramp
+  // and the same warm `sunshine` lights as themes.ts's `finalDusk` (level 22's
+  // theme), so riding out of the final level and into the venue never changes
+  // palette. The patio is deliberately DARK (plum) with warm sunsetGlow light
+  // pools washed over it: a dark ground under warm pools is what actually reads
+  // as "warm-lit at dusk", and it keeps the pastel cast and the cream text panels
+  // popping instead of fighting the floor.
+  /** Top of the MID dusk sky band (plum); everything above it is duskIndigo.
+   * Sits just below the string lights so the strand hangs against clean night
+   * sky. */
+  venueSkyMidY: 300,
+  /** The last of the sunset behind the yard: TWO nested translucent sunsetGlow
+   * ellipses centred on the fence top, brightest in the middle and fading to
+   * the corners. It is an ellipse and not a BAND for the same reason the floor
+   * pool is (screenshot-caught, twice): a full-width band of a saturated warm
+   * color reads as a painted ledge or a countertop, whatever height it is — at
+   * 22px and again at 42px — where a glow that falls off toward the edges reads
+   * as light. Both layers use venueHorizonGlowAlpha and simply compose where
+   * they overlap, which is what gives the falloff its middle step. */
+  venueHorizonGlowCenterY: 400,
+  venueHorizonGlowWidthPx: 1700,
+  venueHorizonGlowHeightPx: 170,
+  venueHorizonGlowCoreWidthPx: 1100,
+  venueHorizonGlowCoreHeightPx: 110,
+  venueHorizonGlowAlpha: 0.22,
+  /** THE GROUND LINE: patio below, sky/fence above. MUST stay above
+   * crowdGroundY or the back row would stand in mid-air; guarded by
+   * tests/finale.test.ts. */
+  venueGroundY: 450,
+  /** Top of the back-yard fence (which runs down to venueGroundY). */
+  venueFenceTopY: 392,
+  /** Center-to-center spacing of the fence's darker plank seams, px. */
+  venueFenceSeamPitchPx: 64,
+  /** Width of one plank seam, px. */
+  venueFenceSeamWidthPx: 6,
+  /** Height of the darker rail capping the top of the fence, px. */
+  venueFenceRailHeightPx: 6,
+  /** The warm light pool washed over the patio — the "warm-lit" cue, and the
+   * one piece of the venue that is an ELLIPSE rather than a band: a full-width
+   * translucent RECTANGLE just lightens the whole floor uniformly and reads as
+   * a different floor color, where an ellipse reads as light falling on it
+   * (screenshot-caught). Two nested ellipses (wide+dim, then narrow+brighter)
+   * fake the falloff cheaply. Centre y sits between the crowd's feet and the
+   * front row's, so the pool is centred on the people. */
+  venueGlowPoolCenterY: 540,
+  venueGlowPoolWidthPx: 1140,
+  venueGlowPoolHeightPx: 340,
+  venueGlowPoolAlpha: 0.22,
+  /** The narrower, brighter core of the same pool. */
+  venueGlowCoreWidthPx: 680,
+  venueGlowCoreHeightPx: 200,
+  venueGlowCoreAlpha: 0.16,
+
+  // -------------------------------------------------------- string lights
+  // A sagging strand of warm bulbs across the yard — the second "warm-lit" cue,
+  // and the one that most says "party" at a glance. Sits BELOW the bouquet toast
+  // and ABOVE the crowd's heads (~294), so it crosses nothing.
+  /** Y the strand is pinned to at both screen edges, px. */
+  lightStringAnchorY: 240,
+  /** How far the strand sags below its anchors at screen centre, px (a simple
+   * parabola, 0 at the edges). */
+  lightStringSagPx: 56,
+  /** Bulbs along the strand, evenly spaced across the full screen width. */
+  lightStringBulbCount: 21,
+  /** Bulb square edge length, px. */
+  lightStringBulbSizePx: 10,
+  /** Wire thickness, px. */
+  lightStringWireWidthPx: 3,
+
+  // ------------------------------------------------------------ streamers
+  // PLAN-09 task 2's "streamers": short zigzag ribbons hanging from the TOP
+  // EDGE. Screen-space, so they do NOT reuse decorations.ts's world-anchored
+  // drawStreamer — see the comment at PartyScene.drawStreamers.
+  /** Screen x of each hanging streamer, px. Clustered at the LEFT and RIGHT
+   * edges on purpose so the ribbons FRAME the banner (whose panel spans roughly
+   * 252..1028 at bannerFontSizePx 40) instead of crossing it. */
+  streamerXsPx: [40, 120, 200, 1080, 1160, 1240],
+  /** How far a streamer hangs from the top edge, px. Kept above the bouquet
+   * toast's panel so a ribbon never crosses the toast. */
+  streamerLengthPx: 120,
+  /** Zigzag segments per streamer (more = tighter zigzag). */
+  streamerSegments: 5,
+  /** Half-width of the zigzag, px. */
+  streamerAmplitudePx: 16,
+  /** Ribbon stroke thickness, px. */
+  streamerThicknessPx: 6,
+
+  // --------------------------------------------------------------- banner
+  // The big "HAPPY 22nd GABBY!!" banner (the string itself is VERBATIM personal
+  // content and lives in src/data/finale.ts — never re-typed here). Cream
+  // pixel-panel behind plum pixel text, the same legibility convention the name
+  // tags and LEVEL_INTRO's banner use, so it reads over the dusk sky.
+  /** Banner panel centre Y, px. */
+  bannerCenterY: 72,
+  /** Banner font size, px (snapped to the 8px grid by pixelText). Big — this is
+   * the headline of the whole game. */
+  bannerFontSizePx: 40,
+  /** Cream panel padding around the banner text, each side, px. */
+  bannerPadXPx: 28,
+  bannerPadYPx: 20,
+  /** Thickness, px, of the two "strings" the banner hangs from — drawn straight
+   * up from the panel's top corners to the top edge of the screen. */
+  bannerHangerWidthPx: 3,
+
+  // -------------------------------------------------------- bouquet payoff
+  // PLAN-09 task 2: "if tulips > 0, Gabby holds the bouquet; toast 'You brought
+  // N tulips to the party!! <tulip>'". BOTH are gated on tulips > 0 — at zero
+  // there is no bouquet and no toast at all (never a zero-count toast).
+  /** Bouquet toast panel centre Y, px — directly under the banner, and well
+   * above the crowd's head tops (~294). */
+  toastCenterY: 168,
+  toastFontSizePx: 20,
+  toastPadXPx: 24,
+  toastPadYPx: 12,
+  /** The bouquet Gabby HOLDS: offsets from her cast slot's centre x and FEET y,
+   * px. Negative x puts it on her far side from Caleb (he stands immediately to
+   * her right); negative y lifts it to mid-torso. Re-applied every frame on top
+   * of her 2-frame idle bounce (castBounceOffsetPx + her phase01) so it can
+   * never detach from her as she bobs. */
+  bouquetOffsetXPx: -30,
+  bouquetOffsetYPx: -50,
+  /** Uniform scale of the 16x24 tex-tulip placeholder used per bouquet stem. */
+  bouquetScale: 1.6,
+  /** Stems in the bouquet. It is a BOUQUET, not one flower — screenshot-caught
+   * twice: a SINGLE placeholder tulip beside Gabby read as a stray green box,
+   * and three stems packed 13px apart merged into one flat green slab that was
+   * indistinguishable from the pale-green BALLOONS drifting past (PALETTE.grass
+   * is in BALLOON_TINTS). The three below are spread wider than they are packed
+   * and stepped in height, over a brown wrap — a silhouette no balloon has. */
+  bouquetStemCount: 3,
+  /** Centre-to-centre fan spacing between stems, px. Deliberately more than
+   * HALF a scaled tulip (16 x bouquetScale / 2), so the outer blossoms clear the
+   * middle one instead of hiding inside it. */
+  bouquetSpreadXPx: 18,
+  /** How much higher the MIDDLE stem sits than the outer ones, px (the outer
+   * stems taper down to 0), so the bunch has a stepped silhouette instead of a
+   * flat top. */
+  bouquetLiftYPx: 10,
+  /** The dark STEM BUNDLE she grips, drawn hanging below the blossoms — the
+   * second "these are flowers in a hand, not a balloon" cue. Drawn in
+   * PALETTE.outline rather than PALETTE.brown, which was the first attempt and
+   * vanished against the brown-lit patio, and rather than a cream "paper wrap",
+   * which vanished against Gabby's default off-white racing suit. A chunky
+   * 14x16 block cannot be confused with a balloon's 3x40 string. */
+  bouquetWrapWidthPx: 14,
+  bouquetWrapHeightPx: 16,
+  /** Bouquet render depth — one above the front row so it draws IN FRONT of
+   * Gabby (she is holding it), still below nameTagDepth. */
+  bouquetDepth: DEPTHS.rider + 1,
+
+  // ----------------------------------------------------- "Credits" button
+  // PLAN-09 task 2: "After ~4 seconds, a 'Credits ->' button fades in
+  // (bottom-right). The scene stays alive — no forced exit." Nothing here ever
+  // advances the scene on its own; this only reveals the way out.
+  /** How long after entering the party the button appears, ms. */
+  creditsButtonDelayMs: 4000,
+  /** Fade-in duration once revealed, ms. */
+  creditsButtonFadeMs: 600,
+  /** Minimum face width, px. At bannerFontSizePx's sibling default label size
+   * (24) the label "Credits ->" measures 9 x 24 = 216px in Press Start 2P, and
+   * ui.ts adds 32px of padding each side — so 280 IS the natural width and the
+   * button's footprint is deterministic, which is what lets the bottom-right
+   * anchor below be computed rather than eyeballed. */
+  creditsButtonMinWidthPx: 280,
+  /** Gap from the right/bottom screen edges to the button FACE, px. The scene
+   * derives the button centre from these + creditsButtonMinWidthPx +
+   * UI_MIN_TOUCH_PX (the face height), so the corner anchor stays honest if any
+   * of them is retuned. */
+  creditsButtonMarginXPx: 32,
+  creditsButtonMarginYPx: 28,
 } as const;
 
 /** Centralized scene keys — all scenes and transitions reference these

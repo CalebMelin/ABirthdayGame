@@ -50,10 +50,14 @@
 // rather than generating recolored textures, and hang a short string rect from
 // the knot). Nothing here touches NORTH_STAR §8's <100-body budget.
 //
-// DEPTH: balloons sit at PARTY.balloonDepth (DEPTHS.fx + 1), above the ambient
-// confetti rain and above the whole cast — ST-1 kept PARTY.nameTagDepth strictly
-// BELOW DEPTHS.fx precisely so this layer could sit above it (see that
-// constant's doc). The pop puffs draw one layer higher again.
+// DEPTH: balloons sit at PARTY.balloonDepth, ABOVE the unnamed crowd but BELOW
+// the front-row cast and their name tags, with the pop puffs one layer higher
+// again. This subtask originally put them in front of everybody (DEPTHS.fx + 1);
+// ST-3's first full-scene screenshot showed 32 balloons burying the party and
+// leaving two of the four name tags unreadable, so they moved behind the people
+// — see PARTY.balloonDepth's doc and DECISIONS.md 2026-07-22. Nothing about
+// popping changed: no cast object is interactive, so every balloon is exactly as
+// tappable as before.
 //
 // Like partyCast.ts / confetti.ts (and UNLIKE ui.ts), this module has NO runtime
 // Phaser import: `import type Phaser` is erased at compile time

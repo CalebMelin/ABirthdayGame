@@ -132,13 +132,25 @@ describe('PLAN-09 acceptance: at least 20 balloons, even while popping', () => {
     expect(PARTY.balloonHitSizePx).toBeGreaterThan(BODY_W);
   });
 
-  it('layers balloons above the cast and their pop puffs above the balloons', () => {
-    // ST-1 recorded the invariant that nameTagDepth stays below DEPTHS.fx
-    // precisely so this layer can sit above the cast — honour it.
+  it('layers balloons BEHIND the named cast, with their pop puffs just above them', () => {
+    // The whole ladder, bottom-up, in one assertion chain:
+    //   crowd < balloons < pop puffs < front-row cast < name tags < ambient rain
+    //
+    // The balloons/puffs pair moved DOWN this ladder in ST-3 (they used to sit
+    // above everything at DEPTHS.fx + 1): the first full-scene screenshot showed
+    // 32 balloons burying the party with two of the four name tags unreadable,
+    // and "all four named characters present with exact names" is a PLAN-09
+    // acceptance criterion. See PARTY.balloonDepth's doc. Popping is unaffected
+    // — no cast object is interactive.
+    expect(PARTY.balloonDepth).toBeGreaterThan(PARTY.crowdDepth);
+    expect(PARTY.popConfettiDepth).toBeGreaterThan(PARTY.balloonDepth);
+    expect(PARTY.frontRowDepth).toBeGreaterThan(PARTY.popConfettiDepth);
+    expect(PARTY.nameTagDepth).toBeGreaterThan(PARTY.frontRowDepth);
+    // The ambient rain still falls in FRONT of everyone (small pieces, so it
+    // reads as depth rather than as occlusion) — which is why ST-1's
+    // "nameTagDepth stays below DEPTHS.fx" invariant still has a job.
     expect(PARTY.nameTagDepth).toBeLessThan(DEPTHS.fx);
     expect(PARTY.confettiFallDepth).toBeGreaterThan(PARTY.nameTagDepth);
-    expect(PARTY.balloonDepth).toBeGreaterThan(PARTY.confettiFallDepth);
-    expect(PARTY.popConfettiDepth).toBeGreaterThan(PARTY.balloonDepth);
   });
 });
 

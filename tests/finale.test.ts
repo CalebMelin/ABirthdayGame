@@ -38,7 +38,14 @@ import {
   castTextureSource,
   partyRowX,
 } from '../src/systems/partyCast';
-import { DEPTHS, DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE, PARTY } from '../src/systems/constants';
+import {
+  DEPTHS,
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  PALETTE,
+  PARTY,
+  UI_MIN_TOUCH_PX,
+} from '../src/systems/constants';
 import { MARKERS } from '../src/systems/palette';
 import { resolveEyes, resolveHair } from '../src/data/characters';
 
@@ -682,6 +689,208 @@ describe('castTextureSource — THE TWIN JOKE (NORTH_STAR §5)', () => {
   it('is total — every slot resolves to one of the three known sources', () => {
     for (const s of slots) {
       expect(['caleb', 'player', 'authored']).toContain(castTextureSource(s));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. PartyScene's own layout constants (ST-3). The scene itself needs a real
+// browser (scripts/playtest-party.mjs gates it end to end), but the geometry
+// that decides whether the banner, the toast, the streamers, the lights, the
+// bouquet and the "Credits ->" button collide with each other or with the cast
+// is pure arithmetic over the PARTY block — so it is pinned here, where a
+// retune fails loudly instead of only showing up in a screenshot.
+//
+// PANEL MODEL: the scene sizes every cream panel from the label's MEASURED
+// height (`label.height + 2 * padY`), exactly as partyCast.ts sizes a name tag.
+// Press Start 2P reports a single-line Text height of EXACTLY 1.0x the font
+// size (browser-measured, 8-40px); MAX_LINE_HEIGHT_FACTOR is the conservative
+// bound that still holds if the pixel font fails to load and FONT_STACK_PIXEL
+// falls back to Courier New — the same bound the name-tag gap test uses.
+// ---------------------------------------------------------------------------
+
+describe('PartyScene layout constants (banner / toast / venue / button)', () => {
+  const MAX_LINE_HEIGHT_FACTOR = 1.5;
+  /** Press Start 2P is fixed-width with an advance of exactly one font size per
+   * character (browser-measured: "Allison" renders 7 x 16 = 112px). */
+  const panelWidth = (text: string, fontSizePx: number, padXPx: number): number =>
+    text.length * fontSizePx + padXPx * 2;
+  const panelHalfHeight = (fontSizePx: number, padYPx: number): number =>
+    (MAX_LINE_HEIGHT_FACTOR * fontSizePx + padYPx * 2) / 2;
+
+  const bannerHalfWidth =
+    panelWidth(PARTY_BANNER_TEXT, PARTY.bannerFontSizePx, PARTY.bannerPadXPx) / 2;
+  const bannerBottom =
+    PARTY.bannerCenterY + panelHalfHeight(PARTY.bannerFontSizePx, PARTY.bannerPadYPx);
+  const toastTop =
+    PARTY.toastCenterY - panelHalfHeight(PARTY.toastFontSizePx, PARTY.toastPadYPx);
+  const toastBottom =
+    PARTY.toastCenterY + panelHalfHeight(PARTY.toastFontSizePx, PARTY.toastPadYPx);
+
+  const slots = buildPartyCastSlots();
+  const crowd = slots.filter((s) => s.role === 'crowd');
+  const headTopY = (s: { groundY: number; scale: number }): number =>
+    s.groundY - SPRITE_HEIGHT_PX * s.scale;
+  const highestHeadY = Math.min(...crowd.map(headTopY));
+
+  it('lays the dusk bands out top-down, ending at the ground line', () => {
+    expect(PARTY.venueSkyMidY).toBeLessThan(PARTY.venueGroundY);
+    expect(PARTY.venueGroundY).toBeLessThan(DESIGN_HEIGHT);
+  });
+
+  it('centres the sunset glow ON the horizon, nested brightest-in-the-middle', () => {
+    // It must sit at the fence line, not up in the sky and not down on the
+    // patio, or it stops reading as a sunset behind the yard.
+    expect(PARTY.venueHorizonGlowCenterY).toBeGreaterThan(PARTY.venueSkyMidY);
+    expect(PARTY.venueHorizonGlowCenterY).toBeLessThanOrEqual(PARTY.venueGroundY);
+    expect(PARTY.venueHorizonGlowCoreWidthPx).toBeLessThan(PARTY.venueHorizonGlowWidthPx);
+    expect(PARTY.venueHorizonGlowCoreHeightPx).toBeLessThan(PARTY.venueHorizonGlowHeightPx);
+    // Wider than the screen, so the glow never shows a vertical edge.
+    expect(PARTY.venueHorizonGlowWidthPx).toBeGreaterThan(DESIGN_WIDTH);
+    // The two layers COMPOSE, so each alone must stay well short of opaque —
+    // a saturated warm band across the whole width reads as a painted ledge.
+    expect(PARTY.venueHorizonGlowAlpha).toBeGreaterThan(0);
+    expect(PARTY.venueHorizonGlowAlpha * 2).toBeLessThan(1);
+  });
+
+  it('stands EVERY cast member on the patio (the ground line is above all feet)', () => {
+    // If the ground line ever slid below a row's feet, that row would visibly
+    // stand on the sky.
+    for (const s of slots) expect(PARTY.venueGroundY).toBeLessThan(s.groundY);
+  });
+
+  it('puts the fence behind the crowd: it starts above, and ends at, the ground', () => {
+    expect(PARTY.venueFenceTopY).toBeGreaterThan(PARTY.venueSkyMidY);
+    expect(PARTY.venueFenceTopY).toBeLessThan(PARTY.venueGroundY);
+    // ...so no fence pixel is ever drawn below the feet of the nearest crowd
+    // member — they stand in FRONT of it, on the patio.
+    for (const s of crowd) expect(PARTY.venueGroundY).toBeLessThan(s.groundY);
+  });
+
+  it('nests the warm light pools widest-first, centred on the people, on screen', () => {
+    expect(PARTY.venueGlowCoreWidthPx).toBeLessThan(PARTY.venueGlowPoolWidthPx);
+    expect(PARTY.venueGlowCoreHeightPx).toBeLessThan(PARTY.venueGlowPoolHeightPx);
+    expect(PARTY.venueGlowPoolWidthPx).toBeLessThanOrEqual(DESIGN_WIDTH);
+    // The pool is LIGHT ON THE FLOOR: its centre must sit below the ground line
+    // (never up in the sky) and between the two rows of feet.
+    expect(PARTY.venueGlowPoolCenterY).toBeGreaterThan(PARTY.venueGroundY);
+    expect(PARTY.venueGlowPoolCenterY).toBeGreaterThan(PARTY.crowdGroundY);
+    expect(PARTY.venueGlowPoolCenterY).toBeLessThan(PARTY.frontRowGroundY);
+    for (const alpha of [PARTY.venueGlowPoolAlpha, PARTY.venueGlowCoreAlpha]) {
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(1);
+    }
+  });
+
+  it('stacks banner -> toast -> string lights -> crowd heads with no overlap', () => {
+    expect(bannerBottom).toBeLessThan(toastTop);
+    expect(toastBottom).toBeLessThan(PARTY.lightStringAnchorY);
+    const lightsBottom =
+      PARTY.lightStringAnchorY + PARTY.lightStringSagPx + PARTY.lightStringBulbSizePx;
+    expect(lightsBottom).toBeLessThan(highestHeadY);
+  });
+
+  it('keeps the banner and the widest plausible toast panel on screen', () => {
+    expect(bannerHalfWidth * 2).toBeLessThanOrEqual(DESIGN_WIDTH);
+    // 999 tulips is far past anything reachable, so this is a real upper bound.
+    const widestToast = panelWidth(
+      bouquetToastText(999),
+      PARTY.toastFontSizePx,
+      PARTY.toastPadXPx
+    );
+    expect(widestToast).toBeLessThanOrEqual(DESIGN_WIDTH);
+  });
+
+  it('hangs every streamer CLEAR of the banner panel, left or right of it', () => {
+    // The ribbons are meant to frame the banner; a streamer drawn across
+    // "HAPPY 22nd GABBY!!" would be the one decoration that hurts the scene.
+    const bannerLeft = DESIGN_WIDTH / 2 - bannerHalfWidth;
+    const bannerRight = DESIGN_WIDTH / 2 + bannerHalfWidth;
+    for (const x of PARTY.streamerXsPx) {
+      const clearsLeft = x + PARTY.streamerAmplitudePx < bannerLeft;
+      const clearsRight = x - PARTY.streamerAmplitudePx > bannerRight;
+      expect(clearsLeft || clearsRight).toBe(true);
+      // ...and stays fully on screen.
+      expect(x - PARTY.streamerAmplitudePx).toBeGreaterThanOrEqual(0);
+      expect(x + PARTY.streamerAmplitudePx).toBeLessThanOrEqual(DESIGN_WIDTH);
+    }
+  });
+
+  it('stops every streamer above the toast panel', () => {
+    expect(PARTY.streamerLengthPx).toBeLessThan(toastTop);
+  });
+
+  it('parks the "Credits ->" button fully on screen, bottom-RIGHT, clear of the cast', () => {
+    // The scene derives the centre from exactly this arithmetic.
+    const x = DESIGN_WIDTH - PARTY.creditsButtonMarginXPx - PARTY.creditsButtonMinWidthPx / 2;
+    const y = DESIGN_HEIGHT - PARTY.creditsButtonMarginYPx - UI_MIN_TOUCH_PX / 2;
+    expect(x - PARTY.creditsButtonMinWidthPx / 2).toBeGreaterThan(DESIGN_WIDTH / 2); // right half
+    expect(x + PARTY.creditsButtonMinWidthPx / 2).toBeLessThanOrEqual(DESIGN_WIDTH);
+    expect(y - UI_MIN_TOUCH_PX / 2).toBeGreaterThan(PARTY.frontRowGroundY); // below their feet
+    expect(y + UI_MIN_TOUCH_PX / 2).toBeLessThanOrEqual(DESIGN_HEIGHT);
+    // A real touch target (NORTH_STAR §8).
+    expect(PARTY.creditsButtonMinWidthPx).toBeGreaterThanOrEqual(UI_MIN_TOUCH_PX);
+  });
+
+  it('reveals the button at ~4s with a real fade, and never on a shorter fuse', () => {
+    // PLAN-09 task 2: "After ~4 seconds ... The scene stays alive — no forced
+    // exit." Nothing in the scene auto-advances; this only bounds the reveal.
+    expect(PARTY.creditsButtonDelayMs).toBeGreaterThanOrEqual(3000);
+    expect(PARTY.creditsButtonDelayMs).toBeLessThanOrEqual(6000);
+    expect(PARTY.creditsButtonFadeMs).toBeGreaterThan(0);
+    expect(PARTY.creditsButtonFadeMs).toBeLessThan(PARTY.creditsButtonDelayMs);
+  });
+
+  it('draws the bouquet in FRONT of Gabby but behind the name tags', () => {
+    expect(PARTY.bouquetDepth).toBeGreaterThan(PARTY.frontRowDepth);
+    expect(PARTY.bouquetDepth).toBeLessThan(PARTY.nameTagDepth);
+  });
+
+  it('holds the bouquet ON Gabby — never floating off her, never at her feet', () => {
+    const gabby = slots.find((s) => s.role === 'gabby')!;
+    // Horizontally within her own sprite, so it reads as held rather than
+    // hovering beside her.
+    expect(Math.abs(PARTY.bouquetOffsetXPx)).toBeLessThanOrEqual(
+      (SPRITE_WIDTH_PX * gabby.scale) / 2
+    );
+    // Vertically: above her feet (negative) but below the top of her head, and
+    // clear of the ground even on the DOWN frame of her bounce — remembering
+    // that the WRAP hangs below the grip the offset points at.
+    expect(PARTY.bouquetOffsetYPx).toBeLessThan(0);
+    expect(-PARTY.bouquetOffsetYPx).toBeLessThan(SPRITE_HEIGHT_PX * gabby.scale);
+    expect(-PARTY.bouquetOffsetYPx).toBeGreaterThan(
+      PARTY.bouquetWrapHeightPx + PARTY.bounceAmplitudePx
+    );
+  });
+
+  it('fans the bouquet stems wide enough to read as three flowers', () => {
+    // Packed closer than half a blossom they merge into one flat slab that
+    // reads as a pale-green BALLOON (PALETTE.grass is in BALLOON_TINTS) —
+    // screenshot-caught. tex-tulip is 16x24.
+    expect(PARTY.bouquetSpreadXPx).toBeGreaterThan((16 * PARTY.bouquetScale) / 2);
+    expect(PARTY.bouquetStemCount).toBeGreaterThan(1);
+    expect(PARTY.bouquetLiftYPx).toBeGreaterThan(0);
+  });
+
+  it('never lets the bouquet reach a FRONT-ROW neighbour', () => {
+    // Dallas stands immediately to Gabby's left, which is the side the bouquet
+    // is held on — so this is the assertion that keeps the twin gag readable.
+    // The bunch is bouquetStemCount tulips fanned bouquetSpreadXPx apart, so its
+    // footprint is the outermost stem's, not one tulip's (tex-tulip is 16x24).
+    //
+    // Scoped to the FRONT ROW on purpose: the crowd stands 100px further back at
+    // a lower depth, so a foreground bouquet passing in front of a distant
+    // partygoer is correct perspective, not a collision — it is only a
+    // front-row neighbour that the bouquet could be mistaken for part of.
+    const gabby = slots.find((s) => s.role === 'gabby')!;
+    const bouquetHalfWidth =
+      ((PARTY.bouquetStemCount - 1) / 2) * PARTY.bouquetSpreadXPx + (16 * PARTY.bouquetScale) / 2;
+    const left = gabby.x + PARTY.bouquetOffsetXPx - bouquetHalfWidth;
+    const right = gabby.x + PARTY.bouquetOffsetXPx + bouquetHalfWidth;
+    for (const s of slots) {
+      if (s.role === 'crowd' || s.id === gabby.id) continue;
+      const halfWidth = (SPRITE_WIDTH_PX * s.scale) / 2;
+      expect(right < s.x - halfWidth || left > s.x + halfWidth).toBe(true);
     }
   });
 });
