@@ -39,6 +39,7 @@ import {
   partyRowX,
 } from '../src/systems/partyCast';
 import {
+  CREDITS,
   DEPTHS,
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
@@ -1013,5 +1014,269 @@ describe('castBounceOffsetPx', () => {
     expect(castBounceOffsetPx(500, 0.2, AMP, 0)).toBe(0);
     expect(castBounceOffsetPx(500, 0.2, AMP, -10)).toBe(0);
     expect([0, -AMP]).toContain(castBounceOffsetPx(-500, 0.2, AMP, PERIOD));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. CreditsScene's own layout + pacing constants (ST-4). The scene needs a real
+// browser (scripts/playtest-credits.mjs gates it end to end), but the geometry
+// that decides whether the three lines, the heart, the divider, the tulip tally,
+// the two buttons and the fresh-start confirmation collide, fit on screen, or
+// stay pressable is pure arithmetic over the CREDITS block — so it is pinned
+// here, where a retune fails loudly instead of only in a screenshot.
+//
+// TEXT MODEL (shared with the PartyScene block above, browser-measured): Press
+// Start 2P is fixed-width and advances EXACTLY one font size per character, and
+// Phaser reports a single-line Text height of exactly 1.0x the font size.
+// MAX_LINE_HEIGHT_FACTOR is the conservative bound that still holds if the pixel
+// font fails to load and FONT_STACK_PIXEL falls back to Courier New.
+//
+// BUTTON MODEL: ui.ts gives every button face a height of UI_MIN_TOUCH_PX and a
+// width of max(label + 2 x 32 padding, minWidth, UI_MIN_TOUCH_PX). Every
+// CREDITS.*MinWidthPx is documented as exceeding its own label's natural width,
+// so the minWidth IS the face width and the arithmetic below is exact.
+// ---------------------------------------------------------------------------
+
+/** WCAG relative luminance of a 0xRRGGBB colour. Used to assert LEGIBILITY as a
+ * measured property rather than as "cream sounds light" — the credits are the
+ * one screen whose text sits on a dark field, and createPixelText's default plum
+ * would be invisible there. */
+function luminance(color: number): number {
+  const channel = (value: number): number => {
+    const s = value / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return (
+    0.2126 * channel((color >>> 16) & 0xff) +
+    0.7152 * channel((color >>> 8) & 0xff) +
+    0.0722 * channel(color & 0xff)
+  );
+}
+
+/** WCAG contrast ratio between two 0xRRGGBB colours (1:1 .. 21:1). */
+function contrastRatio(a: number, b: number): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+describe('CreditsScene layout + pacing constants (ST-4)', () => {
+  const MAX_LINE_HEIGHT_FACTOR = 1.5;
+  const textWidth = (text: string, fontSizePx: number): number => text.length * fontSizePx;
+  const halfTextHeight = (fontSizePx: number): number => (MAX_LINE_HEIGHT_FACTOR * fontSizePx) / 2;
+
+  const cx = DESIGN_WIDTH / 2;
+  /** Font size of credit line `index` — the last line gets its own bigger one. */
+  const lineFontSize = (index: number): number =>
+    index === CREDITS_LINES.length - 1 ? CREDITS.finalLineFontSizePx : CREDITS.lineFontSizePx;
+  const lineTop = (index: number): number =>
+    CREDITS.lineCenterYsPx[index] - halfTextHeight(lineFontSize(index));
+  const lineBottom = (index: number): number =>
+    CREDITS.lineCenterYsPx[index] + halfTextHeight(lineFontSize(index));
+
+  const buttonTop = (centerY: number): number => centerY - UI_MIN_TOUCH_PX / 2;
+  const buttonBottom = (centerY: number): number => centerY + UI_MIN_TOUCH_PX / 2;
+
+  const panelTop = CREDITS.confirmPanelCenterY - CREDITS.confirmPanelHeightPx / 2;
+  const panelBottom = CREDITS.confirmPanelCenterY + CREDITS.confirmPanelHeightPx / 2;
+  const panelLeft = cx - CREDITS.confirmPanelWidthPx / 2;
+  const panelRight = cx + CREDITS.confirmPanelWidthPx / 2;
+
+  it('gives EVERY credit line its own y, in CREDITS_LINES order, top-down', () => {
+    // One y per line is what makes "revealed line by line" possible at all; a
+    // short array would leave the last line at an undefined y.
+    expect(CREDITS.lineCenterYsPx.length).toBe(CREDITS_LINES.length);
+    for (let i = 1; i < CREDITS.lineCenterYsPx.length; i++) {
+      expect(CREDITS.lineCenterYsPx[i]).toBeGreaterThan(CREDITS.lineCenterYsPx[i - 1]);
+    }
+  });
+
+  it('never lets two credit lines overlap', () => {
+    for (let i = 1; i < CREDITS_LINES.length; i++) {
+      expect(lineBottom(i - 1)).toBeLessThan(lineTop(i));
+    }
+  });
+
+  it('keeps every credit line fully on screen at its own font size', () => {
+    CREDITS_LINES.forEach((line, index) => {
+      const width = textWidth(line, lineFontSize(index));
+      expect(width).toBeLessThanOrEqual(DESIGN_WIDTH);
+      expect(cx - width / 2).toBeGreaterThan(0);
+      expect(lineTop(index)).toBeGreaterThan(0);
+      expect(lineBottom(index)).toBeLessThan(DESIGN_HEIGHT);
+    });
+  });
+
+  it('gives the final line the biggest font (it is the punchline, not a list item)', () => {
+    expect(CREDITS.finalLineFontSizePx).toBeGreaterThan(CREDITS.lineFontSizePx);
+    // ...and more air above it than the first two lines get between them.
+    const firstGap = CREDITS.lineCenterYsPx[1] - CREDITS.lineCenterYsPx[0];
+    const finalGap = CREDITS.lineCenterYsPx[2] - CREDITS.lineCenterYsPx[1];
+    expect(finalGap).toBeGreaterThan(firstGap);
+  });
+
+  it('stacks last line -> heart -> divider -> tulip line with no overlap', () => {
+    const lastLineBottom = lineBottom(CREDITS_LINES.length - 1);
+    const heartTop = CREDITS.heartCenterY - CREDITS.heartSizePx / 2;
+    const heartBottom = CREDITS.heartCenterY + CREDITS.heartSizePx / 2;
+    const dividerTop = CREDITS.dividerY - CREDITS.dividerThicknessPx / 2;
+    const tulipTop = CREDITS.tulipLineCenterY - halfTextHeight(CREDITS.tulipLineFontSizePx);
+
+    expect(lastLineBottom).toBeLessThan(heartTop);
+    expect(heartBottom).toBeLessThan(dividerTop);
+    expect(CREDITS.dividerY).toBeLessThan(tulipTop);
+  });
+
+  it('keeps the heart TINY — smaller than the smallest text on the screen', () => {
+    expect(CREDITS.heartSizePx).toBeGreaterThan(0);
+    expect(CREDITS.heartSizePx).toBeLessThan(CREDITS.tulipLineFontSizePx);
+  });
+
+  it('draws the divider as a rule under the message, not a box around it', () => {
+    // Wider than the final line it underlines, narrower than the longest line.
+    const finalLineWidth = textWidth(CREDITS_LINES[2], CREDITS.finalLineFontSizePx);
+    const longestLineWidth = Math.max(
+      ...CREDITS_LINES.map((line, index) => textWidth(line, lineFontSize(index)))
+    );
+    expect(CREDITS.dividerWidthPx).toBeGreaterThan(finalLineWidth);
+    expect(CREDITS.dividerWidthPx).toBeLessThan(longestLineWidth);
+    // Dimmed, but visible.
+    expect(CREDITS.dividerAlpha).toBeGreaterThan(0);
+    expect(CREDITS.dividerAlpha).toBeLessThan(1);
+    expect(CREDITS.dividerThicknessPx).toBeGreaterThan(0);
+  });
+
+  it('keeps the widest plausible tulip tally on screen', () => {
+    // "<tulip> <times> 999 collected" — 999 is far past anything reachable, so
+    // this is a real upper bound. Counted in CODE POINTS (the tulip is one).
+    const widest = Array.from('\u{1F337} \u{00D7} 999 collected').length;
+    expect(widest * CREDITS.tulipLineFontSizePx).toBeLessThanOrEqual(DESIGN_WIDTH);
+  });
+
+  it('stacks the two buttons a full face-height apart, clear of the tally and the bottom edge', () => {
+    const tulipBottom = CREDITS.tulipLineCenterY + halfTextHeight(CREDITS.tulipLineFontSizePx);
+    expect(tulipBottom).toBeLessThan(buttonTop(CREDITS.playAgainButtonY));
+    // ui.ts faces are UI_MIN_TOUCH_PX tall, so the row centres must clear that.
+    expect(CREDITS.freshStartButtonY - CREDITS.playAgainButtonY).toBeGreaterThanOrEqual(
+      UI_MIN_TOUCH_PX
+    );
+    expect(buttonBottom(CREDITS.playAgainButtonY)).toBeLessThan(
+      buttonTop(CREDITS.freshStartButtonY)
+    );
+    expect(buttonBottom(CREDITS.freshStartButtonY)).toBeLessThanOrEqual(DESIGN_HEIGHT);
+  });
+
+  it('makes "Play again?" the visibly PRIMARY action', () => {
+    // "Fresh start" wipes the save, so it must never be the button the eye lands
+    // on first: it is narrower AND lower.
+    expect(CREDITS.playAgainButtonMinWidthPx).toBeGreaterThan(CREDITS.freshStartButtonMinWidthPx);
+    expect(CREDITS.playAgainButtonY).toBeLessThan(CREDITS.freshStartButtonY);
+  });
+
+  it('keeps both buttons real touch targets, fully on screen', () => {
+    for (const width of [CREDITS.playAgainButtonMinWidthPx, CREDITS.freshStartButtonMinWidthPx]) {
+      expect(width).toBeGreaterThanOrEqual(UI_MIN_TOUCH_PX); // NORTH_STAR §8
+      expect(cx - width / 2).toBeGreaterThan(0);
+      expect(cx + width / 2).toBeLessThan(DESIGN_WIDTH);
+    }
+  });
+
+  it('centres the confirm panel on screen with room for its own contents', () => {
+    expect(panelLeft).toBeGreaterThan(0);
+    expect(panelRight).toBeLessThan(DESIGN_WIDTH);
+    expect(panelTop).toBeGreaterThan(0);
+    expect(panelBottom).toBeLessThan(DESIGN_HEIGHT);
+
+    // title -> body -> buttons, top-down and non-overlapping inside the panel.
+    const titleTop = CREDITS.confirmTitleY - halfTextHeight(CREDITS.confirmTitleFontSizePx);
+    const titleBottom = CREDITS.confirmTitleY + halfTextHeight(CREDITS.confirmTitleFontSizePx);
+    // Three pre-broken body lines: 3 x fontSize + 2 x lineSpacing tall.
+    const bodyHeight =
+      3 * MAX_LINE_HEIGHT_FACTOR * CREDITS.confirmBodyFontSizePx +
+      2 * CREDITS.confirmBodyLineSpacingPx;
+    const bodyTop = CREDITS.confirmBodyY - bodyHeight / 2;
+    const bodyBottom = CREDITS.confirmBodyY + bodyHeight / 2;
+
+    expect(panelTop).toBeLessThan(titleTop);
+    expect(titleBottom).toBeLessThan(bodyTop);
+    expect(bodyBottom).toBeLessThan(buttonTop(CREDITS.confirmButtonY));
+    expect(buttonBottom(CREDITS.confirmButtonY)).toBeLessThan(panelBottom);
+  });
+
+  it('lays the confirm buttons side by side inside the panel, cancel on the LEFT and wider', () => {
+    const cancelLeft = cx + CREDITS.confirmCancelOffsetXPx - CREDITS.confirmCancelMinWidthPx / 2;
+    const cancelRight = cx + CREDITS.confirmCancelOffsetXPx + CREDITS.confirmCancelMinWidthPx / 2;
+    const eraseLeft = cx + CREDITS.confirmConfirmOffsetXPx - CREDITS.confirmConfirmMinWidthPx / 2;
+    const eraseRight = cx + CREDITS.confirmConfirmOffsetXPx + CREDITS.confirmConfirmMinWidthPx / 2;
+
+    // CANCEL IS THE EASY OUT: first in reading order and the bigger target.
+    expect(cancelRight).toBeLessThan(eraseLeft);
+    expect(CREDITS.confirmCancelMinWidthPx).toBeGreaterThan(CREDITS.confirmConfirmMinWidthPx);
+    expect(CREDITS.confirmCancelMinWidthPx).toBeGreaterThanOrEqual(UI_MIN_TOUCH_PX);
+    expect(CREDITS.confirmConfirmMinWidthPx).toBeGreaterThanOrEqual(UI_MIN_TOUCH_PX);
+
+    // Both inside the panel, and the PAIR centred as a group despite the two
+    // faces (and therefore the two offsets) being deliberately different sizes.
+    expect(cancelLeft).toBeGreaterThan(panelLeft);
+    expect(eraseRight).toBeLessThan(panelRight);
+    expect((cancelLeft + eraseRight) / 2).toBe(cx);
+  });
+
+  it('fits the widest confirm body line inside the panel', () => {
+    // The longest line the scene renders is 36 chars; assert against a generous
+    // bound so a reworded line that overflows the panel fails here.
+    const usable = CREDITS.confirmPanelWidthPx - 2 * 32;
+    expect(40 * CREDITS.confirmBodyFontSizePx).toBeLessThanOrEqual(usable);
+  });
+
+  it('dims the screen behind the confirmation without hiding it completely', () => {
+    expect(CREDITS.confirmDimAlpha).toBeGreaterThan(0.5);
+    expect(CREDITS.confirmDimAlpha).toBeLessThan(1);
+  });
+
+  it('paces the reveal: a beat, then one line at a time, then a beat, then the tail', () => {
+    for (const ms of [
+      CREDITS.revealFirstLineDelayMs,
+      CREDITS.revealLineIntervalMs,
+      CREDITS.revealLineFadeMs,
+      CREDITS.revealTailDelayMs,
+      CREDITS.tailFadeMs,
+    ]) {
+      expect(ms).toBeGreaterThan(0);
+    }
+    // A line must SETTLE before the next one starts, or "line by line" turns
+    // into three lines cross-fading at once.
+    expect(CREDITS.revealLineFadeMs).toBeLessThan(CREDITS.revealLineIntervalMs);
+  });
+
+  it('gets the whole reveal done in a few seconds (nobody is made to wait)', () => {
+    // The moment the buttons exist = last line + tail beat + tail fade. An
+    // impatient player can still skip it with a tap, but the patient one must
+    // not be stuck watching either.
+    const untilButtonsMs =
+      CREDITS.revealFirstLineDelayMs +
+      (CREDITS_LINES.length - 1) * CREDITS.revealLineIntervalMs +
+      CREDITS.revealTailDelayMs +
+      CREDITS.tailFadeMs;
+    expect(untilButtonsMs).toBeLessThanOrEqual(5000);
+  });
+
+  it('reads cream on dark, never pixelText\'s default plum', () => {
+    // The scene overrides createPixelText's colour precisely because the default
+    // is unreadable here; if someone "simplified" that away this fails.
+    expect(CREDITS.textColor).not.toBe(PALETTE.plum);
+    expect(CREDITS.backgroundColor).not.toBe(CREDITS.textColor);
+    // A genuinely DARK field (PLAN-09 task 3) and genuinely light text — compared
+    // by perceived luminance, not by name.
+    expect(luminance(CREDITS.backgroundColor)).toBeLessThan(0.25);
+    expect(luminance(CREDITS.textColor)).toBeGreaterThan(0.75);
+    // WCAG AAA for large text is 4.5:1; this clears AAA body text (7:1) too.
+    expect(contrastRatio(CREDITS.textColor, CREDITS.backgroundColor)).toBeGreaterThan(7);
+  });
+
+  it('keeps the party -> credits palette continuity (same night sky)', () => {
+    // Walking out of the party into the credits must not change palette; the
+    // party's top sky band is the same colour.
+    expect(CREDITS.backgroundColor).toBe(PALETTE.duskIndigo);
   });
 });

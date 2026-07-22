@@ -1,37 +1,590 @@
+// The real CreditsScene (PLAN-09 task 3, ST-4) — NORTH_STAR §5's closing
+// screen, and THE LAST THING THE RECIPIENT OF THIS GIFT EVER SEES.
+//
+// A dark dusk field with the party's confetti still falling, on which the three
+// VERBATIM credit lines appear one at a time:
+//
+//     Created by Caleb Melin
+//     Created for Gabriella Novelli
+//     Happy 22nd!!!
+//
+// then a tiny heart, a divider, the tulips she collected, and two ways on:
+// "Play again?" (to the Title with EVERY gabby22.* key untouched) and a clearly
+// secondary "Fresh start" (which wipes the save — behind an in-scene
+// confirmation, never window.confirm).
+//
+// VERBATIM CONTENT (CLAUDE.md Rule 4 / NORTH_STAR §7): the three lines are
+// IMPORTED from src/data/finale.ts's CREDITS_LINES and never re-typed here.
+// "Happy 22nd!!!" has THREE exclamation marks. tests/finale.test.ts already
+// guards that constant byte-exactly against an independent code-point oracle,
+// and scripts/playtest-credits.mjs re-checks it against a second, separate
+// oracle on what actually reached the screen. The only copy authored in this
+// file is UI chrome — the button labels, the confirmation's wording and the
+// tulip tally — which is the LevelCompleteScene/PartyScene precedent for their
+// own button labels.
+//
+// LEGIBILITY IS A DESIGN CONSTRAINT HERE, NOT A DETAIL. `createPixelText`
+// defaults to TEXT_COLOR (plum #4a2c40), which is tuned for the pastel-pink
+// menus and is effectively invisible on this background. EVERY string on this
+// screen therefore sets CREDITS.textColor explicitly (cream, ~10.3:1 contrast
+// on duskIndigo) — there is a helper below, `creditsText`, so no call site can
+// forget.
+//
+// A plain (non-Matter) scene at camera zoom 1 like LevelCompleteScene /
+// PartyScene — ZERO Matter bodies (it never touches `this.matter`), NO zoom
+// compensation anywhere. All tunable numbers live in constants.ts's CREDITS
+// block; the ambient rain reuses the PARTY.confettiFall* knobs both finale
+// scenes deliberately share (see that block's doc).
+//
+// (The PLAN-04 forward-note this file used to carry is honoured by omission:
+// the credits render no Gabby/rider sprite at all, so there is no character
+// texture to build. If one is ever added it MUST go through the one-source-of-
+// truth path `buildCharacterTextures(this, getSave().loadCharacter() ??
+// defaultCharacter())`, exactly as GameScene, CharacterCreationScene's live
+// preview and PartyScene do.)
+//
+// FORWARD-NOTES: PLAN-10 owns ALL audio (a closing theme belongs here). ST-5
+// owns the scripted level-22 arrival; ST-6 adds the Title screen's "Party"
+// revisit entry point, which becomes a SECOND way into this scene.
 import Phaser from 'phaser';
-import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR, SCENE_KEYS } from '../systems/constants';
-import { createPixelText, createPixelButton } from '../systems/ui';
+import {
+  CREDITS,
+  DEPTHS,
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  PALETTE,
+  PARTY,
+  SCENE_KEYS,
+  hexToCss,
+} from '../systems/constants';
+import { createPixelButton, createPixelPanel, createPixelText } from '../systems/ui';
+import { createConfettiFall } from '../systems/confetti';
+import type { ConfettiFallHandle } from '../systems/confetti';
+import { CREDITS_LINES } from '../data/finale';
+import { getSave } from '../systems/save';
+
+// ---------------------------------------------------------------------------
+// UI chrome authored here (NOT personal content — see the module doc).
+// ---------------------------------------------------------------------------
+
+/** The primary way on: back to the Title with progress KEPT. */
+const PLAY_AGAIN_LABEL = 'Play again?';
+
+/** The secondary way on: wipes the save, behind the confirmation below. The
+ * plan names this option, so the label is its wording. */
+const FRESH_START_LABEL = 'Fresh start';
+
+/** The confirmation's heading. */
+const CONFIRM_TITLE = 'Start over?';
 
 /**
- * Skeleton credits scene — shows its name and a temp button back to title.
+ * The confirmation's body, PRE-BROKEN into three lines rather than word-wrapped,
+ * so CREDITS' panel geometry is exact arithmetic instead of a measured guess.
  *
- * FORWARD-NOTE (PLAN-04 task 4) for the later plan that builds this scene
- * out for real: if it ever renders a Gabby/rider sprite, it MUST be built
- * through the one-source-of-truth texture path —
- * `buildCharacterTextures(this, getSave().loadCharacter() ?? defaultCharacter())`
- * (`src/systems/characterTextures.ts`'s `buildCharacterTextures`,
- * `src/systems/save.ts`'s `getSave().loadCharacter()`, and
- * `src/data/characters.ts`'s `defaultCharacter()`) — the SAME call GameScene
- * (PLAN-04 task 4) and CharacterCreationScene's live preview (PLAN-04 task 3)
- * use, so any credits artwork matches the player's chosen look.
+ * Wording is deliberately warm and completely unambiguous about what is lost:
+ * this one button deletes her levels, her tulips AND the Gabby she built, and a
+ * gift should say so kindly rather than bark a system-dialog "Are you sure?".
+ * Pure ASCII (house rule) — no dashes or ellipses that a re-encode could mangle.
  */
+const CONFIRM_BODY_LINES: readonly string[] = [
+  'This clears your levels, your tulips',
+  'and the Gabby you made, so the whole',
+  'ride begins again at level 1.',
+];
+
+/** CANCEL. Named for what it PRESERVES, not "No" — and it is the wide button on
+ * the left, so the easy out is also the obvious one. */
+const CONFIRM_CANCEL_LABEL = 'Keep my progress';
+
+/** CONFIRM. Named for what it DOES. */
+const CONFIRM_ERASE_LABEL = 'Erase it all';
+
+/**
+ * The tally under the divider — PLAN-09 task 3's "🌷 × N collected".
+ *
+ * BOTH non-ASCII characters are written as explicit `\u{...}` escapes, never as
+ * literal glyphs in source (the data/notes.ts / data/finale.ts discipline, so an
+ * editor re-encoding this file can never mangle them): U+1F337 TULIP and U+00D7
+ * MULTIPLICATION SIGN. Escaping is necessary but not sufficient — a code point
+ * the font stack cannot draw renders as a tofu box — so BOTH were
+ * screenshot-verified in real Chrome at this exact size before being kept, the
+ * same way the level-2 tutorial sign's em dash was (DECISIONS.md 2026-07-16 and
+ * 2026-07-22). The tulip is already proven by the party's bouquet toast.
+ *
+ * Shown at EVERY count including zero — see CREDITS.tulipLineCenterY's doc for
+ * why this differs from the party toast's tulips > 0 gate.
+ */
+function tulipLineText(count: number): string {
+  return `\u{1F337} \u{00D7} ${count} collected`;
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder DRAWING dimensions (PLAN-10 replaces the art). The established
+// exception to "no magic numbers outside constants.ts" — same as
+// pickup.ts's/partyCast.ts's local sprite dimensions.
+// ---------------------------------------------------------------------------
+
+/** The tiny heart's three primitives, as fractions of CREDITS.heartSizePx: two
+ * lobes and the point below them. Byte-identical to the heart pickup.ts draws
+ * when Caleb hops on in level 12, so the game's two hearts are the same heart.
+ * Kept as a local copy rather than extracted: that one is a tracked, tweened,
+ * self-destroying particle living inside a level-event handle, and this one is a
+ * static signature — they share only these six numbers. */
+const HEART_LOBE_OFFSET_X = 0.28;
+const HEART_LOBE_OFFSET_Y = -0.15;
+const HEART_LOBE_RADIUS = 0.42;
+const HEART_POINT_HALF_WIDTH = 0.62;
+const HEART_POINT_TOP_Y = 0.02;
+const HEART_POINT_BOTTOM_Y = 0.85;
+
+/** DEV-only live snapshot the browser playtest harness
+ * (scripts/playtest-credits.mjs) reads off the scene (stripped from prod builds
+ * via import.meta.env.DEV, exactly like PartyScene's __party). */
+interface CreditsDebug {
+  /** The three rendered credit lines, in order — imported verbatim from
+   * data/finale.ts, never re-typed. */
+  lines: readonly string[];
+  /** How many of them have started appearing RIGHT NOW (0..3) — a live getter,
+   * so the harness can observe a genuinely partial reveal. */
+  revealedLines: () => number;
+  /** Whether the reveal has finished (naturally or via a skip). */
+  revealComplete: () => boolean;
+  /** Whether the two buttons EXIST yet. They are built a beat after the reveal
+   * completes (see CREDITS.tailFadeMs), so this — not revealComplete — is what
+   * a harness must wait on before pressing one. */
+  buttonsShown: () => boolean;
+  /** The tulip tally string this entry will render. */
+  tulipLineText: string;
+  /** The tulip total read from the save on entry. */
+  tulips: number;
+  /** Whether the fresh-start confirmation is open. */
+  confirmShowing: () => boolean;
+  /** Whether the tiny heart has been drawn. */
+  heartShown: () => boolean;
+  /** Where each button sits (design px), for real clicks/taps. Static — derived
+   * from the CREDITS constants, so they are readable BEFORE the buttons are
+   * built (they only exist once the reveal finishes). */
+  playAgainPos: { x: number; y: number };
+  freshStartPos: { x: number; y: number };
+  confirmCancelPos: { x: number; y: number };
+  confirmErasePos: { x: number; y: number };
+}
+
 export class CreditsScene extends Phaser.Scene {
+  private confetti: ConfettiFallHandle | undefined;
+
+  // --- line-by-line reveal state ---
+  /** The three credit-line Text objects, created at alpha 0 in create(). */
+  private lineTexts: Phaser.GameObjects.Text[] = [];
+  private revealElapsedMs = 0;
+  /** How many lines have STARTED revealing (each fades in over
+   * CREDITS.revealLineFadeMs). */
+  private revealedLineCount = 0;
+  private revealComplete = false;
+
+  // --- below-the-divider content, built once the reveal finishes ---
+  /** The tulip tally, resolved ONCE in create() from the save and rendered
+   * verbatim by buildTail(). Read once rather than at draw time so the DEV
+   * snapshot and the pixels can never disagree. */
+  private tallyText = '';
+  private heart: Phaser.GameObjects.Graphics | undefined;
+  private tailObjects: Phaser.GameObjects.GameObject[] = [];
+  private playAgainButton: Phaser.GameObjects.Container | undefined;
+  private freshStartButton: Phaser.GameObjects.Container | undefined;
+
+  /** Every object making up the open fresh-start confirmation, or undefined
+   * when it is closed. Doubles as the "is it showing?" flag, so the two can
+   * never disagree. */
+  private confirmObjects: Phaser.GameObjects.GameObject[] | undefined;
+
+  /** Latched the instant the player commits to leaving, so a SECOND press
+   * cannot start the destination scene again. Phaser's SceneManager.start on an
+   * already-running scene shuts it down and re-creates it, so an unguarded
+   * double-click or two-finger tap is a silent RESTART — and on the "Erase it
+   * all" path it would run resetAll() twice. Reset only by the next create()
+   * (the PartyScene.leaving discipline, ST-3). */
+  private leaving = false;
+
   constructor() {
     super(SCENE_KEYS.credits);
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+    // Per-entry reset — Phaser reuses the scene instance across scene.start(),
+    // so every field must be re-initialised here or a second visit would run on
+    // the previous visit's destroyed objects (the PartyScene/LevelCompleteScene
+    // discipline). Entering the credits twice must not stack listeners, replay
+    // half a reveal, or leak.
+    this.confetti = undefined;
+    this.lineTexts = [];
+    this.revealElapsedMs = 0;
+    this.revealedLineCount = 0;
+    this.revealComplete = false;
+    this.tallyText = '';
+    this.heart = undefined;
+    this.tailObjects = [];
+    this.playAgainButton = undefined;
+    this.freshStartButton = undefined;
+    this.confirmObjects = undefined;
+    this.leaving = false;
 
-    createPixelText(this, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2 - 80, 'CreditsScene', 32);
+    this.cameras.main.setBackgroundColor(CREDITS.backgroundColor);
 
-    createPixelButton(this, {
-      x: DESIGN_WIDTH / 2,
-      y: DESIGN_HEIGHT / 2 + 40,
-      label: 'back to title →',
-      onClick: () => {
-        this.scene.start(SCENE_KEYS.title);
-      },
+    // The party's rain, still falling (PLAN-09 task 3's "confetti still
+    // falling") — the same shared pool and the same PARTY.confettiFall* feel, so
+    // pressing "Credits ->" reads as walking out of the party rather than as
+    // cutting to a different game. At DEPTHS.fx it sits BEHIND every string
+    // here (all of which draw at DEPTHS.ui), so it can never obscure the words.
+    this.confetti = createConfettiFall(this, {
+      count: PARTY.confettiFallCount,
+      spawnAbovePx: PARTY.confettiFallSpawnAbovePx,
+      fallSpeedMinPxPerSec: PARTY.confettiFallSpeedMinPxPerSec,
+      fallSpeedMaxPxPerSec: PARTY.confettiFallSpeedMaxPxPerSec,
+      driftMaxPxPerSec: PARTY.confettiFallDriftMaxPxPerSec,
+      spinMaxRadPerSec: PARTY.confettiFallSpinMaxRadPerSec,
+      sizeMinPx: PARTY.confettiFallSizeMinPx,
+      sizeMaxPx: PARTY.confettiFallSizeMaxPx,
+      depth: PARTY.confettiFallDepth,
     });
+
+    this.buildCreditLines();
+
+    const tulips = getSave().getTulips();
+    this.tallyText = tulipLineText(tulips);
+
+    // Tap/click ANYWHERE skips the reveal (LevelCompleteScene's courtesy to
+    // impatient players). Removed on SHUTDOWN so it can't stack across
+    // re-entries.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.skipReveal, this);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off(Phaser.Input.Events.POINTER_DOWN, this.skipReveal, this);
+      // Kill every fade this scene may still be running: the line fades, the
+      // tail fade (whose onComplete builds the buttons) and any tween on the
+      // confirmation. Phaser tears tweens down with the scene anyway, but the
+      // tail tween's onComplete creates INTERACTIVE objects, so it is killed
+      // explicitly rather than left to the general teardown.
+      this.tweens.killTweensOf(this.lineTexts);
+      this.tweens.killTweensOf(this.tailObjects);
+      this.confetti?.destroy();
+      this.confetti = undefined;
+      this.lineTexts = [];
+      this.heart = undefined;
+      this.tailObjects = [];
+      this.playAgainButton = undefined;
+      this.freshStartButton = undefined;
+      this.confirmObjects = undefined;
+      // Drop the DEV snapshot with the scene: most of it is a frozen literal,
+      // so leaving it behind would let a harness read a plausible-looking
+      // credits screen off a scene that is not running (the __party precedent —
+      // and it matters more here, since ST-6 adds a second way in).
+      if (import.meta.env.DEV) {
+        delete (this as unknown as { __credits?: CreditsDebug }).__credits;
+      }
+    });
+
+    // DEV-only live snapshot for the browser harness (dead-code-eliminated from
+    // prod builds via import.meta.env.DEV, same as __party/__levelComplete).
+    if (import.meta.env.DEV) {
+      (this as unknown as { __credits?: CreditsDebug }).__credits = {
+        lines: CREDITS_LINES,
+        revealedLines: () => this.revealedLineCount,
+        revealComplete: () => this.revealComplete,
+        buttonsShown: () => this.playAgainButton !== undefined,
+        tulipLineText: this.tallyText,
+        tulips,
+        confirmShowing: () => this.confirmObjects !== undefined,
+        heartShown: () => this.heart !== undefined,
+        playAgainPos: { x: DESIGN_WIDTH / 2, y: CREDITS.playAgainButtonY },
+        freshStartPos: { x: DESIGN_WIDTH / 2, y: CREDITS.freshStartButtonY },
+        confirmCancelPos: {
+          x: DESIGN_WIDTH / 2 + CREDITS.confirmCancelOffsetXPx,
+          y: CREDITS.confirmButtonY,
+        },
+        confirmErasePos: {
+          x: DESIGN_WIDTH / 2 + CREDITS.confirmConfirmOffsetXPx,
+          y: CREDITS.confirmButtonY,
+        },
+      };
+    }
+  }
+
+  update(_time: number, delta: number): void {
+    this.confetti?.update(delta);
+    this.updateReveal(delta);
+  }
+
+  // ------------------------------------------------------------------ text
+  /** Centered pixel text in THIS screen's colour. Every string on the credits
+   * goes through here — createPixelText's default plum is unreadable on the
+   * dark field, and a helper is how that stops being something a call site can
+   * forget. */
+  private creditsText(
+    x: number,
+    y: number,
+    text: string,
+    sizePx: number
+  ): Phaser.GameObjects.Text {
+    return createPixelText(this, x, y, text, sizePx)
+      .setColor(hexToCss(CREDITS.textColor))
+      .setDepth(DEPTHS.ui);
+  }
+
+  // ---------------------------------------------------------------- reveal
+  /** Builds all three credit lines up front at alpha 0 — the reveal is a fade
+   * per line, so the layout is fixed from frame one and nothing below ever
+   * shifts as lines arrive. The strings come from CREDITS_LINES; the last one
+   * gets its own bigger font (see CREDITS.finalLineFontSizePx). */
+  private buildCreditLines(): void {
+    const cx = DESIGN_WIDTH / 2;
+    this.lineTexts = CREDITS_LINES.map((line, index) => {
+      const isFinal = index === CREDITS_LINES.length - 1;
+      const y = CREDITS.lineCenterYsPx[index];
+      const size = isFinal ? CREDITS.finalLineFontSizePx : CREDITS.lineFontSizePx;
+      return this.creditsText(cx, y, line, size).setAlpha(0);
+    });
+  }
+
+  /** Advances the line-by-line reveal. Line `i` is due at
+   * `revealFirstLineDelayMs + i * revealLineIntervalMs`; the whole screen
+   * completes `revealTailDelayMs` after the last one. Mirrors
+   * LevelCompleteScene's elapsed-accumulator typewriter, one LINE at a time
+   * rather than one character. */
+  private updateReveal(delta: number): void {
+    if (this.revealComplete) return;
+    this.revealElapsedMs += delta;
+
+    const due =
+      Math.floor(
+        (this.revealElapsedMs - CREDITS.revealFirstLineDelayMs) / CREDITS.revealLineIntervalMs
+      ) + 1;
+    const target = Math.max(0, Math.min(this.lineTexts.length, due));
+    while (this.revealedLineCount < target) {
+      const text = this.lineTexts[this.revealedLineCount];
+      this.tweens.add({ targets: text, alpha: 1, duration: CREDITS.revealLineFadeMs });
+      this.revealedLineCount++;
+    }
+
+    if (this.revealedLineCount >= this.lineTexts.length) {
+      const lastLineDueMs =
+        CREDITS.revealFirstLineDelayMs +
+        (this.lineTexts.length - 1) * CREDITS.revealLineIntervalMs;
+      if (this.revealElapsedMs >= lastLineDueMs + CREDITS.revealTailDelayMs) {
+        this.finishReveal();
+      }
+    }
+  }
+
+  /** Tap/click-anywhere handler: jump straight to the finished screen. */
+  private skipReveal(): void {
+    if (!this.revealComplete) this.finishReveal();
+  }
+
+  /** Snaps every line to full opacity (a skip can land mid-fade) and builds
+   * everything below the divider. Idempotent. */
+  private finishReveal(): void {
+    if (this.revealComplete) return;
+    this.revealComplete = true;
+    this.tweens.killTweensOf(this.lineTexts);
+    for (const text of this.lineTexts) text.setAlpha(1);
+    this.revealedLineCount = this.lineTexts.length;
+    this.buildTail();
+  }
+
+  // ------------------------------------------------------------------ tail
+  /** The heart, the divider and the tulip tally, faded in together. The two
+   * BUTTONS are built only when that fade completes — see CREDITS.tailFadeMs
+   * for why an alpha-0 button here would be actively harmful. */
+  private buildTail(): void {
+    const cx = DESIGN_WIDTH / 2;
+
+    this.heart = this.drawHeart(cx, CREDITS.heartCenterY, CREDITS.heartSizePx);
+
+    const divider = this.add
+      .rectangle(
+        cx,
+        CREDITS.dividerY,
+        CREDITS.dividerWidthPx,
+        CREDITS.dividerThicknessPx,
+        CREDITS.textColor
+      )
+      .setDepth(DEPTHS.ui);
+
+    const tally = this.creditsText(
+      cx,
+      CREDITS.tulipLineCenterY,
+      this.tallyText,
+      CREDITS.tulipLineFontSizePx
+    );
+
+    this.heart.setAlpha(0);
+    divider.setAlpha(0);
+    tally.setAlpha(0);
+    this.tailObjects = [this.heart, divider, tally];
+
+    // Two tweens, same duration, because the divider fades to its OWN dimmed
+    // alpha rather than to full (a rule that competed with the words above it
+    // would defeat the point of having one). The divider's tween owns the
+    // onComplete that finally builds the buttons.
+    this.tweens.add({ targets: [this.heart, tally], alpha: 1, duration: CREDITS.tailFadeMs });
+    this.tweens.add({
+      targets: divider,
+      alpha: CREDITS.dividerAlpha,
+      duration: CREDITS.tailFadeMs,
+      onComplete: () => this.buildButtons(),
+    });
+  }
+
+  /** PLAN-09 task 3's "A tiny heart somewhere. Tasteful." — two lobes and a
+   * point, drawn on one Graphics in local space and positioned, exactly as
+   * pickup.ts draws Caleb's. */
+  private drawHeart(x: number, y: number, sizePx: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics().setDepth(DEPTHS.ui);
+    g.fillStyle(PALETTE.coral, 1);
+    g.fillCircle(
+      -sizePx * HEART_LOBE_OFFSET_X,
+      sizePx * HEART_LOBE_OFFSET_Y,
+      sizePx * HEART_LOBE_RADIUS
+    );
+    g.fillCircle(
+      sizePx * HEART_LOBE_OFFSET_X,
+      sizePx * HEART_LOBE_OFFSET_Y,
+      sizePx * HEART_LOBE_RADIUS
+    );
+    g.fillTriangle(
+      -sizePx * HEART_POINT_HALF_WIDTH,
+      sizePx * HEART_POINT_TOP_Y,
+      sizePx * HEART_POINT_HALF_WIDTH,
+      sizePx * HEART_POINT_TOP_Y,
+      0,
+      sizePx * HEART_POINT_BOTTOM_Y
+    );
+    g.setPosition(x, y);
+    return g;
+  }
+
+  // --------------------------------------------------------------- buttons
+  /** The two ways on. Built once, only after the tail fade. */
+  private buildButtons(): void {
+    if (this.playAgainButton) return;
+    const cx = DESIGN_WIDTH / 2;
+
+    this.playAgainButton = createPixelButton(this, {
+      x: cx,
+      y: CREDITS.playAgainButtonY,
+      label: PLAY_AGAIN_LABEL,
+      minWidth: CREDITS.playAgainButtonMinWidthPx,
+      onClick: () => this.playAgain(),
+    });
+
+    this.freshStartButton = createPixelButton(this, {
+      x: cx,
+      y: CREDITS.freshStartButtonY,
+      label: FRESH_START_LABEL,
+      minWidth: CREDITS.freshStartButtonMinWidthPx,
+      onClick: () => this.showResetConfirm(),
+    });
+  }
+
+  /**
+   * "Play again?" — back to the Title with PROGRESS KEPT. This path touches no
+   * storage at all: every gabby22.* key is byte-identical afterwards (asserted
+   * on raw localStorage by scripts/playtest-credits.mjs).
+   */
+  private playAgain(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.scene.start(SCENE_KEYS.title);
+  }
+
+  // ------------------------------------------------- fresh-start confirm
+  /**
+   * Opens the fresh-start confirmation: a full-screen dim, a pixel panel, the
+   * warning, and two buttons — cancel (wide, left) and erase (narrow, right).
+   *
+   * The two buttons underneath are input-DISABLED for as long as this is open.
+   * The dim alone is not enough: it is a plain Rectangle with no hit area, so
+   * without this a press landing where "Play again?" sits would sail straight
+   * through the panel and navigate away mid-confirmation. `disableInteractive()`
+   * flips `input.enabled` and keeps the InteractiveObject, so the matching
+   * `setInteractive()` in hideResetConfirm() restores them exactly.
+   */
+  private showResetConfirm(): void {
+    if (this.confirmObjects !== undefined) return;
+    const cx = DESIGN_WIDTH / 2;
+
+    this.playAgainButton?.disableInteractive();
+    this.freshStartButton?.disableInteractive();
+
+    const dim = this.add
+      .rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, PALETTE.outline, CREDITS.confirmDimAlpha)
+      .setOrigin(0, 0)
+      .setDepth(DEPTHS.overlay);
+
+    const panel = createPixelPanel(
+      this,
+      cx,
+      CREDITS.confirmPanelCenterY,
+      CREDITS.confirmPanelWidthPx,
+      CREDITS.confirmPanelHeightPx
+    ).setDepth(DEPTHS.overlay + 1);
+
+    // The panel face is cream, so its text uses the DEFAULT plum — the same
+    // cream-panel-behind-plum-text convention the name tags and the party
+    // banner use. This is the one place on the screen that is not cream-on-dark.
+    const title = createPixelText(
+      this,
+      cx,
+      CREDITS.confirmTitleY,
+      CONFIRM_TITLE,
+      CREDITS.confirmTitleFontSizePx
+    ).setDepth(DEPTHS.overlay + 2);
+
+    const body = createPixelText(
+      this,
+      cx,
+      CREDITS.confirmBodyY,
+      CONFIRM_BODY_LINES.join('\n'),
+      CREDITS.confirmBodyFontSizePx
+    ).setDepth(DEPTHS.overlay + 2);
+    body.setLineSpacing(CREDITS.confirmBodyLineSpacingPx);
+
+    const cancel = createPixelButton(this, {
+      x: cx + CREDITS.confirmCancelOffsetXPx,
+      y: CREDITS.confirmButtonY,
+      label: CONFIRM_CANCEL_LABEL,
+      minWidth: CREDITS.confirmCancelMinWidthPx,
+      onClick: () => this.hideResetConfirm(),
+    }).setDepth(DEPTHS.overlay + 2);
+
+    const erase = createPixelButton(this, {
+      x: cx + CREDITS.confirmConfirmOffsetXPx,
+      y: CREDITS.confirmButtonY,
+      label: CONFIRM_ERASE_LABEL,
+      minWidth: CREDITS.confirmConfirmMinWidthPx,
+      onClick: () => this.freshStart(),
+    }).setDepth(DEPTHS.overlay + 2);
+
+    this.confirmObjects = [dim, panel, title, body, cancel, erase];
+  }
+
+  /** CANCEL: tears the confirmation down and changes NOTHING — no storage call
+   * of any kind happens on this path. */
+  private hideResetConfirm(): void {
+    if (this.confirmObjects === undefined) return;
+    for (const object of this.confirmObjects) object.destroy();
+    this.confirmObjects = undefined;
+    this.playAgainButton?.setInteractive();
+    this.freshStartButton?.setInteractive();
+  }
+
+  /** CONFIRM: wipes every gabby22.* key, then back to the Title — which, with
+   * no saved character, restarts the first-run flow. Guarded by `leaving` so a
+   * double-press cannot run resetAll() twice or restart TitleScene. */
+  private freshStart(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    getSave().resetAll();
+    this.scene.start(SCENE_KEYS.title);
   }
 }

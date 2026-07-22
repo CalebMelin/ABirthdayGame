@@ -1914,6 +1914,195 @@ export const PARTY = {
   creditsButtonMarginYPx: 28,
 } as const;
 
+/** CreditsScene tuning (PLAN-09 task 3 / ST-4 — see src/scenes/CreditsScene.ts).
+ * NORTH_STAR §5's closing screen, and the LAST THING THE RECIPIENT OF THIS GIFT
+ * EVER SEES: the three VERBATIM credit lines centred on a DARK field with the
+ * confetti still falling, revealed LINE BY LINE, then — below a divider — the
+ * tulip count, "Play again?" (progress kept) and a clearly secondary
+ * "Fresh start" that wipes the save behind an in-scene confirmation.
+ *
+ * Like LevelCompleteScene / PartyScene this is a plain (non-Matter) scene at
+ * camera zoom 1 — ZERO Matter bodies, NO zoom compensation — so every length
+ * below is a straight px at the 1280x720 DESIGN scale (design == screen at
+ * zoom 1) and every time is ms.
+ *
+ * WHAT IS *NOT* HERE, on purpose: the three credit STRINGS live in
+ * src/data/finale.ts (CREDITS_LINES) and are never re-typed; the ambient rain
+ * reuses the PARTY.confettiFall* knobs that block already documents as shared by
+ * BOTH finale scenes. What lives here is only this screen's own geometry and
+ * pacing.
+ *
+ * VERTICAL STACK, top-down (each value's doc carries its own arithmetic):
+ *   line 1 -> line 2 -> line 3 -> a tiny heart -> the divider -> the tulip
+ *   line -> "Play again?" -> "Fresh start".
+ * tests/finale.test.ts pins the whole stack for overlap, on-screen fit and
+ * touch-target size, so a retune fails loudly instead of only in a screenshot. */
+export const CREDITS = {
+  // ----------------------------------------------------------------- canvas
+  /** The dark field the credits sit on. duskIndigo rather than a near-black:
+   * it is level 22's and the party's OWN night sky (themes.ts's `finalDusk`,
+   * PARTY.venueSkyMidY's upper band), so walking out of the party into the
+   * credits never changes palette — and the pastel confetti reads far better
+   * falling through a deep indigo than through black. */
+  backgroundColor: PALETTE.duskIndigo,
+  /** Fill colour for EVERY string on this screen. Deliberately NOT pixelText's
+   * default TEXT_COLOR (plum #4a2c40) — that one is tuned for the pastel-pink
+   * menus and is effectively illegible on the dark field above. Cream on
+   * duskIndigo measures ~10.3:1 contrast (WCAG AAA is 7:1). Any text ever added
+   * to this scene must set this colour explicitly; createPixelText does not
+   * take one, so the scene calls `.setColor(hexToCss(CREDITS.textColor))`. */
+  textColor: PALETTE.cream,
+
+  // ------------------------------------------------------- the three lines
+  /** Centre y of each credit line, px — ONE ENTRY PER data/finale.ts
+   * CREDITS_LINES entry, in the same order (tests/finale.test.ts pins the count
+   * and that they run top-down). The gap before the third is deliberately
+   * larger than the gap between the first two: "Happy 22nd!!!" is the
+   * punchline, so it gets air and its own bigger font instead of reading as the
+   * third item in a list. */
+  lineCenterYsPx: [156, 220, 300],
+  /** Font size of the two "Created ..." lines, px (snapped to the 8px pixel
+   * grid by pixelText). Press Start 2P advances exactly one font size per
+   * character, so the longest — "Created for Gabriella Novelli", 29 chars —
+   * measures 29 x 32 = 928px, comfortably inside DESIGN_WIDTH. */
+  lineFontSizePx: 32,
+  /** Font size of the LAST line, px. Bigger, because it is the one sentence the
+   * whole game exists to say. 13 chars x 40 = 520px. */
+  finalLineFontSizePx: 40,
+
+  // ------------------------------------------------------------ the reveal
+  // PLAN-09 task 3: "revealed line by line" — a whole line at a time, NOT
+  // LevelCompleteScene's per-character typewriter. A tap/click ANYWHERE skips
+  // straight to the finished screen, the same courtesy that scene's note card
+  // offers, so an impatient player is never stuck watching.
+  /** Beat before the FIRST line appears, ms — lets the dark field and the
+   * falling confetti register before any words do. */
+  revealFirstLineDelayMs: 400,
+  /** Gap between consecutive lines appearing, ms. */
+  revealLineIntervalMs: 900,
+  /** How long ONE line fades from invisible to full, ms. Kept well under
+   * revealLineIntervalMs so a line has settled before the next one starts. */
+  revealLineFadeMs: 350,
+  /** Beat AFTER the last line before anything below the divider appears, ms —
+   * the pause that lets "Happy 22nd!!!" land on its own. */
+  revealTailDelayMs: 600,
+  /** Fade duration of the below-the-divider content (heart, divider, tulip
+   * line), ms.
+   *
+   * THE TWO BUTTONS ARE NOT CREATED UNTIL THIS FADE FINISHES, and that is
+   * load-bearing rather than cosmetic: an alpha-0 Phaser Container is still
+   * fully interactive (the hazard PARTY.creditsButtonDelayMs's doc describes),
+   * and here it has a live trigger — the reveal is skippable by a tap ANYWHERE,
+   * so a button that already existed when the skip tap landed would take that
+   * same tap's pointerup and navigate away the instant the player tried to hurry
+   * the credits along. Nothing interactive exists until this fade completes. */
+  tailFadeMs: 400,
+
+  // -------------------------------------------------------------- the heart
+  // PLAN-09 task 3's "A tiny heart somewhere. Tasteful." Centred directly under
+  // "Happy 22nd!!!" and above the divider, so it reads as a signature ON the
+  // message rather than as decoration floating in a corner.
+  /** Heart centre y, px. */
+  heartCenterY: 364,
+  /** Heart bounding-box size, px. TINY is the brief — smaller than the smallest
+   * text on the screen. */
+  heartSizePx: 22,
+
+  // ------------------------------------------------------------ the divider
+  // "Below a divider: ..." — the rule that separates the message from the
+  // housekeeping under it.
+  /** Divider centre y, px. */
+  dividerY: 410,
+  /** Divider width, px. Wider than the final line (520) and much narrower than
+   * the longest credit line (928), so it reads as a rule UNDER the message
+   * rather than as a box around it. */
+  dividerWidthPx: 560,
+  /** Divider thickness, px. */
+  dividerThicknessPx: 4,
+  /** Divider alpha — the same cream as the text, dimmed, so it separates
+   * without competing with the words above it. */
+  dividerAlpha: 0.45,
+
+  // --------------------------------------------------------- the tulip line
+  // PLAN-09 task 3's "<tulip> x N collected", reading the REAL persisted total
+  // (save.ts's getTulips()). Shown at EVERY count including zero: unlike the
+  // party's bouquet TOAST (which congratulates, so it is gated on tulips > 0),
+  // this is a factual tally, and hiding it would leave the divider with nothing
+  // under it but buttons. Both of its non-ASCII characters are written as
+  // \u{...} escapes in the scene and were screenshot-verified to render as real
+  // glyphs rather than tofu (DECISIONS.md, 2026-07-22).
+  /** Tulip-line centre y, px. */
+  tulipLineCenterY: 456,
+  /** Tulip-line font size, px — a quiet tally, well under the credit lines. */
+  tulipLineFontSizePx: 24,
+
+  // ----------------------------------------------------------------- buttons
+  // Two STACKED rows, primary above secondary: "Play again?" keeps everything,
+  // "Fresh start" wipes it. ui.ts gives every face a UI_MIN_TOUCH_PX (88) tall
+  // face, so the row centres are kept >= 88px apart (112 here, matching
+  // LEVEL_COMPLETE's row gap) and the lower row still clears the bottom screen
+  // edge (648 + 44 = 692 < 720).
+  /** "Play again?" centre y, px — the PRIMARY action. Routes to the Title with
+   * every gabby22.* key untouched. */
+  playAgainButtonY: 536,
+  /** Its face width, px. MUST stay >= the label's natural width so the face
+   * width is deterministic and the geometry tests are exact (the same
+   * discipline PARTY.creditsButtonMinWidthPx documents): "Play again?" is 11
+   * chars, which at ui.ts's default 24px label size measures 11 x 24 = 264px,
+   * plus 32px of padding each side = 328 natural. 480 is therefore the real
+   * width — and being far wider than the secondary below IS the hierarchy. */
+  playAgainButtonMinWidthPx: 480,
+  /** "Fresh start" centre y, px — the SECONDARY action, which wipes the save
+   * behind the confirmation below. */
+  freshStartButtonY: 648,
+  /** Its face width, px. Same natural-width arithmetic ("Fresh start" is also
+   * 11 chars = 328 natural), so 340 is the real width — deliberately much
+   * narrower than the primary, and still >= UI_MIN_TOUCH_PX. */
+  freshStartButtonMinWidthPx: 340,
+
+  // ------------------------------------------------- the fresh-start confirm
+  // "Fresh start" calls save.ts's resetAll(), which deletes EVERY gabby22.* key
+  // — her levels, her tulips, and the Gabby she built. So it never fires
+  // directly: it opens an IN-SCENE confirmation (never window.confirm) over a
+  // full-screen dim, and while that is open the two buttons underneath are
+  // input-DISABLED, so no press can leak through to them. Cancel is the wide
+  // left-hand button and changes nothing at all.
+  /** Alpha of the full-screen dim drawn behind the panel (in PALETTE.outline) —
+   * high enough that the credits behind it clearly recede. */
+  confirmDimAlpha: 0.78,
+  /** Confirm panel centre y + size, px. Centred in the viewport (360 == half of
+   * DESIGN_HEIGHT), 180..540 vertically and 140..1140 horizontally. */
+  confirmPanelCenterY: 360,
+  confirmPanelWidthPx: 1000,
+  confirmPanelHeightPx: 360,
+  /** Panel title ("Start over?") centre y + font size, px. */
+  confirmTitleY: 246,
+  confirmTitleFontSizePx: 32,
+  /** Body copy centre y + font size + extra gap between its lines, px. The body
+   * is THREE pre-broken lines (never word-wrapped), so the geometry here is
+   * exact: 3 x 16 + 2 x 12 = 72px tall, and the longest line is 36 chars x 16 =
+   * 576px — inside the panel's 1000 - 2 x 32 of usable width. */
+  confirmBodyY: 322,
+  confirmBodyFontSizePx: 16,
+  confirmBodyLineSpacingPx: 12,
+  /** Both confirm buttons' centre y, px — one row inside the panel, clearing
+   * its bottom edge by 44px. */
+  confirmButtonY: 452,
+  /** CANCEL ("Keep my progress"): centre-x offset from screen centre + face
+   * width, px. On the LEFT and the WIDER of the two on purpose — it is the
+   * easy, obvious out. 16 chars x 24 + 2 x 32 = 448 natural, so 460 is the real
+   * width. */
+  confirmCancelOffsetXPx: -220,
+  confirmCancelMinWidthPx: 460,
+  /** CONFIRM ("Erase it all"): centre-x offset + face width, px. On the right
+   * and visibly narrower. 12 chars x 24 + 2 x 32 = 352 natural, so 360 is the
+   * real width. The two offsets are ASYMMETRIC because the two faces are: they
+   * are chosen so the PAIR is centred as a group (190..1090, centre 640) with
+   * an 80px gap between them and 50px of panel padding either side. */
+  confirmConfirmOffsetXPx: 270,
+  confirmConfirmMinWidthPx: 360,
+} as const;
+
 /** Centralized scene keys — all scenes and transitions reference these
  * instead of string literals. See NORTH_STAR.md §4 for the scene flow. */
 export const SCENE_KEYS = {
