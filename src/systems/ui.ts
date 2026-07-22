@@ -113,25 +113,60 @@ export function createPixelButton(
     labelText.y = 0;
   };
 
+  /**
+   * Pointer ids that pressed DOWN on this button and have not left or been
+   * released yet. `pointerup` only fires `onClick` for a pointer in here, so a
+   * press that began somewhere else and merely ENDED over this button cannot
+   * activate it.
+   *
+   * WHY THIS EXISTS (PLAN-09 ST-4 code review, browser-reproduced): Phaser's
+   * GAMEOBJECT_UP fires for whatever the pointer is over at release, regardless
+   * of where it went down. Without this latch EVERY button in the game was
+   * activatable by pressing empty space and releasing over it — including a
+   * button that only APPEARED during the hold. Measured on the credits screen,
+   * whose two buttons build ~3.2s in, in the lower-centre of the screen where a
+   * phone thumb rests: a 300ms hold did nothing, a 420ms hold (past
+   * CREDITS.tailFadeMs) skipped the reveal AND fired "Play again?", ejecting the
+   * player off the last screen of the gift. Fixed HERE rather than in that scene
+   * because it was never that scene's bug.
+   *
+   * KEYED PER POINTER, not a single boolean, so multi-touch semantics are
+   * unchanged: two fingers that each press and release on the same button still
+   * produce two `onClick`s exactly as before. That matters because the scenes'
+   * own double-press guards (PartyScene/CreditsScene's `leaving` latch) are
+   * built for precisely that case, and collapsing it here would quietly make
+   * those guards — and the harness checks that prove them — untestable.
+   * `pointer.id` is the same idiom partyBalloons.ts's press dedupe uses.
+   */
+  const pressedPointers = new Set<number>();
+
   container.on('pointerover', () => {
     face.setFillStyle(PALETTE.sunshine);
   });
 
   // Covers both plain hover-out and "dragged off while pressed" — Phaser
   // fires pointerout the moment the pointer leaves the hit area, before any
-  // pointerup/pointerupoutside, so this always restores the pressed state.
-  container.on('pointerout', restore);
+  // pointerup/pointerupoutside, so this always restores the pressed state
+  // AND drops that pointer's claim (dragging off then back on must not arm it
+  // again without a fresh press).
+  container.on('pointerout', (pointer: Phaser.Input.Pointer) => {
+    pressedPointers.delete(pointer.id);
+    restore();
+  });
 
-  container.on('pointerdown', () => {
+  container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    pressedPointers.add(pointer.id);
     face.y = SHADOW_OFFSET_PX;
     labelText.y = SHADOW_OFFSET_PX;
   });
 
-  // Only fires while the pointer is still inside the hit area, i.e. a
-  // genuine click/tap — releasing outside never reaches this listener.
-  container.on('pointerup', () => {
+  // Fires only while the pointer is still inside the hit area (releasing
+  // outside never reaches this listener) AND only if that same pointer pressed
+  // down here first — see pressedPointers.
+  container.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+    const wasPressedHere = pressedPointers.delete(pointer.id);
     restore();
-    onClick();
+    if (wasPressedHere) onClick();
   });
 
   return container;

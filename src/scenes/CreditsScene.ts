@@ -8,16 +8,19 @@
 // secondary "Fresh start" (which wipes the save — behind an in-scene
 // confirmation, never window.confirm).
 //
-// VERBATIM CONTENT (CLAUDE.md Rule 4 / NORTH_STAR §7): the credit lines and the
-// tulip tally are IMPORTED from src/data/finale.ts (CREDITS_LINES and
-// tulipTallyText) and are NEVER re-typed anywhere in this file — not in code and
-// not in a comment, because a hand-typed "documentation copy" of locked personal
-// content is exactly what drifts. Read them there. tests/finale.test.ts guards
-// both byte-exactly against independent code-point oracles, and
-// scripts/playtest-credits.mjs re-checks them against second, separate oracles
-// on what actually reached the screen. The only copy authored in THIS file is UI
-// chrome — the button labels and the confirmation's wording — which is the
-// LevelCompleteScene/PartyScene precedent for their own button labels.
+// THIS FILE AUTHORS NO RENDERED COPY AT ALL. Every string on the screen is
+// IMPORTED from src/data/finale.ts — the credit lines (CREDITS_LINES), the tulip
+// tally (tulipTallyText) and the chrome (CREDITS_PLAY_AGAIN_LABEL and friends) —
+// and none of them is re-typed here, not in code and not in a comment, because a
+// hand-typed "documentation copy" is exactly what drifts. Read them there.
+//   - The credit lines are LOCKED personal content (CLAUDE.md Rule 4 /
+//     NORTH_STAR §7). tests/finale.test.ts guards them byte-exactly against an
+//     independent code-point oracle, and scripts/playtest-credits.mjs re-checks
+//     them against a second, separate oracle on what reached the screen.
+//   - The chrome is ours to reword; it lives over there because this file has a
+//     runtime Phaser import, so nothing in it can be reached from a plain-Node
+//     test — which had left the panel/button GEOMETRY in constants.ts resting on
+//     unasserted claims about string lengths. Those are now measured.
 //
 // LEGIBILITY IS A DESIGN CONSTRAINT HERE, NOT A DETAIL — AND IT CUTS BOTH WAYS.
 // `createPixelText` defaults to TEXT_COLOR (plum #4a2c40), which is tuned for the
@@ -27,10 +30,11 @@
 // CREDITS.textColor (cream, ~10.3:1 contrast on duskIndigo).
 //
 // The strings that sit on a CREAM SURFACE deliberately keep the plum default and
-// MUST NOT be "fixed" to cream: the two button labels (inside ui.ts's cream
-// faces) and the fresh-start confirmation's title and body (on its cream panel).
-// Cream on cream would be the actual bug. The rule is therefore:
-//   dark field  -> this.creditsText(...)
+// MUST NOT be "fixed" to cream — SIX of them, once the confirmation is open:
+// the two bottom button labels and the confirmation's two button labels (all
+// four inside ui.ts's cream faces), plus the confirmation's title and body (on
+// its cream panel). Cream on cream would be the actual bug. The rule is:
+//   dark field              -> this.creditsText(...)
 //   cream panel/button face -> createPixelText(...) with its default.
 //
 // A plain (non-Matter) scene at camera zoom 1 like LevelCompleteScene /
@@ -63,46 +67,17 @@ import {
 import { createPixelButton, createPixelPanel, createPixelText } from '../systems/ui';
 import { createConfettiFall } from '../systems/confetti';
 import type { ConfettiFallHandle } from '../systems/confetti';
-import { CREDITS_LINES, tulipTallyText } from '../data/finale';
+import {
+  CREDITS_CONFIRM_BODY_LINES,
+  CREDITS_CONFIRM_CANCEL_LABEL,
+  CREDITS_CONFIRM_ERASE_LABEL,
+  CREDITS_CONFIRM_TITLE,
+  CREDITS_FRESH_START_LABEL,
+  CREDITS_LINES,
+  CREDITS_PLAY_AGAIN_LABEL,
+  tulipTallyText,
+} from '../data/finale';
 import { getSave } from '../systems/save';
-
-// ---------------------------------------------------------------------------
-// UI chrome authored here (NOT personal content — see the module doc). The
-// rendered COPY that is not chrome (the credit lines, the tulip tally) lives in
-// src/data/finale.ts and is imported above.
-// ---------------------------------------------------------------------------
-
-/** The primary way on: back to the Title with progress KEPT. */
-const PLAY_AGAIN_LABEL = 'Play again?';
-
-/** The secondary way on: wipes the save, behind the confirmation below. The
- * plan names this option, so the label is its wording. */
-const FRESH_START_LABEL = 'Fresh start';
-
-/** The confirmation's heading. */
-const CONFIRM_TITLE = 'Start over?';
-
-/**
- * The confirmation's body, PRE-BROKEN into three lines rather than word-wrapped,
- * so CREDITS' panel geometry is exact arithmetic instead of a measured guess.
- *
- * Wording is deliberately warm and completely unambiguous about what is lost:
- * this one button deletes her levels, her tulips AND the Gabby she built, and a
- * gift should say so kindly rather than bark a system-dialog "Are you sure?".
- * Pure ASCII (house rule) — no dashes or ellipses that a re-encode could mangle.
- */
-const CONFIRM_BODY_LINES: readonly string[] = [
-  'This clears your levels, your tulips',
-  'and the Gabby you made, so the whole',
-  'ride begins again at level 1.',
-];
-
-/** CANCEL. Named for what it PRESERVES, not "No" — and it is the wide button on
- * the left, so the easy out is also the obvious one. */
-const CONFIRM_CANCEL_LABEL = 'Keep my progress';
-
-/** CONFIRM. Named for what it DOES. */
-const CONFIRM_ERASE_LABEL = 'Erase it all';
 
 // ---------------------------------------------------------------------------
 // Placeholder DRAWING dimensions (PLAN-10 replaces the art). The established
@@ -140,7 +115,7 @@ interface CreditsDebug {
    * a harness must wait on before pressing one. */
   buttonsShown: () => boolean;
   /** The tulip tally string this entry will render. */
-  tulipLineText: string;
+  tulipTallyText: string;
   /** The tulip total read from the save on entry. */
   tulips: number;
   /** Whether the fresh-start confirmation is open. */
@@ -171,8 +146,11 @@ export class CreditsScene extends Phaser.Scene {
   // --- below-the-divider content, built once the reveal finishes ---
   /** The tulip tally, resolved ONCE in create() from the save and rendered
    * verbatim by buildTail(). Read once rather than at draw time so the DEV
-   * snapshot and the pixels can never disagree. */
-  private tallyText = '';
+   * snapshot and the pixels can never disagree. Deliberately the SAME name as
+   * data/finale.ts's builder — one string, one name, everywhere it appears (the
+   * builder, this field and the DEV seam); `this.` is what distinguishes the
+   * memoized value from the function that produced it. */
+  private tulipTallyText = '';
   private heart: Phaser.GameObjects.Graphics | undefined;
   private tailObjects: Phaser.GameObjects.GameObject[] = [];
   private playAgainButton: Phaser.GameObjects.Container | undefined;
@@ -206,7 +184,7 @@ export class CreditsScene extends Phaser.Scene {
     this.revealElapsedMs = 0;
     this.revealedLineCount = 0;
     this.revealComplete = false;
-    this.tallyText = '';
+    this.tulipTallyText = '';
     this.heart = undefined;
     this.tailObjects = [];
     this.playAgainButton = undefined;
@@ -236,7 +214,7 @@ export class CreditsScene extends Phaser.Scene {
     this.buildCreditLines();
 
     const tulips = getSave().getTulips();
-    this.tallyText = tulipTallyText(tulips);
+    this.tulipTallyText = tulipTallyText(tulips);
 
     // Tap/click ANYWHERE skips the reveal (LevelCompleteScene's courtesy to
     // impatient players). Removed on SHUTDOWN so it can't stack across
@@ -277,7 +255,7 @@ export class CreditsScene extends Phaser.Scene {
         revealedLines: () => this.revealedLineCount,
         revealComplete: () => this.revealComplete,
         buttonsShown: () => this.playAgainButton !== undefined,
-        tulipLineText: this.tallyText,
+        tulipTallyText: this.tulipTallyText,
         tulips,
         confirmShowing: () => this.confirmObjects !== undefined,
         heartShown: () => this.heart !== undefined,
@@ -381,8 +359,9 @@ export class CreditsScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ tail
   /** The heart, the divider and the tulip tally, faded in together. The two
-   * BUTTONS are built only when that fade completes — see CREDITS.tailFadeMs
-   * for why an alpha-0 button here would be actively harmful. */
+   * BUTTONS are built only when that fade completes — a composition choice now
+   * that ui.ts's press latch closes the release-only-activation hole this used
+   * to be the (partial) mitigation for; see CREDITS.tailFadeMs. */
   private buildTail(): void {
     const cx = DESIGN_WIDTH / 2;
 
@@ -401,7 +380,7 @@ export class CreditsScene extends Phaser.Scene {
     const tally = this.creditsText(
       cx,
       CREDITS.tulipLineCenterY,
-      this.tallyText,
+      this.tulipTallyText,
       CREDITS.tulipLineFontSizePx
     );
 
@@ -460,18 +439,24 @@ export class CreditsScene extends Phaser.Scene {
     this.playAgainButton = createPixelButton(this, {
       x: cx,
       y: CREDITS.playAgainButtonY,
-      label: PLAY_AGAIN_LABEL,
+      label: CREDITS_PLAY_AGAIN_LABEL,
       minWidth: CREDITS.playAgainButtonMinWidthPx,
       onClick: () => this.playAgain(),
     });
 
+    // Dimmed as well as narrower and lower. Width alone did NOT carry the
+    // hierarchy: at identical cream faces, outlines, plum labels and font size,
+    // 480 vs 340 still read as two peers rather than as a primary and its
+    // secondary (code-review finding). ui.ts exposes no styling hook short of a
+    // whole variant, and alpha is the cheapest honest lever that does not touch
+    // the shared kit — it dims face, outline, shadow and label together.
     this.freshStartButton = createPixelButton(this, {
       x: cx,
       y: CREDITS.freshStartButtonY,
-      label: FRESH_START_LABEL,
+      label: CREDITS_FRESH_START_LABEL,
       minWidth: CREDITS.freshStartButtonMinWidthPx,
       onClick: () => this.showResetConfirm(),
-    });
+    }).setAlpha(CREDITS.freshStartButtonAlpha);
   }
 
   /**
@@ -501,8 +486,15 @@ export class CreditsScene extends Phaser.Scene {
     if (this.confirmObjects !== undefined) return;
     const cx = DESIGN_WIDTH / 2;
 
-    this.playAgainButton?.disableInteractive();
-    this.freshStartButton?.disableInteractive();
+    // HIDDEN as well as input-disabled. Disabling alone left the "Play again?"
+    // face straddling the panel's bottom edge (the panel spans y 180..540, its
+    // face 492..580), so the bottom row of its glyphs poked out beneath the
+    // border as plum fragments — on the game's most consequential dialog that
+    // reads as clipped text rather than as a dimmed button. Hiding also makes
+    // the disable VISIBLE, which is the honest UX: nothing under a modal should
+    // look pressable.
+    this.playAgainButton?.disableInteractive().setVisible(false);
+    this.freshStartButton?.disableInteractive().setVisible(false);
 
     const dim = this.add
       .rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, PALETTE.outline, CREDITS.confirmDimAlpha)
@@ -527,7 +519,7 @@ export class CreditsScene extends Phaser.Scene {
       this,
       cx,
       CREDITS.confirmTitleY,
-      CONFIRM_TITLE,
+      CREDITS_CONFIRM_TITLE,
       CREDITS.confirmTitleFontSizePx
     ).setDepth(DEPTHS.overlay + 2);
 
@@ -535,7 +527,7 @@ export class CreditsScene extends Phaser.Scene {
       this,
       cx,
       CREDITS.confirmBodyY,
-      CONFIRM_BODY_LINES.join('\n'),
+      CREDITS_CONFIRM_BODY_LINES.join('\n'),
       CREDITS.confirmBodyFontSizePx
     ).setDepth(DEPTHS.overlay + 2);
     body.setLineSpacing(CREDITS.confirmBodyLineSpacingPx);
@@ -543,7 +535,7 @@ export class CreditsScene extends Phaser.Scene {
     const cancel = createPixelButton(this, {
       x: cx + CREDITS.confirmCancelOffsetXPx,
       y: CREDITS.confirmButtonY,
-      label: CONFIRM_CANCEL_LABEL,
+      label: CREDITS_CONFIRM_CANCEL_LABEL,
       minWidth: CREDITS.confirmCancelMinWidthPx,
       onClick: () => this.hideResetConfirm(),
     }).setDepth(DEPTHS.overlay + 2);
@@ -551,7 +543,7 @@ export class CreditsScene extends Phaser.Scene {
     const erase = createPixelButton(this, {
       x: cx + CREDITS.confirmConfirmOffsetXPx,
       y: CREDITS.confirmButtonY,
-      label: CONFIRM_ERASE_LABEL,
+      label: CREDITS_CONFIRM_ERASE_LABEL,
       minWidth: CREDITS.confirmConfirmMinWidthPx,
       onClick: () => this.freshStart(),
     }).setDepth(DEPTHS.overlay + 2);
@@ -565,8 +557,8 @@ export class CreditsScene extends Phaser.Scene {
     if (this.confirmObjects === undefined) return;
     for (const object of this.confirmObjects) object.destroy();
     this.confirmObjects = undefined;
-    this.playAgainButton?.setInteractive();
-    this.freshStartButton?.setInteractive();
+    this.playAgainButton?.setVisible(true).setInteractive();
+    this.freshStartButton?.setVisible(true).setInteractive();
   }
 
   /** CONFIRM: wipes every gabby22.* key, then back to the Title — which, with

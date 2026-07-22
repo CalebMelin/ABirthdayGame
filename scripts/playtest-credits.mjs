@@ -49,7 +49,18 @@
 //   8. A TINY HEART is present (the DEV flag plus a real Graphics object).
 //   9. LEGIBILITY: every credit line's rendered fill colour is NOT the default
 //      plum TEXT_COLOR (#4a2c40), which is unreadable on this dark field.
-//  10. ZERO Matter bodies, the ambient confetti actually falling, zero
+//  10. THE CONFIRMATION'S OWN COPY really rendered (its title, its three body
+//      lines and both of its button labels), not merely `confirmShowing`.
+//  11. 60FPS with the reveal finished and the 60-piece rain running — the same
+//      floor playtest-party.mjs holds the party to, so the two finale harnesses
+//      stay symmetric.
+//  12. RELEASE-ONLY ACTIVATION IS IMPOSSIBLE: a press that starts on empty space
+//      and is HELD past the tail fade, so a button materialises under the
+//      finger, must skip the reveal and NOTHING else. Before ui.ts grew its
+//      per-pointer press latch a 420ms hold ejected the player to the Title off
+//      the last screen of the gift; a 300ms hold did not, which is what made it
+//      look like a timing quirk rather than a shared-input bug.
+//  13. ZERO Matter bodies, the ambient confetti actually falling, zero
 //      console/page errors, and screenshots (full scene, partial reveal, the
 //      confirmation, a tight crop of the tulip line) to playtest-out/.
 //
@@ -66,6 +77,13 @@ const DESIGN_W = 1280;
 const DESIGN_H = 720;
 
 const SETTLE_MS = 200;
+
+/** PLAN-02's 60fps criterion, measured exactly as scripts/playtest-party.mjs
+ * measures the party: 55 leaves headroom for headless-Chrome scheduling noise
+ * while still catching a real regression. The two finale scenes run the same
+ * 60-piece rain, so they hold the same floor. */
+const MIN_AVG_FPS = 55;
+const FPS_SAMPLE_MS = 4_000;
 
 /** How long to allow for the below-the-divider fade before the two buttons
  * exist. The scene builds them only when that fade completes (see
@@ -122,6 +140,20 @@ function oracleTulipLine(count) {
   const tail = cp(0x20, 0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x65, 0x64); // ' collected'
   return `${ORACLE_TULIP} ${ORACLE_TIMES} ${count}${tail}`;
 }
+
+/** The confirmation's own copy, as INDEPENDENT literals (its heading, a
+ * distinctive fragment of each body line, and both button labels). Plain ASCII
+ * literals rather than code-point oracles because — unlike the credit lines and
+ * the tally — this is UI chrome we may reword; the point here is only that the
+ * words the player is asked to decide on actually reached the screen. */
+const ORACLE_CONFIRM_STRINGS = [
+  'Start over?',
+  'This clears your levels, your tulips',
+  'and the Gabby you made, so the whole',
+  'ride begins again at level 1.',
+  'Keep my progress',
+  'Erase it all',
+];
 
 /** pixelText's DEFAULT fill (constants.ts's TEXT_COLOR = hexToCss(PALETTE.plum)),
  * restated here independently. Every string on the dark credits field must be
@@ -315,7 +347,7 @@ const READ_CREDITS = () => {
     revealedLines: d.revealedLines(),
     revealComplete: d.revealComplete(),
     buttonsShown: d.buttonsShown(),
-    tulipLineText: d.tulipLineText,
+    tulipTallyText: d.tulipTallyText,
     tulips: d.tulips,
     confirmShowing: d.confirmShowing(),
     heartShown: d.heartShown(),
@@ -328,6 +360,7 @@ const READ_CREDITS = () => {
     // -1 == the scene has no Matter world at all (also fine); anything > 0 is a
     // regression — CreditsScene must never create a body.
     matterBodies: s.matter && s.matter.world ? s.matter.world.getAllBodies().length : -1,
+    fps: g.loop.actualFps,
     titleActive: g.scene.isActive('TitleScene'),
   };
 };
@@ -441,7 +474,6 @@ function glyphProbe(page) {
       missing: probe('\u{E123}'), // private use — the control
       times: probe('\u{00D7}'),
       tulip: probe('\u{1F337}'),
-      letterX: probe('x'),
       letterA: probe('A'),
     };
   });
@@ -617,8 +649,8 @@ async function main() {
     const expectedTally = oracleTulipLine(SEEDED_TULIPS);
     if (finished.tulips !== SEEDED_TULIPS)
       problems.push(`tulips read ${finished.tulips} != ${SEEDED_TULIPS}`);
-    if (finished.tulipLineText !== expectedTally)
-      problems.push(`tulip line mismatch: ${JSON.stringify(finished.tulipLineText)}`);
+    if (finished.tulipTallyText !== expectedTally)
+      problems.push(`tulip tally mismatch: ${JSON.stringify(finished.tulipTallyText)}`);
     const tallyText = texts.find((t) => t.text === expectedTally);
     if (!tallyText) problems.push(`tulip line never rendered: ${JSON.stringify(expectedTally)}`);
     else {
@@ -703,6 +735,20 @@ async function main() {
     const opened = await pollAndSettle(page, (s) => s.confirmShowing, 2000);
     if (!opened.confirmShowing) problems.push('fresh start: the confirmation never opened');
     await page.screenshot({ path: join(OUT_DIR, 'credits-fresh-start-confirm.png') });
+
+    // (10) THE CONFIRMATION'S OWN COPY, on screen — `confirmShowing` only says a
+    // dialog exists. This is the one dialog in the game that can delete
+    // everything, so the words that explain it must be proved present, and the
+    // two button labels must be DISTINGUISHABLE (an "OK/Cancel" pair here is
+    // exactly the dialog a tired thumb gets wrong).
+    const confirmTexts = await renderedTexts(page);
+    const confirmCopy = confirmTexts.map((t) => t.text);
+    const confirmBodyRendered = confirmCopy.filter((t) => t.includes('\n')).join(' ');
+    for (const needle of ORACLE_CONFIRM_STRINGS) {
+      const present =
+        confirmCopy.includes(needle) || confirmBodyRendered.includes(needle);
+      if (!present) problems.push(`confirm copy missing from the screen: ${JSON.stringify(needle)}`);
+    }
     const duringConfirm = await readSaveKeys(page);
     if (JSON.stringify(duringConfirm) !== JSON.stringify(beforeConfirm))
       problems.push('fresh start: opening the confirmation already touched the save');
@@ -755,6 +801,10 @@ async function main() {
     // really arrived as two pointer-downs and not one.
     await armPointerDownCounter(page);
     await twoFingerTapDesign(page, toErase.confirmErasePos.x, toErase.confirmErasePos.y);
+    // Settle before reading, exactly as every other press site here does: the
+    // count is written by Phaser's input step, and reading it on the same CDP
+    // round trip as the dispatch would race that step.
+    await page.waitForTimeout(SETTLE_MS);
     const eraseDowns = await readPointerDowns(page);
     if (eraseDowns !== 2)
       problems.push(
@@ -791,6 +841,84 @@ async function main() {
       problems.push(
         `play-again double-press: TitleScene.create ran ${playAgainTitleCreates} times (want 1)`
       );
+
+    // ------------------- (12) RELEASE-ONLY ACTIVATION MUST BE IMPOSSIBLE
+    // Press on empty space, HOLD past the tail fade so both buttons materialise
+    // under the pointer, then release over "Play again?". The hold must skip the
+    // reveal and do NOTHING else. Run at three durations because the bug this
+    // guards was duration-dependent: 300ms was clean, 420ms (past tailFadeMs)
+    // ejected the player to the Title.
+    const holds = [];
+    for (const holdMs of [300, 420, 700]) {
+      await seedSave(page, SEEDED_SAVE);
+      await enterCredits(page);
+      await page.waitForTimeout(SETTLE_MS);
+      // The button positions are STATIC in the DEV snapshot precisely so they
+      // are readable before the buttons exist — which is the whole point here.
+      const fresh = await readCredits(page);
+      const box = await canvasBox(page);
+      await page.mouse.move(vx(box, fresh.playAgainPos.x), vy(box, fresh.playAgainPos.y));
+      await page.mouse.down();
+      await page.waitForTimeout(holdMs);
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      const after = await readCredits(page);
+      const navigated = after.titleActive || !after.active;
+      holds.push({ kind: 'mouse', holdMs, navigated, revealComplete: after.revealComplete });
+      if (navigated)
+        problems.push(
+          `hold ${holdMs}ms over "Play again?" navigated away — a press that began on empty space activated a button that appeared under it`
+        );
+      if (!after.revealComplete)
+        problems.push(`hold ${holdMs}ms: the press did not even skip the reveal (test is not exercising the path)`);
+    }
+    // ...and the same by TOUCH on the DESTRUCTIVE secondary.
+    await seedSave(page, SEEDED_SAVE);
+    await enterCredits(page);
+    await page.waitForTimeout(SETTLE_MS);
+    const holdSample = await readCredits(page);
+    const holdBox = await canvasBox(page);
+    const touchClient = await page.context().newCDPSession(page);
+    const touchPoint = {
+      x: vx(holdBox, holdSample.freshStartPos.x),
+      y: vy(holdBox, holdSample.freshStartPos.y),
+      radiusX: 6,
+      radiusY: 6,
+      force: 1,
+      id: 1,
+    };
+    await touchClient.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [touchPoint],
+    });
+    await page.waitForTimeout(700);
+    await touchClient.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await touchClient.detach();
+    await page.waitForTimeout(300);
+    const afterTouchHold = await readCredits(page);
+    if (afterTouchHold.confirmShowing)
+      problems.push('touch-hold over "Fresh start" opened the reset confirmation');
+    holds.push({
+      holdMs: 700,
+      kind: 'touch',
+      navigated: !afterTouchHold.active,
+      confirmShowing: afterTouchHold.confirmShowing,
+    });
+
+    // ------------------------------------------------------------- (11) 60FPS
+    const fpsSamples = [];
+    const fpsStart = Date.now();
+    while (Date.now() - fpsStart < FPS_SAMPLE_MS) {
+      const sample = await readCredits(page);
+      if (sample.hasCredits) fpsSamples.push(sample.fps);
+      await page.waitForTimeout(250);
+    }
+    const avgFps =
+      fpsSamples.length > 0
+        ? Math.round((fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length) * 10) / 10
+        : null;
+    const minFps = fpsSamples.length > 0 ? Math.round(Math.min(...fpsSamples) * 10) / 10 : null;
+    if (avgFps === null || avgFps < MIN_AVG_FPS) problems.push(`average fps ${avgFps} < ${MIN_AVG_FPS}`);
 
     // --------------------------------------------- (7) the chain, no dead ends
     // PartyScene -> "Credits ->" -> CreditsScene -> "Play again?" -> Title.
@@ -856,7 +984,7 @@ async function main() {
         skip,
       },
       tulipLine: {
-        text: finished.tulipLineText,
+        text: finished.tulipTallyText,
         tulips: finished.tulips,
         rendered: tallyText !== undefined,
         glyphs,
@@ -880,6 +1008,9 @@ async function main() {
         twoFingerTapPointerDowns: eraseDowns,
       },
       chain,
+      holds,
+      avgFps,
+      minFps,
       consoleErrors,
       pageErrors,
     };
@@ -897,7 +1028,7 @@ async function main() {
   } else {
     const g = report.tulipLine.glyphs;
     console.log(
-      `CREDITS OK: the three lines byte-exact and centred — "${report.lines.join('" / "')}" (last one with THREE '!') — revealed line by line (saw ${report.reveal.partialLines}/3 partway, complete after ${report.reveal.completedNaturallyAfterMs}ms) and a tap anywhere skips ${report.reveal.skip.revealedBefore}/3 straight to 3/3; tally "${report.tulipLine.text}" rendered, with the tulip and the multiplication sign both proven REAL GLYPHS by their drawn ink (${g.tulip.ink}/${g.times.ink} lit px vs the private-use control's ${g.missing.ink}) — the ${g.times.advance}px advance only rules out a fallback font, since the pixel font's own tofu box advances the same; a tiny heart is drawn; ${report.confettiRects} confetti pieces still falling; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; "Play again?" routes to the Title by click AND tap with all ${Object.keys(report.playAgainKeepsSave.before).length} gabby22.* keys byte-identical; "Fresh start" opens a confirm that swallows presses aimed at the buttons under it, cancel leaves every key untouched and re-enables both, and confirm leaves ${report.freshStart.keysAfterErase.length} keys behind; a rapid double-CLICK on "Play again?" and a genuine TWO-FINGER TAP on "Erase it all" (${report.repeatPress.twoFingerTapPointerDowns} pointer-downs, ${report.repeatPress.pointerBudget} pointers available) each started the Title exactly ${report.repeatPress.doubleClickPlayAgainTitleCreates}/${report.repeatPress.twoFingerTapEraseTitleCreates} times; party -> credits -> title with no dead ends; no errors.`
+      `CREDITS OK: the three lines byte-exact and centred — "${report.lines.join('" / "')}" (last one with THREE '!') — revealed line by line (saw ${report.reveal.partialLines}/3 partway, complete after ${report.reveal.completedNaturallyAfterMs}ms) and a tap anywhere skips ${report.reveal.skip.revealedBefore}/3 straight to 3/3; tally "${report.tulipLine.text}" rendered, with the tulip and the multiplication sign both proven REAL GLYPHS by their drawn ink (${g.tulip.ink}/${g.times.ink} lit px vs the private-use control's ${g.missing.ink}) — the ${g.times.advance}px advance only rules out a fallback font, since the pixel font's own tofu box advances the same; a tiny heart is drawn; ${report.confettiRects} confetti pieces still falling; ${report.matterBodies === -1 ? 'no' : report.matterBodies} Matter bodies; "Play again?" routes to the Title by click AND tap with all ${Object.keys(report.playAgainKeepsSave.before).length} gabby22.* keys byte-identical; "Fresh start" opens a confirm that swallows presses aimed at the buttons under it, cancel leaves every key untouched and re-enables both, and confirm leaves ${report.freshStart.keysAfterErase.length} keys behind; a rapid double-CLICK on "Play again?" and a genuine TWO-FINGER TAP on "Erase it all" (${report.repeatPress.twoFingerTapPointerDowns} pointer-downs, ${report.repeatPress.pointerBudget} pointers available) each started the Title exactly ${report.repeatPress.doubleClickPlayAgainTitleCreates}/${report.repeatPress.twoFingerTapEraseTitleCreates} times; a press held on empty space past the tail fade (300/420/700ms, mouse, plus a 700ms touch-hold on the destructive button) skips the reveal and activates NOTHING; avg ${report.avgFps} fps (min ${report.minFps}); the confirmation's own heading, three body lines and both button labels all rendered; party -> credits -> title with no dead ends; no errors.`
     );
   }
 }

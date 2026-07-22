@@ -31,6 +31,12 @@ import {
   partyGuestRemap,
   partyGuestVariantKey,
   tulipTallyText,
+  CREDITS_CONFIRM_BODY_LINES,
+  CREDITS_CONFIRM_CANCEL_LABEL,
+  CREDITS_CONFIRM_ERASE_LABEL,
+  CREDITS_CONFIRM_TITLE,
+  CREDITS_FRESH_START_LABEL,
+  CREDITS_PLAY_AGAIN_LABEL,
 } from '../src/data/finale';
 import type { AuthoredGuestAppearance, NamedGuest } from '../src/data/finale';
 import {
@@ -1085,9 +1091,14 @@ describe('castBounceOffsetPx', () => {
 // font fails to load and FONT_STACK_PIXEL falls back to Courier New.
 //
 // BUTTON MODEL: ui.ts gives every button face a height of UI_MIN_TOUCH_PX and a
-// width of max(label + 2 x 32 padding, minWidth, UI_MIN_TOUCH_PX). Every
-// CREDITS.*MinWidthPx is documented as exceeding its own label's natural width,
-// so the minWidth IS the face width and the arithmetic below is exact.
+// width of max(label + 2 x BUTTON_PADDING_X_PX, minWidth, UI_MIN_TOUCH_PX). The
+// arithmetic below treats each CREDITS.*MinWidthPx AS the face width, which is
+// only true while every label's natural width stays under its minWidth — so that
+// premise is now ASSERTED against the REAL labels ("every button face really is
+// its minWidth" below) rather than assumed. Same for the confirmation's body
+// lines, which the panel geometry sizes around. Both used to be unfalsifiable
+// prose; the ST-4 code review caught it (the same structural gap tulipTallyText
+// had), which is why data/finale.ts now owns those strings.
 // ---------------------------------------------------------------------------
 
 /** WCAG relative luminance of a 0xRRGGBB colour. Used to assert LEGIBILITY as a
@@ -1115,6 +1126,13 @@ function contrastRatio(a: number, b: number): number {
 
 describe('CreditsScene layout + pacing constants (ST-4)', () => {
   const MAX_LINE_HEIGHT_FACTOR = 1.5;
+  /** ui.ts's BUTTON_PADDING_X_PX / createPixelPanel padding, and
+   * createPixelText's default label size — private to that module, so restated
+   * here (with their source named) exactly as the PartyScene block above
+   * restates its own panel padding. */
+  const BUTTON_PADDING_X_PX = 32;
+  const PANEL_PADDING_X_PX = 32;
+  const BUTTON_LABEL_FONT_PX = 24;
   const textWidth = (text: string, fontSizePx: number): number => text.length * fontSizePx;
   const halfTextHeight = (fontSizePx: number): number => (MAX_LINE_HEIGHT_FACTOR * fontSizePx) / 2;
 
@@ -1220,11 +1238,15 @@ describe('CreditsScene layout + pacing constants (ST-4)', () => {
     expect(buttonBottom(CREDITS.freshStartButtonY)).toBeLessThanOrEqual(DESIGN_HEIGHT);
   });
 
-  it('makes "Play again?" the visibly PRIMARY action', () => {
+  it('makes "Play again?" the visibly PRIMARY action, three separate ways', () => {
     // "Fresh start" wipes the save, so it must never be the button the eye lands
-    // on first: it is narrower AND lower.
+    // on first. Width alone did not carry it (the two faces are otherwise
+    // identical), so the hierarchy is width AND position AND alpha.
     expect(CREDITS.playAgainButtonMinWidthPx).toBeGreaterThan(CREDITS.freshStartButtonMinWidthPx);
     expect(CREDITS.playAgainButtonY).toBeLessThan(CREDITS.freshStartButtonY);
+    expect(CREDITS.freshStartButtonAlpha).toBeLessThan(1);
+    // ...but still a live, legible option, not a disabled-looking one.
+    expect(CREDITS.freshStartButtonAlpha).toBeGreaterThan(0.7);
   });
 
   it('keeps both buttons real touch targets, fully on screen', () => {
@@ -1276,11 +1298,62 @@ describe('CreditsScene layout + pacing constants (ST-4)', () => {
     expect((cancelLeft + eraseRight) / 2).toBe(cx);
   });
 
-  it('fits the widest confirm body line inside the panel', () => {
-    // The longest line the scene renders is 36 chars; assert against a generous
-    // bound so a reworded line that overflows the panel fails here.
-    const usable = CREDITS.confirmPanelWidthPx - 2 * 32;
-    expect(40 * CREDITS.confirmBodyFontSizePx).toBeLessThanOrEqual(usable);
+  it('fits the REAL confirm body inside the panel, at its real line count', () => {
+    // Measured on the actual strings: reword a line until it overflows, or add
+    // a fourth line the panel height was never sized for, and this fails.
+    const usable = CREDITS.confirmPanelWidthPx - 2 * PANEL_PADDING_X_PX;
+    const widest = Math.max(...CREDITS_CONFIRM_BODY_LINES.map((line) => line.length));
+    expect(widest * CREDITS.confirmBodyFontSizePx).toBeLessThanOrEqual(usable);
+    // confirmPanelCenterY's arithmetic assumes exactly three body lines.
+    expect(CREDITS_CONFIRM_BODY_LINES.length).toBe(3);
+    // The title shares the panel and is drawn at a bigger size.
+    expect(CREDITS_CONFIRM_TITLE.length * CREDITS.confirmTitleFontSizePx).toBeLessThanOrEqual(
+      usable
+    );
+  });
+
+  it('keeps every button face at its minWidth (the BUTTON MODEL premise)', () => {
+    // ui.ts sizes a face to max(label + 2 x padding, minWidth, UI_MIN_TOUCH_PX).
+    // Every geometry test in this block treats minWidth AS the face width, which
+    // silently stops being true the moment a label outgrows it — so measure the
+    // REAL labels. A longer label would also start pushing the confirm's two
+    // faces toward each other.
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      [CREDITS_PLAY_AGAIN_LABEL, CREDITS.playAgainButtonMinWidthPx],
+      [CREDITS_FRESH_START_LABEL, CREDITS.freshStartButtonMinWidthPx],
+      [CREDITS_CONFIRM_CANCEL_LABEL, CREDITS.confirmCancelMinWidthPx],
+      [CREDITS_CONFIRM_ERASE_LABEL, CREDITS.confirmConfirmMinWidthPx],
+    ];
+    for (const [label, minWidth] of cases) {
+      const natural = label.length * BUTTON_LABEL_FONT_PX + 2 * BUTTON_PADDING_X_PX;
+      expect(natural).toBeLessThanOrEqual(minWidth);
+    }
+  });
+
+  it('keeps every credits string pure ASCII except the tally (house rule)', () => {
+    for (const text of [
+      CREDITS_PLAY_AGAIN_LABEL,
+      CREDITS_FRESH_START_LABEL,
+      CREDITS_CONFIRM_TITLE,
+      CREDITS_CONFIRM_CANCEL_LABEL,
+      CREDITS_CONFIRM_ERASE_LABEL,
+      ...CREDITS_CONFIRM_BODY_LINES,
+    ]) {
+      expect(isPureAscii(text)).toBe(true);
+      expect(text).toBe(text.trim());
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('names the destructive confirm button for what it DOES, and cancel for what it KEEPS', () => {
+    // Not a style rule: an "OK / Cancel" pair on the one button that deletes her
+    // whole save is exactly the dialog a tired thumb gets wrong. Cancel must
+    // never be a bare negation, and the destructive label must not be one either.
+    const vague = ['ok', 'yes', 'no', 'cancel', 'confirm'];
+    expect(vague).not.toContain(CREDITS_CONFIRM_CANCEL_LABEL.toLowerCase());
+    expect(vague).not.toContain(CREDITS_CONFIRM_ERASE_LABEL.toLowerCase());
+    // ...and the two must not read alike at a glance.
+    expect(CREDITS_CONFIRM_CANCEL_LABEL).not.toBe(CREDITS_CONFIRM_ERASE_LABEL);
   });
 
   it('dims the screen behind the confirmation without hiding it completely', () => {

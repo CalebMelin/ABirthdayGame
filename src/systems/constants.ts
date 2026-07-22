@@ -1287,8 +1287,8 @@ export const LEVEL_COMPLETE = {
   // ------------------------------------------------------------ buttons
   // Two rows: the big primary alone, then the two secondaries. Button faces are
   // UI_MIN_TOUCH_PX (88) tall, so the row centers are kept >= 88px apart (here
-  // 112) to leave a clean gap between rows; the secondary row still clears the
-  // bottom screen edge (664 + 44 = 708 < 720).
+  // 116: 548 -> 664) to leave a clean gap between rows; the secondary row still
+  // clears the bottom screen edge (664 + 44 = 708 < 720).
   /** Primary "Next level →" button center Y, px — alone on its row so it reads
    * as the big primary action. */
   primaryButtonY: 548,
@@ -1926,11 +1926,13 @@ export const PARTY = {
  * below is a straight px at the 1280x720 DESIGN scale (design == screen at
  * zoom 1) and every time is ms.
  *
- * WHAT IS *NOT* HERE, on purpose: the three credit STRINGS live in
- * src/data/finale.ts (CREDITS_LINES) and are never re-typed; the ambient rain
- * reuses the PARTY.confettiFall* knobs that block already documents as shared by
- * BOTH finale scenes. What lives here is only this screen's own geometry and
- * pacing.
+ * WHAT IS *NOT* HERE, on purpose: every rendered STRING lives in
+ * src/data/finale.ts — CREDITS_LINES, tulipTallyText, and the CREDITS_* chrome
+ * (the button labels + the fresh-start confirmation's wording) — and none of
+ * them is re-typed here, not even in a comment. The ambient rain reuses the
+ * PARTY.confettiFall* knobs that block already documents as shared by BOTH
+ * finale scenes. What lives here is only this screen's own geometry and pacing,
+ * and tests/finale.test.ts measures the REAL strings against these numbers.
  *
  * VERTICAL STACK, top-down (each value's doc carries its own arithmetic):
  *   line 1 -> line 2 -> line 3 -> a tiny heart -> the divider -> the tulip
@@ -1952,11 +1954,12 @@ export const CREDITS = {
    * (WCAG AAA is 7:1). createPixelText takes no colour, so CreditsScene applies
    * this through one `creditsText()` helper.
    *
-   * IT IS NOT "every string on the screen", and the difference matters: the two
-   * button labels sit inside ui.ts's CREAM faces and the fresh-start
-   * confirmation's title and body sit on its CREAM panel, so all four keep the
-   * plum default on purpose (the same convention the party's name tags and
-   * banner use). Repainting those in this colour would render cream on cream. */
+   * IT IS NOT "every string on the screen", and the difference matters. SIX
+   * strings sit on a CREAM surface and keep the plum default on purpose (the
+   * same convention the party's name tags and banner use): the two bottom button
+   * labels and the confirmation's two button labels, all four inside ui.ts's
+   * cream faces, plus the confirmation's title and body on its cream panel.
+   * Repainting any of them in this colour would render cream on cream. */
   textColor: PALETTE.cream,
 
   // ------------------------------------------------------- the three lines
@@ -1995,15 +1998,23 @@ export const CREDITS = {
    * the pause that lets the final line land on its own. */
   revealTailDelayMs: 600,
   /** Fade duration of the below-the-divider content (heart, divider, tulip
-   * line), ms.
+   * line), ms. The two buttons are built when this fade FINISHES.
    *
-   * THE TWO BUTTONS ARE NOT CREATED UNTIL THIS FADE FINISHES, and that is
-   * load-bearing rather than cosmetic: an alpha-0 Phaser Container is still
-   * fully interactive (the hazard PARTY.creditsButtonDelayMs's doc describes),
-   * and here it has a live trigger — the reveal is skippable by a tap ANYWHERE,
-   * so a button that already existed when the skip tap landed would take that
-   * same tap's pointerup and navigate away the instant the player tried to hurry
-   * the credits along. Nothing interactive exists until this fade completes. */
+   * WHAT EACH OF THE TWO MECHANISMS ACTUALLY BUYS. An earlier version of this
+   * doc claimed late construction made a stray activation impossible; the ST-4
+   * code review disproved that in the browser, so state it accurately:
+   *   - ui.ts's per-pointer PRESS LATCH is the safety mechanism. `onClick` now
+   *     requires a pointerdown on that same button first, so a press that began
+   *     on empty space and merely ENDED over a button cannot fire it. Before
+   *     that landed, a hold longer than this fade both skipped the reveal AND
+   *     activated whichever button appeared under the finger — measured: a 300ms
+   *     hold did nothing, a 420ms hold routed to the Title. Late construction
+   *     only BOUNDED that window at ~400ms; it never closed it.
+   *   - Late construction is now a COMPOSITION choice (nothing competes with the
+   *     three lines while they land) plus belt-and-braces: an alpha-0 Phaser
+   *     Container is still fully interactive, so fading a pre-built button in
+   *     would leave a live-but-invisible target — the same hazard
+   *     PARTY.creditsButtonDelayMs's doc describes. */
   tailFadeMs: 400,
 
   // -------------------------------------------------------------- the heart
@@ -2013,7 +2024,9 @@ export const CREDITS = {
   /** Heart centre y, px. */
   heartCenterY: 364,
   /** Heart bounding-box size, px. TINY is the brief — smaller than the smallest
-   * text on the screen. */
+   * text on the credits FIELD (the tulip tally, at tulipLineFontSizePx). The
+   * fresh-start confirmation's body is smaller still, but that lives on a modal
+   * panel rather than in this screen's own vertical stack. */
   heartSizePx: 22,
 
   // ------------------------------------------------------------ the divider
@@ -2036,9 +2049,10 @@ export const CREDITS = {
   // (save.ts's getTulips()). Shown at EVERY count including zero: unlike the
   // party's bouquet TOAST (which congratulates, so it is gated on tulips > 0),
   // this is a factual tally, and hiding it would leave the divider with nothing
-  // under it but buttons. Both of its non-ASCII characters are written as
-  // \u{...} escapes in the scene and were screenshot-verified to render as real
-  // glyphs rather than tofu (DECISIONS.md, 2026-07-22).
+  // under it but buttons. The string is data/finale.ts's tulipTallyText, where
+  // both non-ASCII characters are written as \u{...} escapes and pinned by a
+  // code-point oracle; both were screenshot-verified to render as real glyphs
+  // rather than tofu (DECISIONS.md, 2026-07-22).
   /** Tulip-line centre y, px. */
   tulipLineCenterY: 456,
   /** Tulip-line font size, px — a quiet tally, well under the credit lines. */
@@ -2047,9 +2061,10 @@ export const CREDITS = {
   // ----------------------------------------------------------------- buttons
   // Two STACKED rows, primary above secondary: "Play again?" keeps everything,
   // "Fresh start" wipes it. ui.ts gives every face a UI_MIN_TOUCH_PX (88) tall
-  // face, so the row centres are kept >= 88px apart (112 here, matching
-  // LEVEL_COMPLETE's row gap) and the lower row still clears the bottom screen
-  // edge (648 + 44 = 692 < 720).
+  // face, so the row centres are kept well clear of that — 124 apart here, which
+  // is deliberately WIDER than LEVEL_COMPLETE's 116 (548 -> 664), because those
+  // two rows are peers and these two are a primary and its secondary. The lower
+  // row still clears the bottom screen edge (660 + 44 = 704 < 720).
   /** "Play again?" centre y, px — the PRIMARY action. Routes to the Title with
    * every gabby22.* key untouched. */
   playAgainButtonY: 536,
@@ -2061,12 +2076,27 @@ export const CREDITS = {
    * width — and being far wider than the secondary below IS the hierarchy. */
   playAgainButtonMinWidthPx: 480,
   /** "Fresh start" centre y, px — the SECONDARY action, which wipes the save
-   * behind the confirmation below. */
-  freshStartButtonY: 648,
+   * behind the confirmation below. Pushed down from 648 so the gap between the
+   * two faces grows from 24px to 36px: with the alpha above, the extra air is
+   * what makes it read as a separate, quieter option rather than as the second
+   * half of a button pair. */
+  freshStartButtonY: 660,
   /** Its face width, px. Same natural-width arithmetic ("Fresh start" is also
    * 11 chars = 328 natural), so 340 is the real width — deliberately much
-   * narrower than the primary, and still >= UI_MIN_TOUCH_PX. */
+   * narrower than the primary, and still >= UI_MIN_TOUCH_PX.
+   * tests/finale.test.ts now derives that natural width from the REAL label in
+   * data/finale.ts rather than trusting the arithmetic in this sentence. */
   freshStartButtonMinWidthPx: 340,
+  /** Alpha of the SECONDARY button. WIDTH ALONE DID NOT CARRY THE HIERARCHY:
+   * with identical cream faces, outlines, plum labels and font size, 480 vs 340
+   * still read as two peers rather than as a primary and its secondary
+   * (screenshot-caught by the ST-4 code review). ui.ts offers no styling hook
+   * short of a whole button variant, and alpha is the cheapest honest lever that
+   * does not touch the shared kit — it dims face, outline, shadow and label
+   * together. Kept high enough to stay comfortably legible and obviously
+   * pressable: this is a real option, not a disabled one (ui.ts renders
+   * `disabled` at 0.55). */
+  freshStartButtonAlpha: 0.8,
 
   // ------------------------------------------------- the fresh-start confirm
   // "Fresh start" calls save.ts's resetAll(), which deletes EVERY gabby22.* key

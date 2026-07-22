@@ -21,21 +21,28 @@
 // re-encoding this file can never mangle it into tofu, and each pinned by
 // tests/finale.test.ts against its own code-point oracle.
 //
-// NOT EVERYTHING HERE IS EQUALLY UNTOUCHABLE, and the difference is worth
-// stating: the guest NAMES, the banner, the toast and the three credits lines
-// are LOCKED personal content (CLAUDE.md Rule 4 — never reworded, full stop).
-// `tulipTallyText` is plan-specified RENDERED COPY rather than personal content,
-// so a documented, screenshot-driven fallback to an ASCII form would have been
-// legitimate had its glyphs not rendered. It lives here anyway because this
-// module is the one home for PLAN-09's rendered copy and because its two
-// non-ASCII code points are exactly the kind of thing that must be pinned by a
-// unit test rather than only by a browser harness.
+// NOT EVERYTHING HERE IS EQUALLY UNTOUCHABLE. Three tiers, and the difference
+// is worth stating so nobody treats a button label like a birthday message or
+// vice versa:
+//   1. LOCKED PERSONAL CONTENT (CLAUDE.md Rule 4 — never reworded, full stop):
+//      the guest NAMES, PARTY_BANNER_TEXT, bouquetToastText, CREDITS_LINES.
+//   2. PLAN-QUOTED RENDERED COPY: tulipTallyText, whose exact form PLAN-09
+//      task 3 writes out. Not personal content, so a documented,
+//      screenshot-driven fallback to an ASCII form would have been legitimate
+//      had its glyphs not rendered.
+//   3. UI CHROME: the CreditsScene button labels and the fresh-start
+//      confirmation's wording (CREDITS_* below). Ours to reword.
+// EVERY tier lives here for the same practical reason: this module has no
+// runtime Phaser import, so a plain-Node Vitest suite can pin all of it — the
+// byte-exactness of tiers 1-2 and the LENGTHS of tier 3, which the panel and
+// button geometry in constants.ts silently depends on.
 //
 // WHO CONSUMES WHAT (the later PLAN-09 subtasks):
 //   - src/systems/partyCast.ts (ST-1)  -> NAMED_GUESTS + the remap/variant-key
 //                                         helpers + crowdGuestAppearance.
 //   - src/scenes/PartyScene.ts (ST-3)  -> PARTY_BANNER_TEXT + bouquetToastText.
-//   - src/scenes/CreditsScene.ts (ST-4)-> CREDITS_LINES + tulipTallyText.
+//   - src/scenes/CreditsScene.ts (ST-4)-> CREDITS_LINES, tulipTallyText, and the
+//                                         CREDITS_* chrome strings.
 import { MARKERS } from '../systems/palette';
 import type { ColorRemap } from '../systems/palette';
 import { resolveEyes, resolveHair } from './characters';
@@ -104,6 +111,54 @@ export const CREDITS_LINES: readonly string[] = [
 export function tulipTallyText(count: number): string {
   return `\u{1F337} \u{00D7} ${count} collected`;
 }
+
+// ---------------------------------------------------------------------------
+// CreditsScene UI CHROME (tier 3 — see the module doc). Button labels and the
+// fresh-start confirmation's wording. NOT personal content and NOT plan-quoted:
+// these are ours to reword, warmly, whenever the screen needs it.
+//
+// They live here rather than beside the scene that draws them for ONE reason:
+// src/scenes/CreditsScene.ts has a runtime `import Phaser`, so nothing in it can
+// be imported by a plain-Node Vitest suite — which left the whole panel/button
+// GEOMETRY in constants.ts resting on unasserted premises about string lengths
+// ("the longest body line is 36 chars", "the label's natural width is under
+// minWidth"). tests/finale.test.ts now measures the REAL strings against the
+// REAL constants, so rewording a line until it overflows the panel, or until a
+// button label outgrows its face, fails the suite. (Same structural fix as
+// tulipTallyText above; found by the ST-4 code-quality review.)
+// ---------------------------------------------------------------------------
+
+/** The credits' PRIMARY action: back to the Title with progress KEPT. */
+export const CREDITS_PLAY_AGAIN_LABEL = 'Play again?';
+
+/** The credits' SECONDARY action: wipes the save, behind the confirmation
+ * below. PLAN-09 task 3 names this option, so the label is its wording. */
+export const CREDITS_FRESH_START_LABEL = 'Fresh start';
+
+/** The fresh-start confirmation's heading. */
+export const CREDITS_CONFIRM_TITLE = 'Start over?';
+
+/**
+ * The confirmation's body, PRE-BROKEN into lines rather than word-wrapped, so
+ * CREDITS' panel geometry is exact arithmetic instead of a measured guess.
+ *
+ * Deliberately warm and completely unambiguous about what is lost: this one
+ * button deletes her levels, her tulips AND the Gabby she built, and a gift
+ * should say so kindly rather than bark a system-dialog "Are you sure?".
+ * Pure ASCII — no dashes or ellipses a re-encode could mangle.
+ */
+export const CREDITS_CONFIRM_BODY_LINES: readonly string[] = [
+  'This clears your levels, your tulips',
+  'and the Gabby you made, so the whole',
+  'ride begins again at level 1.',
+];
+
+/** CANCEL. Named for what it PRESERVES, not "No" — and it is the wide button on
+ * the left, so the easy out is also the obvious one. */
+export const CREDITS_CONFIRM_CANCEL_LABEL = 'Keep my progress';
+
+/** CONFIRM. Named for what it DOES. */
+export const CREDITS_CONFIRM_ERASE_LABEL = 'Erase it all';
 
 // ---------------------------------------------------------------------------
 // Guest appearance model.
