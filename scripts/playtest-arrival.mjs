@@ -26,12 +26,15 @@
 //   4. THE BEAT ACTUALLY RENDERS — objects and tween state, never elapsed time:
 //      the venue's own GameObjects exist around the doorway, the door panels
 //      really open (progress read off the LIVE panel scale), warm light really
-//      spills (the pool's alpha), Caleb really dismounts (his pillion sprite
-//      goes and a standing Caleb appears and WALKS toward the doorway), and both
-//      washes really reach full alpha.
-//   5. EXACTLY ONE GABBY AND ONE CALEB, at every sample of the whole run — a
-//      recursive census of the live display list by texture key, not a flag.
-//      The one thing this staging must never ship is a duplicate character.
+//      spills (the pool's alpha), BOTH of them really dismount in the right
+//      order (pillion Caleb first, then Gabby off her own bike) from ONE
+//      measured resting x and WALK into the doorway, the standing Gabby really
+//      is the player's own character texture, and both washes reach full alpha.
+//   5. EXACTLY ONE GABBY AND ONE CALEB, at every sample of the whole run and
+//      specifically on the frame Gabby steps off — a recursive census of the
+//      live display list by texture key, not a flag. Two Gabbys is the one thing
+//      this staging must never ship, and the seated rider is hidden through
+//      bike.ts's cosmetic setRiderVisible seam to prevent it.
 //   6. THE HAND-OFF: PartyScene becomes active and
 //      gabby22.progress.completed[21] === true (GameScene's markLevelCompleted
 //      still runs behind the finale hold).
@@ -191,7 +194,11 @@ const READ = ({ riderPrefix, calebKey }) => {
     doorsOpen01: a ? a.doorsOpen01() : null,
     spillAlpha: a ? a.spillAlpha() : null,
     calebDismounted: a ? a.calebDismounted() : null,
+    gabbyDismounted: a ? a.gabbyDismounted() : null,
     calebX: a ? a.calebX() : null,
+    gabbyX: a ? a.gabbyX() : null,
+    restX: a ? a.restX() : null,
+    riderTextureKey: a ? a.riderTextureKey : null,
     washAlpha: a ? a.washAlpha() : null,
     duskAlpha: a ? a.duskAlpha() : null,
     finaleHoldMs: a ? a.finaleHoldMs : null,
@@ -299,7 +306,10 @@ async function driveToMidFinale(page) {
   let last = null;
   while (Date.now() - start < DRIVE_TIMEOUT_MS) {
     last = await read(page);
-    if (last.calebDismounted === true || last.partyActive) break;
+    // GABBY's dismount, not Caleb's: it is the later of the two AND the one that
+    // leaves the seated rider hidden, which is the state this restart must prove
+    // is recoverable.
+    if (last.gabbyDismounted === true || last.partyActive) break;
     held = await press(page, held, 'ArrowRight');
     await page.waitForTimeout(POLL_MS);
   }
@@ -354,9 +364,12 @@ async function main() {
     const gas = await drive(page, () => 'ArrowRight', {
       'arrival-ridein': (s) => s.phase === 'ridingIn',
       'arrival-doors': (s) => s.doorsOpen01 !== null && s.doorsOpen01 >= 0.98,
-      'arrival-hopoff': (s) => s.calebDismounted === true && s.washAlpha < 0.05,
+      'arrival-hopoff': (s) => s.gabbyDismounted === true && s.washAlpha < 0.05,
       'arrival-walkin': (s) =>
-        s.calebX !== null && s.doorX !== null && s.calebX > s.doorX - 120 && s.washAlpha < 0.4,
+        s.gabbyX !== null &&
+        s.doorX !== null &&
+        s.gabbyX > s.doorX - 160 &&
+        s.washAlpha < 0.4,
       'arrival-wash': (s) => s.washAlpha !== null && s.washAlpha >= 0.5,
     });
     await page.screenshot({ path: join(OUT_DIR, 'arrival-party.png') });
@@ -423,10 +436,18 @@ async function main() {
     const washAlpha = maxOf(gas.samples, 'washAlpha');
     const duskAlpha = maxOf(gas.samples, 'duskAlpha');
     const dismountSamples = gas.samples.filter((s) => s.calebDismounted === true && s.calebX !== null);
-    const calebWalkedPx =
-      dismountSamples.length > 1
-        ? Math.round(dismountSamples[dismountSamples.length - 1].calebX - dismountSamples[0].calebX)
-        : null;
+    const gabbySamples = gas.samples.filter((s) => s.gabbyDismounted === true && s.gabbyX !== null);
+    const walkedPx = (rows, field) =>
+      rows.length > 1 ? Math.round(rows[rows.length - 1][field] - rows[0][field]) : null;
+    const calebWalkedPx = walkedPx(dismountSamples, 'calebX');
+    const gabbyWalkedPx = walkedPx(gabbySamples, 'gabbyX');
+    // Caleb (the pillion) must get off BEFORE Gabby (the rider) — the order the
+    // beat is staged in, asserted from when each figure first exists.
+    const calebFirstMs = dismountSamples.length > 0 ? dismountSamples[0].atMs : null;
+    const gabbyFirstMs = gabbySamples.length > 0 ? gabbySamples[0].atMs : null;
+    // Their landings are anchored to ONE measured resting x, so the gap between
+    // them is exact rather than drifting with the still-creeping bike.
+    const measuredRestX = lastLive(gas.samples)?.restX ?? null;
     // The doors must be open BEFORE she crosses the flag — the venue opens up
     // ahead of her, it does not pop open behind her.
     const doorsOpenBeforeFinish = gas.samples.some((s) => s.phase === 'crawling' && s.doorsOpen01 >= 0.98);
@@ -438,8 +459,19 @@ async function main() {
     if (!doorsOpenBeforeFinish) problems.push('the doors were not open before the bike crossed the finish flag');
     if (spillAlpha <= 0) problems.push('no light ever spilled out of the doorway (pool alpha stayed 0)');
     if (dismountSamples.length === 0) problems.push('Caleb never hopped off (no standing Caleb was ever built)');
+    if (gabbySamples.length === 0) problems.push('Gabby never got off the bike (no standing Gabby was ever built)');
     if (calebWalkedPx === null || calebWalkedPx <= 0)
       problems.push(`Caleb never walked toward the doorway (moved ${calebWalkedPx}px)`);
+    if (gabbyWalkedPx === null || gabbyWalkedPx <= 0)
+      problems.push(`Gabby never walked toward the doorway (moved ${gabbyWalkedPx}px)`);
+    if (calebFirstMs === null || gabbyFirstMs === null || !(calebFirstMs < gabbyFirstMs))
+      problems.push(`the pillion did not dismount first (Caleb at ${calebFirstMs}ms, Gabby at ${gabbyFirstMs}ms)`);
+    if (measuredRestX === null)
+      problems.push('the dismount never measured the bike resting x it anchors both landings to');
+    // She must be the PLAYER'S character, from the one-source-of-truth path —
+    // the same `tex-gabby|<hair>|<eyes>|<outfit>` variant the seated rider uses.
+    if (typeof live?.riderTextureKey !== 'string' || live.riderTextureKey.indexOf(RIDER_TEXTURE_PREFIX) !== 0)
+      problems.push(`the standing Gabby's texture ${JSON.stringify(live?.riderTextureKey)} is not a character variant`);
     if (washAlpha < 0.99) problems.push(`the warm light wash only reached alpha ${washAlpha}`);
     if (duskAlpha < 0.99) problems.push(`the dusk wash only reached alpha ${duskAlpha}`);
 
@@ -447,14 +479,19 @@ async function main() {
     const cast = gas.samples.filter((s) => s.gameActive && s.hasArrival);
     const maxGabby = maxOf(cast, 'gabbyVisible');
     const maxCaleb = maxOf(cast, 'calebVisible');
-    const dismountCast = dismountSamples.length > 0 ? dismountSamples[0] : null;
+    // THE FRAME THAT MATTERS is the one Gabby steps off on: the SEATED rider has
+    // to go on exactly it, or the game shows a standing Gabby beside a riding
+    // one. Checked at that instant specifically, as well as over the whole run.
+    const swapFrame = gabbySamples.length > 0 ? gabbySamples[0] : null;
     if (maxGabby > 1) problems.push(`${maxGabby} Gabbys were visible at once`);
     if (maxCaleb > 1) problems.push(`${maxCaleb} Calebs were visible at once`);
-    if (maxGabby !== 1) problems.push(`Gabby was never visible during the run (max ${maxGabby})`);
-    if (maxCaleb !== 1) problems.push(`Caleb was never visible during the run (max ${maxCaleb})`);
-    if (dismountCast && (dismountCast.gabbyVisible !== 1 || dismountCast.calebVisible !== 1)) {
+    // Separate from the > 1 checks above so a duplicate reports as a DUPLICATE
+    // rather than also as a nonsensical "never visible (max 2)".
+    if (maxGabby === 0) problems.push('Gabby was never visible during the run');
+    if (maxCaleb === 0) problems.push('Caleb was never visible during the run');
+    if (swapFrame && (swapFrame.gabbyVisible !== 1 || swapFrame.calebVisible !== 1)) {
       problems.push(
-        `at the dismount ${dismountCast.gabbyVisible} Gabby / ${dismountCast.calebVisible} Caleb were visible (want 1 / 1)`
+        `on the frame Gabby stepped off, ${swapFrame.gabbyVisible} Gabby / ${swapFrame.calebVisible} Caleb were visible (want 1 / 1)`
       );
     }
 
@@ -516,6 +553,10 @@ async function main() {
     // the finale's tweens are running and its timed events are still queued
     // (quitting to the menu, or a restart, mid-hold). Nothing may throw, and the
     // next entry must come up as a completely fresh 'approaching' run.
+    // It is ALSO the only check that proves the borrowed BikeHandle.setRiderVisible
+    // seam cannot strand the game with an invisible rider: the restart is taken
+    // while the seated rider is hidden for the dismount, and the fresh run must
+    // show exactly one Gabby again.
     const midFinale = await driveToMidFinale(page);
     const errorsBeforeRestart = consoleErrors.length + pageErrors.length;
     await startLevel22(page);
@@ -523,8 +564,12 @@ async function main() {
     const bodiesAfterRestart = await bodyCount(page);
     const errorsFromRestart = consoleErrors.length + pageErrors.length - errorsBeforeRestart;
 
-    if (midFinale?.calebDismounted !== true)
+    if (midFinale?.gabbyDismounted !== true)
       problems.push('the mid-finale restart check never actually caught the finale in flight');
+    if (afterRestart.gabbyVisible !== 1 || afterRestart.calebVisible !== 1)
+      problems.push(
+        `after a restart taken while the SEATED rider was hidden, ${afterRestart.gabbyVisible} Gabby / ${afterRestart.calebVisible} Caleb are visible (want 1 / 1 — an invisible rider would be unplayable)`
+      );
     if (!afterRestart.gameActive || afterRestart.phase !== 'approaching')
       problems.push(`after a mid-finale restart the arrival came up as '${afterRestart.phase}' (want a fresh 'approaching')`);
     if (afterRestart.partyActive) problems.push('a mid-finale restart still fell through to PartyScene');
@@ -564,7 +609,16 @@ async function main() {
         doorsOpenBeforeFinish,
         spillAlpha: Math.round(spillAlpha * 100) / 100,
         calebDismounted: dismountSamples.length > 0,
+        gabbyDismounted: gabbySamples.length > 0,
+        // How long AFTER Caleb was Gabby first seen off the bike (the polled
+        // approximation of ARRIVAL.gabbyOffDelayMs - hopOffDelayMs). Positive
+        // is the whole point: the pillion gets off first.
+        gabbyAfterCalebMs:
+          calebFirstMs === null || gabbyFirstMs === null ? null : gabbyFirstMs - calebFirstMs,
+        measuredRestX: measuredRestX === null ? null : Math.round(measuredRestX),
+        standingGabbyTexture: live ? live.riderTextureKey : null,
         calebWalkedPx,
+        gabbyWalkedPx,
         washAlpha: Math.round(washAlpha * 100) / 100,
         duskAlpha: Math.round(duskAlpha * 100) / 100,
         finaleHoldMs: live ? live.finaleHoldMs : null,
@@ -610,12 +664,16 @@ async function main() {
         `and rolls her to rest at x=${r.rideIn.restX} in front of the doors (${r.geometry.doorX}), then releases the override to null; ` +
         `the venue drew ${r.finale.venue.rects} rects + ${r.finale.venue.graphics} Graphics, its doors opened to ` +
         `${Math.round(r.finale.doorsOpen01 * 100)}% BEFORE the flag with light spilling to alpha ${r.finale.spillAlpha}, ` +
-        `Caleb hopped off and walked ${r.finale.calebWalkedPx}px to the doorway, and the warm+dusk washes reached ` +
+        `Caleb hopped off first and Gabby (as "${r.finale.standingGabbyTexture}") ${r.finale.gabbyAfterCalebMs}ms later, ` +
+        `both anchored to the measured rest x ${r.finale.measuredRestX} and walking ` +
+        `${r.finale.calebWalkedPx}/${r.finale.gabbyWalkedPx}px into the doorway together, and the warm+dusk washes reached ` +
         `${r.finale.washAlpha}/${r.finale.duskAlpha} over the ${r.finale.finaleHoldMs}ms hold; ` +
-        `exactly ${r.cast.maxGabbyVisible} Gabby and ${r.cast.maxCalebVisible} Caleb visible throughout; ` +
+        `exactly ${r.cast.maxGabbyVisible} Gabby and ${r.cast.maxCalebVisible} Caleb visible throughout, including the ` +
+        `frame she steps off; ` +
         `a player who STOPPED DEAD at x=${r.stopDead.stoppedAtX} and then held the BRAKE was still carried in ` +
         `(never below ${r.stopDead.minSpeedWhileCarried} px/step) and finished in ${r.stopDead.seconds}s; ` +
-        `a restart taken mid-finale tore down cleanly and came back up '${r.midFinaleRestart.phaseAfter}'; ` +
+        `a restart taken mid-dismount tore down cleanly, came back up '${r.midFinaleRestart.phaseAfter}' and put the ` +
+        `seated rider back; ` +
         `completed[21]=${r.completed21}; ${r.maxBodies} Matter bodies < ${r.maxBodiesBudget}; no errors.`
     );
   }

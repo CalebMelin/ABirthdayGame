@@ -822,17 +822,18 @@ export const POLICE = {
  * cutscene TAKES THE PEDALS (EventContext.setInputOverride — never a Matter
  * force), rides her in whatever her speed, slows her to a walking pace so she
  * rolls up to the doors, and then — once she crosses the finish flag — the
- * doors open, warm light spills out, Caleb hops off the back, and the light
- * takes the screen and hands off to PartyScene.
+ * doors open, warm light spills out, Gabby and Caleb get off the bike and walk
+ * into the doorway together, and the light takes the screen and hands off to
+ * PartyScene.
  *
  * THE WHOLE BEAT IS A GIFT AND CAN NEVER FAIL THE PLAYER: it never calls
  * softFail, and because it drives the pedals itself it carries in a player who
  * has STOPPED DEAD as readily as one arriving flat out.
  *
  * ZERO Matter bodies (level 22 is the tightest level in the game at 99/100 —
- * see PROGRESS.md): the venue, doors, light spill, standing Caleb and the two
- * wash rectangles are all plain GameObjects. The placeholder DRAWING dimensions
- * of the venue/Caleb stay as local documented consts in arrival.ts
+ * see PROGRESS.md): the venue, doors, light spill, the two standing figures and
+ * the two wash rectangles are all plain GameObjects. The placeholder DRAWING
+ * dimensions of the venue/figures stay as local documented consts in arrival.ts
  * (decorations.ts / pickup.ts / police.ts precedent); what lives here is the
  * GEOMETRY relative to the finish flag, the approach speed, and the finale
  * pacing. Distances are px at the 1280x720 DESIGN scale (world px for the
@@ -893,16 +894,37 @@ export const ARRIVAL = {
   // Everything below runs AFTER the finish flag, so it must be SELF-DRIVING
   // (tweens + timed events): GameScene stops calling handle.update() the instant
   // the run ends — see EventContext.isEnded's doc.
-  /** Delay after the finish before Caleb hops off the back, ms. */
-  hopOffDelayMs: 350,
-  /** How long his hop from the pillion down to the road takes, ms. */
+  /** Delay after the finish before CALEB hops off the back, ms. He goes first —
+   * the pillion always gets off before the rider does. */
+  hopOffDelayMs: 300,
+  /** Delay after the finish before GABBY gets off her own bike, ms. Late enough
+   * that Caleb has already LANDED and stepped clear (hopOffDelayMs + hopDownMs),
+   * so the two dismounts read as a sequence instead of two sprites tangled
+   * together over the bike. Pinned against that sum by tests/arrival.test.ts. */
+  gabbyOffDelayMs: 700,
+  /** How long each hop from the bike down to the road takes, ms (shared — they
+   * dismount identically, just a beat apart). */
   hopDownMs: 340,
-  /** How long he then takes to walk from the bike to the doorway (fading out as
-   * he steps inside), ms. */
-  walkInMs: 1000,
+  /** Delay after the finish before they BOTH set off for the doorway, ms — one
+   * shared beat rather than each walking the moment they land.
+   *
+   * THAT SHARED START IS THE WHOLE POINT: they land the same distance from the
+   * door and walk for the same duration, so starting together is what actually
+   * makes them cross the forecourt side by side. Chaining each walk onto its own
+   * landing instead (the first attempt) let Caleb — who lands first — overtake
+   * Gabby and lead her in for most of the way, which screenshot-caught as the
+   * two of them straggling rather than arriving together. Must be at least
+   * gabbyOffDelayMs + hopDownMs so nobody sets off before they have landed;
+   * pinned by tests/arrival.test.ts. */
+  walkInDelayMs: 1120,
+  /** How long that walk into the doorway takes (fading out as they step
+   * inside), ms. */
+  walkInMs: 950,
   /** Delay after the finish before the warm light wash starts taking the
-   * screen, ms. Long enough for the hop-off + most of the walk to play. */
-  washDelayMs: 1500,
+   * screen, ms. Long enough that BOTH of them are all the way inside first —
+   * the light swells after they arrive, it does not cover their arrival
+   * (pinned by tests/arrival.test.ts against the end of the shared walk). */
+  washDelayMs: 2150,
   /** Warm light-wash fade-in duration, ms — the doors' light filling the frame. */
   washFadeMs: 700,
   /** After the warm wash peaks, a second wash in PartyScene's own night sky
@@ -915,7 +937,7 @@ export const ARRIVAL = {
    * rather than restated as arithmetic here — with room to spare, so the screen
    * SETTLES on PartyScene's own night sky for a breath before the party appears
    * rather than cutting on the last frame of the fade. */
-  finaleHoldMs: 2800,
+  finaleHoldMs: 3450,
 } as const;
 
 /** Pixel font family (to be loaded in a later plan). */

@@ -66,7 +66,9 @@ const fakeScene = {
 // is a safe no-op here.
 const fakeCtx = {
   calebPickedUp: false,
-  bike: { x: 0, y: 500, speed: 10, airborne: false },
+  // `setRiderVisible` is the cosmetic BikeHandle seam createArrival uses for
+  // Gabby's dismount (and restores in destroy()).
+  bike: { x: 0, y: 500, speed: 10, airborne: false, setRiderVisible: () => {} },
   terrain: { heightAt: () => 500 },
   worldLength: 8000,
   finishX: 7500,

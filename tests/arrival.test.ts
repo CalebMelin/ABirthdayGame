@@ -187,13 +187,28 @@ describe('ARRIVAL pacing invariants', () => {
     expect(ARRIVAL.finaleHoldMs).toBeGreaterThanOrEqual(lastTweenEndsMs);
   });
 
-  it('finishes the hop-off + walk-in before the light wash takes the screen', () => {
-    const walkEndsMs = ARRIVAL.hopOffDelayMs + ARRIVAL.hopDownMs + ARRIVAL.walkInMs;
-    // The walk may still be finishing as the wash begins (they overlap on
-    // purpose — he is walking INTO the light), but he must be down off the bike
-    // and moving well before it starts, or the dismount is never seen at all.
-    expect(ARRIVAL.hopOffDelayMs + ARRIVAL.hopDownMs).toBeLessThan(ARRIVAL.washDelayMs);
-    expect(walkEndsMs).toBeLessThanOrEqual(ARRIVAL.finaleHoldMs);
+  it('dismounts Caleb (the pillion) first, and only once he has LANDED and stepped clear', () => {
+    expect(ARRIVAL.hopOffDelayMs).toBeLessThan(ARRIVAL.gabbyOffDelayMs);
+    // Gabby materialises at the seated rider's spot, so Caleb must be off the
+    // bike and standing before she does or the two sprites tangle over it.
+    expect(ARRIVAL.gabbyOffDelayMs).toBeGreaterThanOrEqual(
+      ARRIVAL.hopOffDelayMs + ARRIVAL.hopDownMs
+    );
+  });
+
+  it('starts the shared walk only once BOTH of them have landed', () => {
+    // The walk is one shared beat (not one chained onto each landing) so they
+    // cross the forecourt together — which requires nobody setting off mid-hop.
+    expect(ARRIVAL.walkInDelayMs).toBeGreaterThanOrEqual(
+      ARRIVAL.gabbyOffDelayMs + ARRIVAL.hopDownMs
+    );
+  });
+
+  it('gets BOTH of them all the way inside before the light wash takes the screen', () => {
+    // The light swells AFTER they arrive; it must never cover their arrival.
+    const walkEndsMs = ARRIVAL.walkInDelayMs + ARRIVAL.walkInMs;
+    expect(walkEndsMs).toBeLessThanOrEqual(ARRIVAL.washDelayMs);
+    expect(walkEndsMs).toBeLessThan(ARRIVAL.finaleHoldMs);
   });
 
   it('opens the doors before the bike can reach the flag from the crawl point', () => {

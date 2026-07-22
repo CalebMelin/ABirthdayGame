@@ -18,8 +18,9 @@
 //      and warm light begins spilling onto the road — the venue opens up AHEAD
 //      of her, while the run is still live.
 //   4. arrived    — she crosses the flag; GameScene ends the run and calls
-//      onFinish(). Caleb hops off the back and walks in, the light takes the
-//      screen, and the hold expires into PartyScene.
+//      onFinish(). Caleb hops off the back, Gabby gets off her own bike a beat
+//      later, the two of them walk into the lit doorway together, the light
+//      takes the screen, and the hold expires into PartyScene.
 //
 // IT CAN NEVER FAIL THE PLAYER: it never calls ctx.softFail, it never touches
 // the bike's bodies, and the one input it forces is GAS on flat ground (level
@@ -36,21 +37,22 @@
 // finale runs on tweens + scene.time.delayedCall — exactly the discipline
 // police.ts's onFinish finale follows.
 //
-// WHERE GABBY'S DISMOUNT WENT (a deliberate staging call — see DECISIONS.md
-// 2026-07-22): BikeHandle does not expose its rider sprite (a PLAN-04 decision)
-// and bike.ts is a byte-unchanged project invariant, so there is no way to take
-// Gabby off the bike without shipping TWO visible Gabbys — one seated, one
-// standing. So the beat is staged the other way round: CALEB's dismount is
-// shown for real (his pillion sprite hides, a standing Caleb hops down beside
-// the bike and walks into the doorway), Gabby stays with the bike she is
-// parking, and the doors' light wash covers the rest of the transition into
-// PartyScene, where the two of them are standing together. Exactly one Gabby and
-// exactly one Caleb are visible at every instant — gated by
-// scripts/playtest-arrival.mjs.
+// THE DISMOUNT, AND THE ONE SEAM IT NEEDED (see DECISIONS.md 2026-07-22):
+// BOTH of them get off the bike here, because "Gabby & Caleb arrive"
+// (NORTH_STAR §5) is the emotional payload the whole 22-level ride builds
+// toward. Caleb's half is easy — his pillion sprite is passenger.ts's, which
+// grew an additive `hide()`. Gabby's needed more: bike.ts owns its rider sprite
+// privately (a PLAN-04 decision), so it grew ONE additive, cosmetic
+// `setRiderVisible` seam, used here to hide the SEATED rider on exactly the
+// frame the standing one appears. Nothing else in that file changed — the
+// invariant it carries protects the browser-measured FEEL tuning, not the
+// sprite's visibility. Exactly one Gabby and exactly one Caleb are visible at
+// every instant, sample-by-sample, gated by scripts/playtest-arrival.mjs.
 //
 // Like bike.ts / terrain.ts / passenger.ts / pickup.ts / police.ts (and UNLIKE
 // decorations.ts), this module has NO runtime Phaser import — its non-type
-// imports are the pure constants plus themes.ts's pure camera-oversize helper —
+// imports are the pure constants, themes.ts's pure camera-oversize helper, and
+// the equally import-safe character/save modules Gabby's texture comes from —
 // so it stays import-safe in Node and the pure helpers below (the ride-in
 // geometry, the crawl controller, the phase machine) are unit-tested directly in
 // tests/arrival.test.ts. createArrival only ever CALLS METHODS on the runtime
@@ -64,6 +66,7 @@
 import type Phaser from 'phaser';
 import {
   ARRIVAL,
+  BIKE_TUNING,
   CAMERA,
   DEPTHS,
   DESIGN_HEIGHT,
@@ -73,6 +76,9 @@ import {
   TEXTURE_KEYS,
 } from './constants';
 import { cameraFixedOversizePx } from './themes';
+import { buildCharacterTextures } from './characterTextures';
+import { getSave } from './save';
+import { defaultCharacter } from '../data/characters';
 import type { LevelEventHandle, EventContext } from '../levels/events';
 import type { PartyArrivalEvent } from '../levels/types';
 
@@ -229,20 +235,35 @@ const SPILL_CENTER_BEHIND_DOOR_PX = 130;
  * (screenshot-caught). */
 const SPILL_CENTER_BELOW_GROUND_PX = 26;
 
-// --- Standing Caleb, dismounted: the tex-caleb placeholder + a BROWN hair band
-// overlay, the same convention pickup.ts's standing Caleb and partyCast.ts's
-// party Caleb both use, so he reads brown-haired and is never confused with
-// blonde Dom (NORTH_STAR §5 / DECISIONS.md 2026-07-15).
-/** Matches BootScene's tex-caleb placeholder (24x48). */
-const CALEB_SPRITE_WIDTH_PX = 24;
-const CALEB_SPRITE_HEIGHT_PX = 48;
+// --- The two dismounted figures. Gabby is the player's OWN character (the
+// riderTextureKey from buildCharacterTextures — the same one-source-of-truth
+// path GameScene, CharacterCreationScene and partyCast.ts use, so she matches
+// the look chosen at character creation), and Caleb is the tex-caleb
+// placeholder + a BROWN hair band overlay, the same convention pickup.ts's
+// standing Caleb and partyCast.ts's party Caleb use so he reads brown-haired
+// and is never confused with blonde Dom (NORTH_STAR §5 / DECISIONS.md
+// 2026-07-15).
+/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (both 24x48). */
+const FIGURE_SPRITE_WIDTH_PX = 24;
+const FIGURE_SPRITE_HEIGHT_PX = 48;
 const CALEB_HAIR_BAND_HEIGHT_PX = 12;
-/** Where he lands relative to the bike when he hops down, px. Positive = ahead
- * of the bike, on the doorway side (he steps off toward the party) and clear of
- * Gabby's own sprite, which sits at BIKE_TUNING.riderOffsetX. */
-const CALEB_LANDING_X_OFFSET_PX = 34;
-/** How far short of the doorway centre he walks before he is inside, px. */
-const CALEB_DOOR_STOP_SHORT_PX = 14;
+// WHERE THEY LAND AND WHERE THEY STOP, both as offsets from the bike's MEASURED
+// resting x / from the doorway centre. Gabby leads (it is her party) and Caleb
+// trails half a body behind her. The two gaps are EQUAL, which is the point: it
+// makes both walks exactly `doorX - restX - 56` px long, so they cross the
+// forecourt side by side in step instead of one drifting away from the other.
+/** Where GABBY lands, px ahead of the bike's resting x. */
+const GABBY_LANDING_X_OFFSET_PX = 74;
+/** Where CALEB lands, px ahead of the bike's resting x. A full sprite-width
+ * clear of the SEATED rider's spot (BIKE_TUNING.riderOffsetX, ~0), because that
+ * is exactly where Gabby materialises a beat later — any closer and the two
+ * sprites overlap on the frame she steps off (screenshot-caught). */
+const CALEB_LANDING_X_OFFSET_PX = 40;
+/** How far short of the doorway centre GABBY walks before she is inside, px. */
+const GABBY_DOOR_STOP_SHORT_PX = 8;
+/** How far short of the doorway centre CALEB walks, px (see above — the 34px
+ * difference is the same gap they land with). */
+const CALEB_DOOR_STOP_SHORT_PX = 42;
 
 // ---------------------------------------------------------------------------
 // Runtime factory (calls scene/ctx methods only — see module doc).
@@ -268,10 +289,19 @@ interface ArrivalDebug {
   doorsOpen01(): number;
   /** Current alpha of the light pool spilling out of the doorway. */
   spillAlpha(): number;
-  /** True once the standing (dismounted) Caleb exists. */
+  /** True once each standing (dismounted) figure exists. */
   calebDismounted(): boolean;
-  /** His live x, or null before he hops off / after teardown. */
+  gabbyDismounted(): boolean;
+  /** Their live x, or null before they step off / after teardown. */
   calebX(): number | null;
+  gabbyX(): number | null;
+  /** The bike's MEASURED resting x that both landings are anchored to, or null
+   * before the first dismount reads it. */
+  restX(): number | null;
+  /** The texture key the standing Gabby renders with — the one-source-of-truth
+   * rider key, exposed so a harness can prove she is the player's character and
+   * not some second sprite. */
+  riderTextureKey: string;
   /** Alpha of the warm light wash + the dusk wash behind the hand-off. */
   washAlpha(): number;
   duskAlpha(): number;
@@ -409,8 +439,21 @@ export function createArrival(
   let finaleStarted = false;
   let tornDown = false;
   let standingCaleb: Phaser.GameObjects.Container | undefined;
+  let standingGabby: Phaser.GameObjects.Container | undefined;
   let warmWash: Phaser.GameObjects.Rectangle | undefined;
   let duskWash: Phaser.GameObjects.Rectangle | undefined;
+
+  // Gabby's dismounted sprite comes from THE one-source-of-truth character path
+  // — the same `buildCharacterTextures(scene, saved-or-default)` call GameScene
+  // builds the SEATED rider with, and that CharacterCreationScene's preview and
+  // partyCast.ts's Gabby/Dallas use. Resolved here at create() (never at module
+  // scope), so she is always the look the player actually chose, and it is a
+  // cheap cache hit: recolorTexture already built this exact variant key for the
+  // bike a few lines earlier in GameScene.create().
+  const { riderTextureKey } = buildCharacterTextures(
+    scene,
+    getSave().loadCharacter() ?? defaultCharacter()
+  );
 
   /** Swings the doors open and blooms the light pool. Idempotent — the crawl
    * phase kicks it off before the flag, and onFinish re-calls it defensively in
@@ -435,66 +478,139 @@ export function createArrival(
     });
   }
 
-  /** Caleb comes off the back: his pillion sprite hides and a standing Caleb
-   * hops down beside the bike, then walks into the doorway and fades inside.
-   * Runs from a timed event during the finale hold (never from update()). */
-  function hopOff(): void {
-    if (tornDown) return;
-    ctx.passenger.hide();
+  /**
+   * The bike's RESTING x, measured ONCE at the first dismount and reused by
+   * both figures.
+   *
+   * It has to be measured rather than derived: past the flag GameScene forces
+   * the pedals false, so the bike free-coasts and where it stops is a property
+   * of the physics, not of any constant (see ARRIVAL.crawlSpeedPxPerStep). And
+   * it has to be measured ONCE: the two step off a beat apart
+   * (ARRIVAL.gabbyOffDelayMs - hopOffDelayMs), during which the bike is still
+   * creeping to a halt, so reading it twice would quietly stretch the gap
+   * between them and desynchronise their walk.
+   */
+  let restX: number | null = null;
+  function bikeRestX(): number {
+    if (restX === null) restX = ctx.bike.x;
+    return restX;
+  }
 
-    const landX = ctx.bike.x + CALEB_LANDING_X_OFFSET_PX;
-    const landY = ctx.terrain.heightAt(landX);
-    const body = scene.add.image(0, 0, TEXTURE_KEYS.caleb).setOrigin(0.5, 1);
-    const hair = scene.add.rectangle(
-      0,
-      -CALEB_SPRITE_HEIGHT_PX + CALEB_HAIR_BAND_HEIGHT_PX / 2,
-      CALEB_SPRITE_WIDTH_PX,
-      CALEB_HAIR_BAND_HEIGHT_PX,
-      PALETTE.brown
+  /**
+   * Builds one dismounted figure and plays the FIRST beat of its exit: the hop
+   * down off the bike onto the road. (The second beat — the walk in — is a
+   * separate, SHARED event so the two of them set off together; see walkIn.)
+   * Shared by Gabby and Caleb: the only differences are the sprite they are
+   * drawn from, the spot ON THE BIKE they start at, and where they land.
+   *
+   * `startX`/`startY` are the LIVE position of the sprite being replaced, so
+   * the swap is invisible on the frame it happens; the landing spot comes off
+   * `bikeRestX()` so both figures share one anchor.
+   *
+   * Runs from a timed event during the finale hold, never from update() —
+   * GameScene has stopped calling that by now.
+   */
+  function stepOff(opts: {
+    parts: Phaser.GameObjects.GameObject[];
+    startX: number;
+    startY: number;
+    depth: number;
+    landOffsetPx: number;
+  }): Phaser.GameObjects.Container {
+    const landX = bikeRestX() + opts.landOffsetPx;
+    const figure = track(
+      scene.add.container(opts.startX, opts.startY, opts.parts).setDepth(opts.depth)
     );
-    // He STARTS exactly where the pillion sprite just was — same chassis-local
-    // offset, same depth — so hiding the pillion and revealing him is an
-    // invisible swap, and the tween below is a genuine hop OFF THE BIKE rather
-    // than a second Caleb popping into existence. (The container is
-    // bottom-anchored while the pillion Image is centre-anchored, hence the half
-    // sprite-height; the bike is upright on the flat finish zone here, so the
-    // chassis-local offset needs no rotation.) PASSENGER.depth keeps him BEHIND
-    // Gabby for the hop, which is what stops him from covering her on the frame
-    // he appears — screenshot-caught: spawned in front of her and level with the
-    // chassis, he hid her completely, and Gabby vanishing is the one thing this
-    // screen cannot do.
-    const caleb = track(
-      scene.add
-        .container(
-          ctx.bike.x + PASSENGER.offsetX,
-          ctx.bike.y + PASSENGER.offsetY + CALEB_SPRITE_HEIGHT_PX / 2,
-          [body, hair]
-        )
-        .setDepth(PASSENGER.depth)
-    );
-    standingCaleb = caleb;
-
     scene.tweens.add({
-      targets: caleb,
+      targets: figure,
       x: landX,
-      y: landY,
+      y: ctx.terrain.heightAt(landX),
       duration: ARRIVAL.hopDownMs,
       ease: 'Quad.easeIn',
-      onComplete: () => {
-        if (tornDown) return;
-        scene.tweens.add({
-          targets: caleb,
-          x: doorX - CALEB_DOOR_STOP_SHORT_PX,
-          // BACK-LOADED fade (its own ease, steeper than the walk's): he stays
-          // solid the whole way across and only dissolves as he actually reaches
-          // the doorway. A linear fade ghosted him out halfway down the road,
-          // which read as him vanishing rather than going inside
-          // (screenshot-caught).
-          alpha: { value: 0, ease: 'Quint.easeIn' },
-          duration: ARRIVAL.walkInMs,
-          ease: 'Sine.easeInOut',
-        });
-      },
+    });
+    return figure;
+  }
+
+  /** Both of them set off for the doorway TOGETHER and fade as they step
+   * inside. One shared beat, not one chained onto each landing: they land the
+   * same distance from the door and walk for the same duration, so a shared
+   * start is what actually makes them arrive side by side (see
+   * ARRIVAL.walkInDelayMs for the screenshot that forced this). */
+  function walkIn(): void {
+    if (tornDown) return;
+    const walk = (
+      figure: Phaser.GameObjects.Container | undefined,
+      doorStopShortPx: number
+    ): void => {
+      if (figure === undefined) return;
+      scene.tweens.add({
+        targets: figure,
+        x: doorX - doorStopShortPx,
+        // BACK-LOADED fade (its own ease, steeper than the walk's): they stay
+        // solid the whole way across and only dissolve as they actually reach
+        // the doorway. A linear fade ghosted them out halfway down the road,
+        // which read as vanishing rather than as going inside
+        // (screenshot-caught).
+        alpha: { value: 0, ease: 'Quint.easeIn' },
+        duration: ARRIVAL.walkInMs,
+        ease: 'Sine.easeInOut',
+      });
+    };
+    walk(standingGabby, GABBY_DOOR_STOP_SHORT_PX);
+    walk(standingCaleb, CALEB_DOOR_STOP_SHORT_PX);
+  }
+
+  /** Caleb comes off the back FIRST (the pillion always dismounts first): his
+   * pillion sprite hides and a standing Caleb hops down just behind Gabby's
+   * landing spot.
+   *
+   * He STARTS exactly where the pillion sprite just was — same chassis-local
+   * offset, same depth — so hiding the pillion and revealing him is an invisible
+   * swap. (The container is bottom-anchored while the pillion Image is
+   * centre-anchored, hence the half sprite-height; the bike is upright on the
+   * flat finish zone here, so the chassis-local offset needs no rotation.)
+   * PASSENGER.depth also keeps him BEHIND Gabby, which is what stops him from
+   * covering her on the frame he appears — screenshot-caught: spawned in front
+   * of her and level with the chassis, he hid her completely. */
+  function calebStepsOff(): void {
+    if (tornDown) return;
+    ctx.passenger.hide();
+    standingCaleb = stepOff({
+      parts: [
+        scene.add.image(0, 0, TEXTURE_KEYS.caleb).setOrigin(0.5, 1),
+        scene.add.rectangle(
+          0,
+          -FIGURE_SPRITE_HEIGHT_PX + CALEB_HAIR_BAND_HEIGHT_PX / 2,
+          FIGURE_SPRITE_WIDTH_PX,
+          CALEB_HAIR_BAND_HEIGHT_PX,
+          PALETTE.brown
+        ),
+      ],
+      startX: ctx.bike.x + PASSENGER.offsetX,
+      startY: ctx.bike.y + PASSENGER.offsetY + FIGURE_SPRITE_HEIGHT_PX / 2,
+      depth: PASSENGER.depth,
+      landOffsetPx: CALEB_LANDING_X_OFFSET_PX,
+    });
+  }
+
+  /** Then GABBY gets off her own bike — the beat this whole ride has been
+   * building toward (NORTH_STAR §5 "Gabby & Caleb arrive"), and the reason
+   * BikeHandle grew its one cosmetic `setRiderVisible` seam.
+   *
+   * The SEATED rider is hidden on exactly the frame the standing one is created,
+   * from exactly the seated sprite's own chassis-local offset and depth, so the
+   * swap is invisible and there is never a frame with two Gabbys on screen
+   * (gated sample-by-sample by scripts/playtest-arrival.mjs). She lands AHEAD of
+   * Caleb and leads him in. */
+  function gabbyStepsOff(): void {
+    if (tornDown) return;
+    ctx.bike.setRiderVisible(false);
+    standingGabby = stepOff({
+      parts: [scene.add.image(0, 0, riderTextureKey).setOrigin(0.5, 1)],
+      startX: ctx.bike.x + BIKE_TUNING.riderOffsetX,
+      startY: ctx.bike.y + BIKE_TUNING.riderOffsetY + FIGURE_SPRITE_HEIGHT_PX / 2,
+      depth: DEPTHS.rider,
+      landOffsetPx: GABBY_LANDING_X_OFFSET_PX,
     });
   }
 
@@ -568,7 +684,9 @@ export function createArrival(
     ctx.setInputOverride(null);
     releasedControl = true;
     openVenue(); // no-op if the crawl already opened them
-    scene.time.delayedCall(ARRIVAL.hopOffDelayMs, hopOff);
+    scene.time.delayedCall(ARRIVAL.hopOffDelayMs, calebStepsOff);
+    scene.time.delayedCall(ARRIVAL.gabbyOffDelayMs, gabbyStepsOff);
+    scene.time.delayedCall(ARRIVAL.walkInDelayMs, walkIn);
     scene.time.delayedCall(ARRIVAL.washDelayMs, startWash);
   }
 
@@ -626,7 +744,11 @@ export function createArrival(
       doorsOpen01: () => (1 - doorPanels[0].scaleX) / (1 - DOOR_OPEN_SCALE),
       spillAlpha: () => spill.alpha,
       calebDismounted: () => standingCaleb !== undefined,
+      gabbyDismounted: () => standingGabby !== undefined,
       calebX: () => standingCaleb?.x ?? null,
+      gabbyX: () => standingGabby?.x ?? null,
+      restX: () => restX,
+      riderTextureKey,
       washAlpha: () => warmWash?.alpha ?? 0,
       duskAlpha: () => duskWash?.alpha ?? 0,
       finaleHoldMs: ARRIVAL.finaleHoldMs,
@@ -635,15 +757,23 @@ export function createArrival(
 
   function destroy(): void {
     tornDown = true;
-    // Kill any in-flight tweens (doors, spill, Caleb's hop/walk, the washes —
-    // all tracked in `objects`) BEFORE destroying their targets, so a shutdown
-    // mid-finale can't leave a tween running against a destroyed GameObject.
-    // Idempotent: a second destroy() sees an empty `objects` and
+    // Put the SEATED rider back before anything else. Belt-and-braces rather
+    // than load-bearing — every create() builds a fresh bike whose rider starts
+    // visible, so a fail-restart cannot inherit a hidden one either way — but it
+    // means the seam this module borrows is always handed back the way it was
+    // found, and setRiderVisible is a documented no-op on an already-destroyed
+    // rig, so teardown ORDER cannot make this unsafe.
+    ctx.bike.setRiderVisible(true);
+    // Kill any in-flight tweens (doors, spill, the two dismount hops/walks, the
+    // washes — all tracked in `objects`) BEFORE destroying their targets, so a
+    // shutdown mid-finale can't leave a tween running against a destroyed
+    // GameObject. Idempotent: a second destroy() sees an empty `objects` and
     // killTweensOf([]) is a harmless no-op.
     scene.tweens.killTweensOf(objects);
     for (const obj of objects) obj.destroy();
     objects.length = 0;
     standingCaleb = undefined;
+    standingGabby = undefined;
     warmWash = undefined;
     duskWash = undefined;
     if (import.meta.env.DEV) delete devScene.__arrival;

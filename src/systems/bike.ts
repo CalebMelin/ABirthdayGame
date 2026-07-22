@@ -93,6 +93,33 @@ export interface BikeHandle {
    * check (PLAN-02 task 5) counts against this. A fresh array per read;
    * mutating it never affects the rig. */
   readonly bodies: MatterJS.BodyType[];
+  /** Shows/hides the RIDER sprite (Gabby). PURELY COSMETIC — the one and
+   * only visual toggle this handle exposes, and it touches nothing else:
+   * no body, no constraint, no control law, no tuning constant, no
+   * `update()` work. The rig keeps driving, crashing and reporting exactly
+   * as before while she is hidden.
+   *
+   * WHY IT EXISTS (PLAN-09 ST-5): level 22's arrival cutscene
+   * (src/systems/arrival.ts) has Gabby DISMOUNT at the party venue and walk
+   * in — the emotional payload the whole 22-level ride builds toward
+   * (NORTH_STAR §5 "Gabby & Caleb arrive"). It draws its own standing Gabby
+   * from the same one-source-of-truth character texture, so the SEATED
+   * rider has to go on exactly the frame the standing one appears or the
+   * game ships two visible Gabbys. There is no other way to do that: this
+   * module owns `riderSprite` privately (a deliberate PLAN-04 decision) and
+   * reaching into the scene's display list to find it by texture key would
+   * be far more fragile than one additive setter.
+   *
+   * ON THE "byte-unchanged since PLAN-02" LORE (PROGRESS.md / DECISIONS.md):
+   * that invariant exists to protect the browser-MEASURED feel tuning — the
+   * control laws, the trick-input/pitch-authority mechanic, the anti-endo
+   * braking. This seam is additive and cosmetic and changes none of it; the
+   * full tricks/drive/level sweep was re-run to prove the feel is identical.
+   *
+   * NOT persistent state: every `create()` builds a fresh bike whose rider
+   * starts visible, so a fail-restart can never inherit a hidden rider. A
+   * no-op after destroy(), so a late teardown call is always safe. */
+  setRiderVisible(visible: boolean): void;
   /** Removes ALL bodies, constraints, sprites, and world event listeners
    * this bike registered. Safe to call twice. After destroy(), update()
    * is a no-op — restart = destroy() + createBike() with no leaks (the
@@ -705,6 +732,14 @@ export function createBike(
     syncSprites();
   }
 
+  /** See BikeHandle.setRiderVisible — cosmetic only, and inert once the rig
+   * has been torn down (so a teardown-ordering call can never touch a
+   * destroyed sprite). */
+  function setRiderVisible(visible: boolean): void {
+    if (destroyed) return;
+    riderSprite.setVisible(visible);
+  }
+
   // --- teardown -------------------------------------------------------------
   function destroy(): void {
     if (destroyed) return;
@@ -726,6 +761,7 @@ export function createBike(
 
   return {
     update,
+    setRiderVisible,
     destroy,
     get x() {
       return chassisPart.position.x;
