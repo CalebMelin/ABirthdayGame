@@ -17,8 +17,10 @@
 // ctx.setInputOverride, and never touches the player's bike/input at all — it
 // only ever READS ctx.bike/ctx.terrain.
 //
-// Like bike.ts/terrain.ts/traffic.ts/pickup.ts/police.ts (and UNLIKE
-// decorations.ts), this module has NO runtime Phaser import and does NOT import
+// Like bike.ts/terrain.ts/traffic.ts/pickup.ts/police.ts (and UNLIKE ui.ts, the
+// ONE module left in src/systems with a runtime `import Phaser` — decorations.ts
+// was the example here until PLAN-07 task 3 made it import-safe too, see its own
+// doc), this module has NO runtime Phaser import and does NOT import
 // ui.ts — its non-type imports are the pure constants + the palette-swap engine +
 // the character swatch data (both themselves import-safe in Node — see their own
 // module docs) — so it stays import-safe in Node. The pure helpers below (the

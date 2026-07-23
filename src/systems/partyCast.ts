@@ -39,6 +39,7 @@
 import type Phaser from 'phaser';
 import { PARTY, PALETTE, TEXTURE_KEYS } from './constants';
 import { pixelText } from './pixelText';
+import { calebHairBand } from './calebFigure';
 import { recolorTexture } from './palette';
 import { buildCharacterTextures } from './characterTextures';
 import type { CharacterConfig } from './save';
@@ -254,13 +255,11 @@ export function castTextureSource(slot: PartyCastSlot): CastTextureSource {
 // scale is applied).
 // ---------------------------------------------------------------------------
 
-/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (both 24x48). */
-const SPRITE_WIDTH_PX = 24;
+/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (24x48). Only the
+ * HEIGHT is needed here now — it seats the ponytail overlay and the floating
+ * name tags. (Caleb's brown hair band used to need the width too; it comes from
+ * the shared calebFigure.ts now, the one home for his placeholder look.) */
 const SPRITE_HEIGHT_PX = 48;
-/** Caleb's brown hair band across the top of his sprite — the SAME convention
- * the standing Caleb in pickup.ts uses, so he reads brown-haired and is never
- * confused with blonde Dom (NORTH_STAR §5). */
-const CALEB_HAIR_BAND_HEIGHT_PX = 12;
 /** Allison's ponytail: a small hair-colored rectangle hanging off the side of
  * her head, the cheap placeholder stand-in for "a different hairstyle than
  * Andrea" (NORTH_STAR §5). Offsets are from the sprite's centre x / top edge. */
@@ -379,15 +378,7 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
     ];
 
     if (slot.role === 'caleb') {
-      parts.push(
-        scene.add.rectangle(
-          0,
-          -SPRITE_HEIGHT_PX + CALEB_HAIR_BAND_HEIGHT_PX / 2,
-          SPRITE_WIDTH_PX,
-          CALEB_HAIR_BAND_HEIGHT_PX,
-          PALETTE.brown
-        )
-      );
+      parts.push(calebHairBand(scene));
     } else if (slot.appearance !== null && slot.appearance.hairStyle === 'ponytail') {
       parts.push(
         scene.add.rectangle(

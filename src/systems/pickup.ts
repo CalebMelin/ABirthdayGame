@@ -17,8 +17,10 @@
 // never touch NORTH_STAR §8's <100-body budget — same as decorations.ts /
 // passenger.ts / traffic.ts.
 //
-// Like bike.ts / terrain.ts / passenger.ts / traffic.ts (and UNLIKE
-// decorations.ts), this module has NO runtime Phaser import and does NOT import
+// Like bike.ts / terrain.ts / passenger.ts / traffic.ts (and UNLIKE ui.ts, the
+// ONE module left in src/systems with a runtime `import Phaser` — decorations.ts
+// was the example here until PLAN-07 task 3 made it import-safe too, see its own
+// doc), this module has NO runtime Phaser import and does NOT import
 // ui.ts — its only non-type imports are the pure constants — so it stays
 // import-safe in Node. It draws pixel text through a tiny local helper
 // (replicating ui.ts's createPixelText from the shared font constants) rather
@@ -31,12 +33,12 @@ import {
   PICKUP,
   DEPTHS,
   PALETTE,
-  TEXTURE_KEYS,
   DESIGN_WIDTH,
   FONT_STACK_PIXEL,
   TEXT_COLOR,
   snapFontSize,
 } from './constants';
+import { calebFigureParts } from './calebFigure';
 import type { LevelEventHandle, EventContext } from '../levels/events';
 import type { CalebPickupEvent } from '../levels/types';
 
@@ -147,14 +149,10 @@ const MAILBOX_OUTLINE_PX = 3;
 /** Mailbox center x relative to the pickup x — between the house and the road. */
 const MAILBOX_X_OFFSET_PX = 84;
 
-// --- Standing Caleb: the tex-caleb placeholder + a BROWN hair band overlay so he
-// reads as brown-haired (distinct from blonde Dom, NORTH_STAR §5). He runs to the
-// bike on pickup, then the persistent pillion sprite (passenger.ts) takes over.
-/** Matches BootScene's tex-caleb placeholder (24x48). */
-const CALEB_SPRITE_WIDTH_PX = 24;
-const CALEB_SPRITE_HEIGHT_PX = 48;
-/** Height of the brown hair band across the top of the sprite, px. */
-const CALEB_HAIR_BAND_HEIGHT_PX = 12;
+// --- Standing Caleb: built by the shared calebFigure.ts (the tex-caleb
+// placeholder + a BROWN hair band overlay so he reads as brown-haired, distinct
+// from blonde Dom — NORTH_STAR §5). He runs to the bike on pickup, then the
+// persistent pillion sprite (passenger.ts) takes over.
 /** Standing Caleb's x relative to the pickup x — just road-side, waiting. */
 const CALEB_STAND_X_OFFSET_PX = 40;
 
@@ -284,16 +282,10 @@ export function createPickup(
   // art; only this standing Caleb gets the brown-band overlay for now. ---
   const calebStandX = pickupX + CALEB_STAND_X_OFFSET_PX;
   const calebGroundY = ctx.terrain.heightAt(calebStandX);
-  const calebBody = scene.add.image(0, 0, TEXTURE_KEYS.caleb).setOrigin(0.5, 1);
-  const calebHair = scene.add.rectangle(
-    0,
-    -CALEB_SPRITE_HEIGHT_PX + CALEB_HAIR_BAND_HEIGHT_PX / 2,
-    CALEB_SPRITE_WIDTH_PX,
-    CALEB_HAIR_BAND_HEIGHT_PX,
-    PALETTE.brown
-  );
   const standingCaleb = track(
-    scene.add.container(calebStandX, calebGroundY, [calebBody, calebHair]).setDepth(DEPTHS.props + 2)
+    scene.add
+      .container(calebStandX, calebGroundY, calebFigureParts(scene))
+      .setDepth(DEPTHS.props + 2)
   );
   let standingCalebAlive = true;
 

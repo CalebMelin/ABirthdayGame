@@ -840,6 +840,14 @@ export const POLICE = {
  * geometry); speeds are px per fixed 60 Hz physics STEP (BikeHandle units);
  * times are ms.
  *
+ * ONE SPLIT WORTH KNOWING ABOUT: the dismount CHOREOGRAPHY is deliberately in
+ * two homes. Its TIMING (hopOffDelayMs / gabbyOffDelayMs / hopDownMs /
+ * walkInDelayMs / walkInMs) is here, because pacing is feel; its GEOMETRY —
+ * where the two figures land and stop, arrival.ts's ARRIVAL_DISMOUNT_OFFSETS —
+ * is not, because those px are tuned against the 24x48 PLACEHOLDER sprite
+ * widths and the placeholder doorway they stand in, and they move with that art
+ * when PLAN-10 replaces it. Same rule the venue's own drawing dimensions follow.
+ *
  * GEOMETRY, left to right (arrivalGeometry() derives all three from finishX;
  * tests/arrival.test.ts pins the ordering):
  *   finishX - rideInLeadPx  -> the cutscene takes the pedals and holds GAS
@@ -850,10 +858,17 @@ export const POLICE = {
  * PartyArrivalEvent authors both explicitly and may override them. */
 export const ARRIVAL = {
   /** How far BEFORE the finish flag the scripted ride-in takes control, px.
-   * Long enough to read as a deliberate ride-in (~1.6s at the browser-measured
-   * gas-only cruise of ~9.5 px/step, i.e. ~570 px/s) and to re-accelerate a
-   * player who rolled to a stop, short enough that the player keeps the level. */
-  rideInLeadPx: 900,
+   * ~1.2s at the browser-measured gas-only cruise of ~9.5 px/step (~570 px/s).
+   *
+   * BOUNDED AT THE TOP BY WHAT IS ON SCREEN, not by feel: the camera leads the
+   * bike by roughly half the viewport, so at 900 (the first value) the pedals
+   * were taken while the venue was still ~200px off the right edge — the player
+   * lost control looking at empty road, and the module's own "the venue is
+   * already standing there ahead of them" was aspirational. Trimmed so the venue
+   * is IN FRAME at the takeover. Bounded at the bottom by the gift guarantee: it
+   * is also the window in which a player who has rolled to a stop still gets
+   * carried in, so shorter is not free. */
+  rideInLeadPx: 660,
   /** How far before the finish flag the ride-in stops accelerating and starts
    * holding `crawlSpeedPxPerStep`, px. Comfortably longer than the bike's
    * braking distance from its gas-only cruise (BIKE_TUNING.brakeDampingFactor
@@ -866,18 +881,43 @@ export const ARRIVAL = {
    * where she comes to rest, and it is only tunable EMPIRICALLY: past the flag
    * GameScene forces both pedals false (the run has ended), so she free-coasts
    * and nothing can steer where she stops — only the speed she crosses at. At
-   * this value she crosses at ~1.5-2.4 px/step and rolls ~50-80px, coming to
-   * rest comfortably short of the doorway (browser-measured; a run reports its
-   * actual crossing speed and `restX` — see scripts/playtest-arrival.mjs). Do
-   * NOT reason about that distance from frictionAir alone: rolling resistance
-   * and the suspension bleed it far faster than air drag would. Higher = she
-   * runs further past the flag, toward (and eventually past) the doors. */
-  crawlSpeedPxPerStep: 1.8,
+   * this value she crosses at roughly this speed and coasts on past the flag
+   * before stopping (browser-measured; a run reports its actual crossing speed
+   * and `restX` — see scripts/playtest-arrival.mjs). Do NOT reason about that
+   * distance from frictionAir alone: rolling resistance and the suspension bleed
+   * it far faster than air drag would.
+   *
+   * RAISED from 1.8 for COMPOSITION, not for pace: at 1.8 she coasted only
+   * ~70px past the flag, which parked the race-finish FLAG right in the middle
+   * of the arrival tableau — a checkered marker standing beside the bike through
+   * every dismount and walk frame. Coasting further leaves the flag behind her
+   * at the edge of frame where it belongs. Higher still would run her into (and
+   * eventually past) the doors, and shortens the walk. */
+  crawlSpeedPxPerStep: 3,
+  /** Minimum FORWARD speed (px per physics step) the bike must already have for
+   * the ride-in to take the pedals at all — the same "grounded and actually
+   * moving" trigger shape wheelieRider.ts uses.
+   *
+   * IT EXISTS TO AVOID MAKING THINGS WORSE. Slamming forced GAS on from a dead
+   * stop part-way up one of level 22's climbs can stall the bike or loop it out,
+   * and — the part that matters — the override then denies the player the very
+   * recovery they would otherwise use, rolling back for a run-up. So below this
+   * the cutscene simply does not engage: the player keeps full control, gets
+   * themselves going as they would anywhere else in the game, and the takeover
+   * fires the moment they are moving at least as fast as the ride-in itself
+   * intends to travel. Set to crawlSpeedPxPerStep for exactly that reason.
+   *
+   * NOTHING IS LOST IF IT NEVER FIRES: a player who crawls all the way to the
+   * flag under their own power still gets the whole finale, because onFinish()
+   * opens the venue itself if the crawl never did. The ride-in is a flourish on
+   * the way in, not a prerequisite for the party. */
+  takeoverMinSpeedPxPerStep: 3,
   /** How far PAST the finish flag the venue's doorway centre sits, px. Bounded
-   * by the runway the level actually has: LEVEL.finishMarginPx (500) of ground
-   * exists past the flag, and the venue facade is drawn around this point, so
-   * this plus half the facade width must stay inside it. */
-  doorAheadOfFinishPx: 300,
+   * by the runway the level actually has: LEVEL.finishMarginPx of ground exists
+   * past the flag, and the venue facade is drawn AROUND this point, so this plus
+   * half of arrival.ts's VENUE_WIDTH_PX must stay inside it — asserted against
+   * both real values in tests/arrival.test.ts rather than checked by eye. */
+  doorAheadOfFinishPx: 340,
 
   // ------------------------------------------------------------ the ride-in
   /** Door-opening tween duration, ms — both panels swing outward together.

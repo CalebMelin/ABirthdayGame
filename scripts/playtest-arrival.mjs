@@ -19,6 +19,10 @@
 //      takeover and HOLDS THE BRAKE for the entire rest of the run. It must
 //      still finish, and the bike must never come to rest again — the override
 //      is what drives it in. (Proving the override WINS, not assuming it.)
+//      The SETUP is retried if it fails to deliver the bike to the takeover at
+//      all — braking that hard on rolling terrain can crash or bog the bike
+//      down, which is ordinary gameplay and not the cutscene's doing. Nothing
+//      after the takeover is ever retried; that is the part being judged.
 //   3. THE RIDE-IN ENGAGES AND RELEASES. GameScene's inputOverride is non-null
 //      and gas-true while the ride-in owns the pedals, and back to null once
 //      onFinish() hands them over; the bike really does slow to the crawl speed
@@ -74,13 +78,23 @@ const SETTLE_MS = 600;
 const DRIVE_TIMEOUT_MS = 90_000;
 /** Speed (px per physics step, BikeHandle units) at/below which the bike counts
  * as STOPPED DEAD for check 2. Generously above zero so a coarse poll still
- * catches the standstill; the bike's gas-only cruise is ~8. */
+ * catches the standstill; the bike's measured gas-only cruise on this level is
+ * ~9.5 (this run reports its own figure as rideIn.cruiseSpeed). */
 const STOPPED_SPEED = 0.35;
-/** Where check 2 starts braking, as a distance SHORT of the ride-in takeover
- * point, px. Comfortably longer than the bike's braking distance from its
- * gas-only cruise (~200px measured), so the standstill genuinely lands short of
- * the takeover rather than racing it. */
-const STOP_SHORT_OF_TAKEOVER_PX = 700;
+/** Where check 2 starts braking, as distances SHORT of the ride-in takeover
+ * point, px — ONE PER ATTEMPT, tried in order. All are comfortably longer than
+ * the bike's braking distance from its gas-only cruise (~200-370px measured), so
+ * the standstill lands short of the takeover rather than racing it.
+ *
+ * WHY A LIST AND NOT A NUMBER: level 22 is rolling terrain (hilliness 0.38), and
+ * a bike braked to a DEAD STOP part-way up a slope sometimes cannot climb it
+ * again from rest under gas alone — a real player would roll back and take a
+ * run-up; this harness simply brakes from somewhere else, which lands the
+ * standstill on different ground instead of re-rolling the same slope. Retrying
+ * the identical margin was measurably flaky (2 wasted attempts in one run).
+ * NOTE this is entirely a property of the SETUP: the arrival has not taken the
+ * pedals at this point and nothing here judges it. */
+const STOP_MARGINS_PX = [700, 520, 900, 340, 1100];
 /** The venue's GameObjects all sit within this of the doorway centre, px — the
  * window the "did the venue draw" census counts in, wide enough to include the
  * light pool (whose centre is offset back down the road). Level 22's nearest
@@ -178,6 +192,10 @@ const READ = ({ riderPrefix, calebKey }) => {
     bikeX: gameActive && s.bike ? s.bike.x : null,
     speed: gameActive && s.bike ? s.bike.speed : null,
     velocityX: gameActive && s.bike ? s.bike.velocityX : null,
+    // Chassis attitude + contact, so a fail can be diagnosed (a loop-out under
+    // forced gas looks very different from a fall) instead of guessed at.
+    angleDeg: gameActive && s.bike ? Math.round((s.bike.angle * 180) / Math.PI) : null,
+    airborne: gameActive && s.bike ? s.bike.airborne : null,
     // null once the cutscene releases the pedals (player/GameScene back in charge).
     override: gameActive ? (s.inputOverride ?? null) : null,
     // A soft fail this run would stash its message here (GameScene.failLevel's
@@ -202,6 +220,7 @@ const READ = ({ riderPrefix, calebKey }) => {
     washAlpha: a ? a.washAlpha() : null,
     duskAlpha: a ? a.duskAlpha() : null,
     finaleHoldMs: a ? a.finaleHoldMs : null,
+    walkInDelayMs: a ? a.walkInDelayMs : null,
     gabbyVisible,
     calebVisible,
   };
@@ -365,10 +384,16 @@ async function main() {
       'arrival-ridein': (s) => s.phase === 'ridingIn',
       'arrival-doors': (s) => s.doorsOpen01 !== null && s.doorsOpen01 >= 0.98,
       'arrival-hopoff': (s) => s.gabbyDismounted === true && s.washAlpha < 0.05,
+      // THE SHOT THE BEAT IS ABOUT: both of them IN the lit doorway at the end
+      // of the walk, not still standing beside the bike. The old predicate
+      // (doorX - 160) fired ~70px into a ~180px walk and archived exactly that
+      // wrong frame. Gabby's walk ends AT the doorway centre, so waiting until
+      // she is within a body's width of it catches the arrival itself; the
+      // washAlpha guard keeps it before the light takes the screen.
       'arrival-walkin': (s) =>
         s.gabbyX !== null &&
         s.doorX !== null &&
-        s.gabbyX > s.doorX - 160 &&
+        s.gabbyX > s.doorX - 24 &&
         s.washAlpha < 0.4,
       'arrival-wash': (s) => s.washAlpha !== null && s.washAlpha >= 0.5,
     });
@@ -437,10 +462,26 @@ async function main() {
     const duskAlpha = maxOf(gas.samples, 'duskAlpha');
     const dismountSamples = gas.samples.filter((s) => s.calebDismounted === true && s.calebX !== null);
     const gabbySamples = gas.samples.filter((s) => s.gabbyDismounted === true && s.gabbyX !== null);
-    const walkedPx = (rows, field) =>
-      rows.length > 1 ? Math.round(rows[rows.length - 1][field] - rows[0][field]) : null;
-    const calebWalkedPx = walkedPx(dismountSamples, 'calebX');
-    const gabbyWalkedPx = walkedPx(gabbySamples, 'gabbyX');
+
+    // MEASURE THE WALK, NOT THE HOP. Diffing each figure's first sample against
+    // its last folds in the hop DOWN off the bike — and since the two spawn at
+    // different bike offsets (pillion vs rider), that made their totals differ
+    // (245 vs 235) even though the walks themselves are provably identical,
+    // which read in the OK line as though the equal-walk invariant had failed.
+    // Windowing from ARRIVAL.walkInDelayMs after the finish measures the shared
+    // walk alone. Both figures are read from the SAME sample objects, so their
+    // start and end instants are identical and the two numbers are comparable.
+    const finishAtMs = gas.samples.find((s) => s.phase === 'arrived')?.atMs ?? null;
+    const walkStartMs =
+      finishAtMs === null || live?.walkInDelayMs == null ? null : finishAtMs + live.walkInDelayMs;
+    const walkSamples =
+      walkStartMs === null ? [] : gas.samples.filter((s) => s.atMs >= walkStartMs);
+    const walkedPx = (rows, field) => {
+      const seen = rows.filter((s) => s[field] !== null);
+      return seen.length > 1 ? Math.round(seen[seen.length - 1][field] - seen[0][field]) : null;
+    };
+    const calebWalkedPx = walkedPx(walkSamples, 'calebX');
+    const gabbyWalkedPx = walkedPx(walkSamples, 'gabbyX');
     // Caleb (the pillion) must get off BEFORE Gabby (the rider) — the order the
     // beat is staged in, asserted from when each figure first exists.
     const calebFirstMs = dismountSamples.length > 0 ? dismountSamples[0].atMs : null;
@@ -466,6 +507,14 @@ async function main() {
       problems.push(`Caleb never walked toward the doorway (moved ${calebWalkedPx}px)`);
     if (gabbyWalkedPx === null || gabbyWalkedPx <= 0)
       problems.push(`Gabby never walked toward the doorway (moved ${gabbyWalkedPx}px)`);
+    // THE EQUAL-WALK INVARIANT, LIVE. A unit test pins the two offset SUMS that
+    // make it true; this proves it actually held on screen, which is what makes
+    // them arrive side by side rather than one straggling.
+    if (calebWalkedPx !== null && gabbyWalkedPx !== null && Math.abs(calebWalkedPx - gabbyWalkedPx) >= 4) {
+      problems.push(
+        `the two walks were not equal: Caleb ${calebWalkedPx}px vs Gabby ${gabbyWalkedPx}px — they do not cross the forecourt together`
+      );
+    }
     if (calebFirstMs === null || gabbyFirstMs === null || !(calebFirstMs < gabbyFirstMs))
       problems.push(`the pillion did not dismount first (Caleb at ${calebFirstMs}ms, Gabby at ${gabbyFirstMs}ms)`);
     if (measuredAnchorX === null)
@@ -509,10 +558,13 @@ async function main() {
     let stoppedDead = false;
     let stoppedAtX = null;
     let nudged = false;
+    let stopDeadSetupRetries = 0;
+    let stopMarginPx = STOP_MARGINS_PX[0];
+    const stopDeadFailMessages = [];
     const stopPlan = (s) => {
       if (s.bikeX === null) return 'ArrowRight';
       if (!stoppedDead) {
-        const stopBy = (s.rideInX ?? Infinity) - STOP_SHORT_OF_TAKEOVER_PX;
+        const stopBy = (s.rideInX ?? Infinity) - stopMarginPx;
         if (s.bikeX < stopBy) return 'ArrowRight';
         if (s.speed !== null && s.speed <= STOPPED_SPEED && s.phase === 'approaching') {
           stoppedDead = true;
@@ -530,9 +582,32 @@ async function main() {
       }
       return 'ArrowLeft';
     };
-    const stopRun = await drive(page, stopPlan, {
-      'arrival-stopped-dead': () => stoppedDead,
-    });
+    // RETRIED, because the SETUP can legitimately fail. Getting the bike to a
+    // standstill means the harness braking hard from cruise on level 22's
+    // rolling terrain, and a hard brake down a slope can crash — ordinary
+    // gameplay (friendly fail, instant restart), nothing to do with the arrival,
+    // which has not even taken the pedals yet. Retrying the scenario is honest;
+    // blaming the cutscene for it would not be. A crash AFTER the takeover is a
+    // different matter entirely and is asserted against below.
+    let stopRun = null;
+    for (const marginPx of STOP_MARGINS_PX) {
+      stopMarginPx = marginPx;
+      stoppedDead = false;
+      stoppedAtX = null;
+      nudged = false;
+      stopRun = await drive(page, stopPlan, { 'arrival-stopped-dead': () => stoppedDead });
+      for (const message of stopRun.samples.map((s) => s.failMessage).filter(Boolean)) {
+        stopDeadFailMessages.push(message);
+      }
+      // Accept only once the SETUP has actually produced the scenario: the bike
+      // genuinely stood still, AND the cutscene then took the pedals. Anything
+      // else (crashed on the way down, bogged on a slope it braked itself onto,
+      // or rolled past the takeover still moving) means there is nothing to
+      // judge the arrival on yet — so try another brake point. Once it HAS taken
+      // over, everything below is asserted for real and never retried.
+      if (stoppedDead && stopRun.samples.some((s) => s.tookControl === true)) break;
+      stopDeadSetupRetries++;
+    }
 
     // Once the ride-in owns the pedals the bike must never come to rest again,
     // however hard the player brakes — that IS the carry-in.
@@ -543,9 +618,16 @@ async function main() {
 
     if (!stoppedDead) problems.push('the stop-dead drive never actually brought the bike to a standstill');
     if (!stopRun.finished) problems.push('the stop-dead + brake-held drive never reached PartyScene');
-    if (stopRun.restarts > 0) problems.push(`the stop-dead drive restarted ${stopRun.restarts}x`);
-    if (stopRun.samples.some((s) => s.failMessage !== null))
-      problems.push('the stop-dead drive was soft-failed by the arrival');
+    // Restarts and fails only count against the ARRIVAL once the arrival owns
+    // the pedals. Before that the harness is just riding the level like anyone
+    // else (and braking harder than anyone would), which the retry above covers.
+    const failedUnderCutscene = stopRun.samples.some(
+      (s) => s.failMessage !== null && s.tookControl === true
+    );
+    if (failedUnderCutscene)
+      problems.push('the arrival soft-failed the player AFTER taking the pedals — it must never fail anyone');
+    if (stopRun.restarts > 0 && stopRun.samples.some((s) => s.tookControl === true))
+      problems.push(`the stop-dead drive restarted ${stopRun.restarts}x while the cutscene owned the pedals`);
     if (carriedSamples.length === 0) problems.push('the stop-dead drive never reached the ride-in takeover');
     else if (!(minCarriedSpeed > STOPPED_SPEED))
       problems.push(`the bike stalled to ${minCarriedSpeed} px/step while the cutscene was meant to be carrying it`);
@@ -631,11 +713,45 @@ async function main() {
         finished: stopRun.finished,
         seconds: stopRun.seconds,
         restarts: stopRun.restarts,
+        // Setup crashes (harness braking too hard, before the takeover) that
+        // forced a retry — reported so a rise in them is visible rather than
+        // silently absorbed.
+        setupRetries: stopDeadSetupRetries,
+        brakedFromPxShortOfTakeover: stopMarginPx,
+        // Across ALL attempts, so a setup that keeps crashing is visible rather
+        // than discarded with the attempt that produced it.
+        failMessages: [...new Set(stopDeadFailMessages)],
+        // The state the accepted attempt was in when it first failed, if it did.
+        failedAt: (() => {
+          const s = stopRun.samples.find((x) => x.failMessage !== null);
+          return s
+            ? {
+                x: s.bikeX === null ? null : Math.round(s.bikeX),
+                speed: s.speed === null ? null : Math.round(s.speed * 100) / 100,
+                angleDeg: s.angleDeg,
+                airborne: s.airborne,
+                phase: s.phase,
+                tookControl: s.tookControl,
+                message: s.failMessage,
+              }
+            : null;
+        })(),
+        lastBikeX: (() => {
+          const xs = stopRun.samples.map((s) => s.bikeX).filter((x) => x !== null);
+          return xs.length > 0 ? Math.round(xs[xs.length - 1]) : null;
+        })(),
+        maxBikeX: (() => {
+          const xs = stopRun.samples.map((s) => s.bikeX).filter((x) => x !== null);
+          return xs.length > 0 ? Math.round(Math.max(...xs)) : null;
+        })(),
         minSpeedWhileCarried:
           minCarriedSpeed === Infinity ? null : Math.round(minCarriedSpeed * 100) / 100,
       },
       midFinaleRestart: {
-        caughtInFlight: midFinale?.calebDismounted === true,
+        // GABBY's dismount, matching the gate above and driveToMidFinale's own
+        // predicate — hers is the one that leaves the seated rider hidden, which
+        // is the state this restart exists to prove recoverable.
+        caughtInFlight: midFinale?.gabbyDismounted === true,
         phaseAfter: afterRestart.phase,
         bodiesAfter: bodiesAfterRestart,
         errors: errorsFromRestart,
@@ -667,7 +783,7 @@ async function main() {
         `the venue drew ${r.finale.venue.rects} rects + ${r.finale.venue.graphics} Graphics, its doors opened to ` +
         `${Math.round(r.finale.doorsOpen01 * 100)}% BEFORE the flag with light spilling to alpha ${r.finale.spillAlpha}, ` +
         `Caleb hopped off first and Gabby (as "${r.finale.standingGabbyTexture}") ${r.finale.gabbyAfterCalebMs}ms later, ` +
-        `both anchored to the sampled dismount x ${r.finale.measuredAnchorX} and walking ` +
+        `both anchored to the sampled dismount x ${r.finale.measuredAnchorX} and walking equal ` +
         `${r.finale.calebWalkedPx}/${r.finale.gabbyWalkedPx}px into the doorway together, and the warm+dusk washes reached ` +
         `${r.finale.washAlpha}/${r.finale.duskAlpha} over the ${r.finale.finaleHoldMs}ms hold; ` +
         `exactly ${r.cast.maxGabbyVisible} Gabby and ${r.cast.maxCalebVisible} Caleb visible throughout, including the ` +

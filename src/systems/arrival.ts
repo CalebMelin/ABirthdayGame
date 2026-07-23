@@ -22,20 +22,49 @@
 //      later, the two of them walk into the lit doorway together, the light
 //      takes the screen, and the hold expires into PartyScene.
 //
-// IT CAN NEVER FAIL THE PLAYER: it never calls ctx.softFail, it never touches
-// the bike's bodies, and the one input it forces is GAS on flat ground (level
-// 22's finish flat zone). The crawl only ever BRAKES while the bike is moving
-// faster than the target, so it can't reverse-creep the bike back off the flag.
+// IT CAN NEVER FAIL THE PLAYER: it never calls ctx.softFail and it never touches
+// the bike's bodies. It forces GAS from the takeover — which begins on ORDINARY
+// ROLLING TERRAIN, not flat ground; the finish flat zone only starts at
+// crawlLeadPx-ish (see level22.ts) — and then GAS/BRAKE inside that flat zone
+// while the crawl holds its approach speed. The crawl also only ever BRAKES
+// while the bike is moving faster than the target, so it can never reverse-creep
+// the bike back off the flag.
+//
+// WHY FORCED PEDALS ON ROLLING TERRAIN ARE STILL SAFE — and it is NOT because
+// the ground is flat, which an earlier version of this comment wrongly claimed.
+// Level 22's hilliness briefly launches the bike during the ride-in (browser-
+// measured: a handful of short hops before the flat zone). What makes that
+// harmless is bike.ts's airPitchAuthority: a pedal HELD SINCE THE GROUND has
+// near-zero pitch authority on short hops, so held gas cannot flip anything. But
+// the cutscene's pedals are not always held — `setInputOverride({gas:true})` is a
+// FRESH press on the takeover frame, and the crawl's bang-bang law toggles BRAKE
+// on and off every frame — and a fresh press that BEGINS mid-air gets FULL
+// authority (it is the deliberate-trick input). So this module never writes an
+// override while ctx.bike.airborne: the takeover and the crawl both wait for the
+// wheels to be down (see update()). That makes the guarantee STRUCTURAL rather
+// than merely measured; deferring a frame or two costs nothing.
+//
+// AND IT NEVER TAKES THE PEDALS FROM A STANDSTILL, for a second, different
+// reason (browser-caught): forced gas from rest part-way up one of level 22's
+// climbs can stall the bike or loop it out — and the override would then deny
+// the player the exact recovery they'd otherwise use, rolling back for a run-up.
+// So the takeover also waits for the bike to be moving at
+// ARRIVAL.takeoverMinSpeedPxPerStep. If it never fires, nothing is lost: a
+// player who crawls all the way to the flag under their own power still gets the
+// whole finale, because onFinish() opens the venue itself.
 //
 // ZERO Matter bodies — level 22 is the tightest level in the game (99/100, see
 // PROGRESS.md), so this had to be free by construction: the venue, its doors,
-// the light spill, the standing Caleb and the two full-screen washes are all
-// plain Rectangles/Graphics/Images/Containers. It never touches scene.matter.
+// the light spill, the two standing figures and the two full-screen washes are
+// all plain Rectangles/Graphics/Images/Containers. It never touches scene.matter.
 //
 // SELF-DRIVING AFTER THE FLAG. GameScene stops calling handle.update() the
 // instant the run ends (see EventContext.isEnded's doc), so every part of the
-// finale runs on tweens + scene.time.delayedCall — exactly the discipline
-// police.ts's onFinish finale follows.
+// finale animates itself — the same DISCIPLINE police.ts's onFinish finale
+// follows, though not the same mechanism: police.ts is pure tweens, while this
+// finale also schedules beats with scene.time.delayedCall (the first module in
+// src/systems to do so). Phaser's Clock destroys pending events on scene
+// shutdown, and every one of those callbacks re-checks `tornDown` anyway.
 //
 // THE DISMOUNT, AND THE ONE SEAM IT NEEDED (see DECISIONS.md 2026-07-22):
 // BOTH of them get off the bike here, because "Gabby & Caleb arrive"
@@ -50,7 +79,9 @@
 // every instant, sample-by-sample, gated by scripts/playtest-arrival.mjs.
 //
 // Like bike.ts / terrain.ts / passenger.ts / pickup.ts / police.ts (and UNLIKE
-// decorations.ts), this module has NO runtime Phaser import — its non-type
+// ui.ts, the ONE module left in src/systems with a runtime `import Phaser` —
+// decorations.ts stopped being the example here in PLAN-07 task 3, see its own
+// doc), this module has NO runtime Phaser import — its non-type
 // imports are the pure constants, themes.ts's pure camera-oversize helper, and
 // the equally import-safe character/save modules Gabby's texture comes from —
 // so it stays import-safe in Node and the pure helpers below (the ride-in
@@ -73,9 +104,9 @@ import {
   DESIGN_WIDTH,
   PALETTE,
   PASSENGER,
-  TEXTURE_KEYS,
 } from './constants';
 import { cameraFixedOversizePx } from './themes';
+import { calebFigureParts } from './calebFigure';
 import { buildCharacterTextures } from './characterTextures';
 import { getSave } from './save';
 import { defaultCharacter } from '../data/characters';
@@ -93,9 +124,15 @@ export type ArrivalPhase = 'approaching' | 'ridingIn' | 'crawling' | 'arrived';
 
 /** Per-frame signals the phase machine transitions on. */
 export interface ArrivalSignals {
-  /** The bike has reached the ride-in takeover point. */
+  /** The bike has reached the ride-in takeover point, is on the ground, AND is
+   * already moving forward at ARRIVAL.takeoverMinSpeedPxPerStep or better.
+   * Entering this phase WRITES a forced pedal: mid-air that would be trick input
+   * (full pitch authority), and from a standstill on a climb it can stall or
+   * loop the bike out while denying the player their own recovery. Pure position
+   * here would be both of those waiting to happen — see update(). */
   atRideIn: boolean;
-  /** The bike has reached the point where the crawl starts. */
+  /** The bike has reached the point where the crawl starts AND is on the
+   * ground — same reason as atRideIn. */
   atCrawl: boolean;
   /** The run has ENDED — i.e. the bike crossed the finish flag (or something
    * else finished the run). Terminal from any phase: whatever the cutscene was
@@ -191,13 +228,21 @@ export function nextArrivalPhase(phase: ArrivalPhase, signals: ArrivalSignals): 
 // Colours deliberately mirror PartyScene's backyard (PALETTE.brown structure,
 // PALETTE.sunshine bulbs/windows, a PALETTE.sunsetGlow light pool) so riding in
 // and cutting to the party reads as ONE place.
-const VENUE_WIDTH_PX = 300;
+/** EXPORTED (like ARRIVAL_DISMOUNT_OFFSETS, and for the same reason) so
+ * tests/arrival.test.ts can check the REAL claim ARRIVAL.doorAheadOfFinishPx
+ * makes — that the doorway PLUS half this facade fits inside the runway every
+ * level has past its flag (LEVEL.finishMarginPx) — instead of the weaker
+ * "the doorway alone fits", which would pass with the building hanging off the
+ * end of the world. */
+export const VENUE_WIDTH_PX = 300;
 const VENUE_HEIGHT_PX = 250;
 const VENUE_OUTLINE_PX = 4;
 /** The darker rail capping the venue — the same trick PartyScene's fence uses. */
 const VENUE_ROOF_HEIGHT_PX = 16;
-/** The lit doorway opening (both door panels together close over exactly this). */
-const DOOR_WIDTH_PX = 108;
+/** The lit doorway opening (both door panels together close over exactly this).
+ * EXPORTED so tests/arrival.test.ts can check that both dismounted figures come
+ * to a stop INSIDE it rather than straddling a jamb. */
+export const DOOR_WIDTH_PX = 108;
 const DOOR_HEIGHT_PX = 150;
 /** How far the door panels shrink toward their outer hinges when fully open, as
  * a fraction of their closed width — not 0, so a sliver of each panel still
@@ -214,17 +259,32 @@ const WINDOW_ABOVE_GROUND_PX = 190;
 const BULB_COUNT = 7;
 const BULB_SIZE_PX = 8;
 const BULB_ABOVE_ROOF_PX = 14;
-/** The pool of light the open doors throw across the road: THREE nested
- * ellipses (widest/faintest first) on one Graphics, not one flat ellipse.
- * Screenshot-caught, and the same lesson PartyScene's floor pool records: a
- * single translucent ellipse of a saturated warm colour has a visible hard edge
- * and reads as a tan RUG lying on the road, where a falloff reads as light.
- * Listed widest to narrowest; the alphas compose where they overlap. */
-const SPILL_RINGS: ReadonlyArray<{ widthPx: number; heightPx: number; alpha: number }> = [
-  { widthPx: 1400, heightPx: 190, alpha: 0.1 },
-  { widthPx: 900, heightPx: 130, alpha: 0.16 },
-  { widthPx: 520, heightPx: 84, alpha: 0.16 },
-];
+/** The pool of light the open doors throw across the road: nested ellipses on
+ * ONE Graphics, not one flat ellipse. Same lesson PartyScene's floor pool
+ * records: a single translucent ellipse of a saturated warm colour has a visible
+ * hard edge and reads as a tan RUG lying on the road, where a falloff reads as
+ * light. Drawn widest to narrowest; the alphas compose where they overlap.
+ *
+ * MANY EQUAL-ALPHA RINGS, generated rather than listed. Screenshot-caught
+ * THREE times: one flat ellipse read as a tan RUG on the road; three graded
+ * rings read as three visible BANDS; six was better but each edge was still
+ * legible as an arc. The fix each time is the same — more rings at a LOWER
+ * uniform alpha, so every individual edge falls below the threshold the eye
+ * picks out and only the composed ramp is visible. Generating them from a
+ * count + a scale ramp (rather than hand-listing sizes) is what makes that
+ * smoothness structural: raising SPILL_RING_COUNT smooths it further with no
+ * other edit. Costs nothing either way — one Graphics, zero extra GameObjects,
+ * drawn once at create() and never touched again. */
+const SPILL_RING_COUNT = 12;
+/** Per-ring alpha. Uniform, so the composed ramp is even; low, so each ring's
+ * own edge is below the threshold where the eye reads it as a line. */
+const SPILL_RING_ALPHA = 0.045;
+/** The widest (outermost) ring; every other ring is a fraction of it. */
+const SPILL_MAX_WIDTH_PX = 1500;
+const SPILL_MAX_HEIGHT_PX = 210;
+/** The innermost ring as a fraction of the widest — where the bright core of
+ * the pool sits. */
+const SPILL_MIN_SCALE = 0.2;
 /** How far LEFT of the doorway the pool's centre sits, px — the light falls out
  * of the doors and back down the road she rode in on, so it reaches over
  * wherever she comes to rest (see ARRIVAL.crawlSpeedPxPerStep). */
@@ -238,15 +298,15 @@ const SPILL_CENTER_BELOW_GROUND_PX = 26;
 // --- The two dismounted figures. Gabby is the player's OWN character (the
 // riderTextureKey from buildCharacterTextures — the same one-source-of-truth
 // path GameScene, CharacterCreationScene and partyCast.ts use, so she matches
-// the look chosen at character creation), and Caleb is the tex-caleb
-// placeholder + a BROWN hair band overlay, the same convention pickup.ts's
-// standing Caleb and partyCast.ts's party Caleb use so he reads brown-haired
-// and is never confused with blonde Dom (NORTH_STAR §5 / DECISIONS.md
-// 2026-07-15).
-/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (both 24x48). */
-const FIGURE_SPRITE_WIDTH_PX = 24;
+// the look chosen at character creation); Caleb comes from the shared
+// calebFigure.ts, which is the one home for his brown-haired placeholder look
+// (NORTH_STAR §5 / DECISIONS.md 2026-07-15).
+/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (both 24x48).
+ * The HEIGHT anchors a bottom-origin Container against the CENTRE-origin sprite
+ * it replaces on the bike; the WIDTH is EXPORTED so tests/arrival.test.ts can
+ * check both figures come to rest inside the doorway opening. */
 const FIGURE_SPRITE_HEIGHT_PX = 48;
-const CALEB_HAIR_BAND_HEIGHT_PX = 12;
+export const FIGURE_SPRITE_WIDTH_PX = 24;
 // WHERE THEY LAND AND WHERE THEY STOP — landings as offsets ahead of the
 // dismount anchor, stops as offsets short of the doorway centre. Gabby leads (it
 // is her party) and Caleb trails half a body behind her.
@@ -275,8 +335,14 @@ const CALEB_HAIR_BAND_HEIGHT_PX = 12;
  * Any less and they genuinely overlap (screenshot-caught).
  */
 export const ARRIVAL_DISMOUNT_OFFSETS = {
-  gabby: { landAheadPx: 74, doorStopShortPx: 8 },
-  caleb: { landAheadPx: 40, doorStopShortPx: 42 },
+  // Gabby walks to the doorway CENTRE (stop 0) and Caleb to a body's width
+  // left of it, so both finish INSIDE the opening rather than straddling a
+  // jamb — his old 42 put his outer edge flush with the frame
+  // (screenshot-caught). Moving his stop meant moving his landing by the same
+  // amount to keep the two sums equal, which is exactly the coupling the
+  // exported constant + its test now protect.
+  gabby: { landAheadPx: 74, doorStopShortPx: 0 },
+  caleb: { landAheadPx: 40, doorStopShortPx: 34 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -322,6 +388,10 @@ interface ArrivalDebug {
   duskAlpha(): number;
   /** The hold (ms) onFinish returns to GameScene. */
   finaleHoldMs: number;
+  /** When (ms after the finish) the shared walk begins — so a harness can
+   * measure the WALK alone rather than folding in each figure's hop down off
+   * the bike, which starts from a different spot for each of them. */
+  walkInDelayMs: number;
 }
 
 /**
@@ -436,9 +506,15 @@ export function createArrival(
   // ROAD — Gabby, the finish flag and the venue all stand IN the light rather
   // than under a shape painted over them.
   const spill = track(scene.add.graphics().setDepth(DEPTHS.terrain + 5));
-  for (const ring of SPILL_RINGS) {
-    spill.fillStyle(PALETTE.sunsetGlow, ring.alpha);
-    spill.fillEllipse(0, 0, ring.widthPx, ring.heightPx);
+  // Math.max(1, …) guards a hypothetical single-ring pool against a
+  // divide-by-zero — same shape as the roof-bulb strand above.
+  const spillSpans = Math.max(1, SPILL_RING_COUNT - 1);
+  for (let i = 0; i < SPILL_RING_COUNT; i++) {
+    // t: 0 at the widest ring, 1 at the narrowest core.
+    const t = i / spillSpans;
+    const scale = 1 - t * (1 - SPILL_MIN_SCALE);
+    spill.fillStyle(PALETTE.sunsetGlow, SPILL_RING_ALPHA);
+    spill.fillEllipse(0, 0, SPILL_MAX_WIDTH_PX * scale, SPILL_MAX_HEIGHT_PX * scale);
   }
   spill.setPosition(
     doorX - SPILL_CENTER_BEHIND_DOOR_PX,
@@ -483,8 +559,8 @@ export function createArrival(
       duration: ARRIVAL.doorsOpenMs,
       ease: 'Quad.easeOut',
     });
-    // The pool's own falloff is baked into SPILL_RINGS' composed alphas, so this
-    // tween just blooms the whole Graphics from nothing to full strength.
+    // The pool's own falloff is baked into the nested rings' composed alphas, so
+    // this tween just blooms the whole Graphics from nothing to full strength.
     scene.tweens.add({
       targets: spill,
       alpha: 1,
@@ -596,18 +672,17 @@ export function createArrival(
    * of her and level with the chassis, he hid her completely. */
   function calebStepsOff(): void {
     if (tornDown) return;
+    // ONLY IF HE IS ACTUALLY ABOARD. ctx.passenger.hide() is a harmless no-op
+    // when he is not, but the standing figure is not: on a save where
+    // deriveCalebPickedUp is false (level 12 never completed) he would
+    // MATERIALISE beside the bike and walk into the party having never been
+    // picked up. Unreachable in normal play — level 22 is only unlocked by
+    // finishing 21 levels — but reachable through the dev/harness direct-entry
+    // path, and "who is that" is not a bug worth shipping to be found later.
+    if (!ctx.passenger.active) return;
     ctx.passenger.hide();
     standingCaleb = stepOff({
-      parts: [
-        scene.add.image(0, 0, TEXTURE_KEYS.caleb).setOrigin(0.5, 1),
-        scene.add.rectangle(
-          0,
-          -FIGURE_SPRITE_HEIGHT_PX + CALEB_HAIR_BAND_HEIGHT_PX / 2,
-          FIGURE_SPRITE_WIDTH_PX,
-          CALEB_HAIR_BAND_HEIGHT_PX,
-          PALETTE.brown
-        ),
-      ],
+      parts: calebFigureParts(scene),
       startX: ctx.bike.x + PASSENGER.offsetX,
       startY: ctx.bike.y + PASSENGER.offsetY + FIGURE_SPRITE_HEIGHT_PX / 2,
       depth: PASSENGER.depth,
@@ -720,9 +795,31 @@ export function createArrival(
     // real finish-flag crossing, so a fail can never start the party finale.
     if (ctx.isEnded() || phase === 'arrived') return;
 
+    // NEVER WRITE AN OVERRIDE WHILE AIRBORNE (see the module doc's never-fail
+    // note). A pedal press that BEGINS mid-air is the deliberate-trick input and
+    // gets FULL pitch authority from bike.ts's airPitchAuthority; the takeover's
+    // forced GAS is a fresh press, and the crawl's bang-bang law toggles BRAKE
+    // every frame, so either landing on an airborne frame could spin the bike.
+    // Level 22's rolling terrain really does hop the bike during the ride-in, so
+    // this is a live case, not a hypothetical. Gating BOTH the phase entries
+    // (which write the override once) and the per-frame crawl on `grounded` is
+    // what makes the never-fail guarantee structural instead of measured. The
+    // bike is never airborne for long, so this only ever defers by a frame or
+    // two — the takeover/crawl simply engages the moment the wheels are down.
+    const grounded = !ctx.bike.airborne;
+
     const next = nextArrivalPhase(phase, {
-      atRideIn: ctx.bike.x >= rideInX,
-      atCrawl: ctx.bike.x >= crawlX,
+      // Also require the bike to be ALREADY MOVING before taking the pedals —
+      // see ARRIVAL.takeoverMinSpeedPxPerStep. Forcing gas on from a standstill
+      // part-way up a climb can stall or loop out the bike, and worse, the
+      // override would then deny the player the roll-back run-up they'd
+      // otherwise recover with. Once the ride-in HAS the pedals it holds gas, so
+      // the crawl transition needs no speed gate of its own.
+      atRideIn:
+        grounded &&
+        ctx.bike.x >= rideInX &&
+        ctx.bike.velocityX >= ARRIVAL.takeoverMinSpeedPxPerStep,
+      atCrawl: grounded && ctx.bike.x >= crawlX,
       finished: false,
     });
     if (next !== phase) {
@@ -731,8 +828,10 @@ export function createArrival(
     }
 
     // The crawl is a controller, not a one-shot: re-evaluate the pedals every
-    // frame so the bike settles onto the target approach speed.
-    if (phase === 'crawling') {
+    // GROUNDED frame so the bike settles onto the target approach speed. While
+    // airborne the last override simply stays held — and a HELD pedal has
+    // near-zero pitch authority, which is exactly the safe case.
+    if (phase === 'crawling' && grounded) {
       ctx.setInputOverride(arrivalCrawlPedals(ctx.bike.velocityX, ARRIVAL.crawlSpeedPxPerStep));
     }
   }
@@ -774,6 +873,7 @@ export function createArrival(
       washAlpha: () => warmWash?.alpha ?? 0,
       duskAlpha: () => duskWash?.alpha ?? 0,
       finaleHoldMs: ARRIVAL.finaleHoldMs,
+      walkInDelayMs: ARRIVAL.walkInDelayMs,
     };
   }
 
@@ -791,6 +891,11 @@ export function createArrival(
     // shutdown mid-finale can't leave a tween running against a destroyed
     // GameObject. Idempotent: a second destroy() sees an empty `objects` and
     // killTweensOf([]) is a harmless no-op.
+    //
+    // The finale's four scene.time.delayedCall beats need no equivalent sweep:
+    // Phaser's Clock destroys pending events on scene shutdown, and every one of
+    // those callbacks re-checks the `tornDown` flag set above before it touches
+    // anything — belt and braces, since teardown ORDER is not ours to assume.
     scene.tweens.killTweensOf(objects);
     for (const obj of objects) obj.destroy();
     objects.length = 0;

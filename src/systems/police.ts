@@ -20,7 +20,9 @@
 // per RENDER frame would run ~2x fast on a 120 Hz phone, silently making the chase
 // harder/easier per display — the exact hazard bike.ts / traffic.ts avoid.
 //
-// Like bike.ts / terrain.ts / traffic.ts / pickup.ts (and UNLIKE decorations.ts),
+// Like bike.ts / terrain.ts / traffic.ts / pickup.ts (and UNLIKE ui.ts, the ONE
+// module left in src/systems with a runtime `import Phaser` — decorations.ts was
+// the example here until PLAN-07 task 3 made it import-safe too, see its own doc),
 // this module has NO runtime Phaser import and does NOT import ui.ts — its only
 // non-type imports are the pure constants — so it stays import-safe in Node. The
 // pure helpers below (the rubber-band speed law, the hard-cap, refresh-independent

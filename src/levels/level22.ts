@@ -37,18 +37,23 @@ export const level22: LevelConfig = {
     {
       // THE ARRIVAL (src/systems/arrival.ts). Everything is placed relative to
       // the finish flag, which sits at length - LEVEL.finishMarginPx = 15500:
-      // the scripted ride-in takes the pedals at 14600 (900px out, ~1.6s at the
-      // measured gas-only cruise) and the venue's doorway stands at 15800. Both are the
-      // ARRIVAL block's own defaults, authored here so the finale can be
-      // re-composed without touching the system. The ride-in itself starts on
-      // ordinary rolling terrain (gas is what a player holds there anyway), but
-      // everything that MATTERS geometrically happens inside the {15100, 16000}
-      // finish flat zone below: the slow-down to a walking pace begins at
-      // ARRIVAL.crawlLeadPx out (15140), and the venue stands on level ground
-      // with runway to spare past its doors.
+      // the ride-in takes the pedals 660px out, at 14840 (~1.2s at the
+      // measured gas-only cruise, by which point the venue is on screen), and
+      // the venue's doorway stands 340px past the flag, at 15840. Both values
+      // are the ARRIVAL block's own defaults, restated here so the finale can
+      // be re-composed from the level without touching the system — and pinned
+      // EQUAL to those defaults by tests/arrival.test.ts, so this stays a
+      // deliberate echo rather than a copy free to drift.
+      //
+      // The ride-in itself begins on ordinary ROLLING terrain (gas is what a
+      // player holds there anyway, and arrival.ts never presses a pedal while
+      // the bike is airborne — see its never-fail note). What genuinely needs
+      // level ground happens inside the {15100, 16000} finish flat zone below:
+      // the slow-down to a walking pace begins at ARRIVAL.crawlLeadPx out
+      // (15140), and the venue stands on the flat with runway past its doors.
       type: 'partyArrival',
-      rideInLeadPx: 900,
-      doorAheadOfFinishPx: 300,
+      rideInLeadPx: 660,
+      doorAheadOfFinishPx: 340,
     },
   ],
   introText: 'You can hear the music from here!!',

@@ -48,7 +48,9 @@
 // zoomCompensatedPosition((0,0)) with scale 1/zoom, so a child at design point
 // c renders at pivot + (pivot + (0-pivot)/zoom + c/zoom - pivot)*zoom = c.
 //
-// Like bike.ts / police.ts / pickup.ts (and UNLIKE decorations.ts), this
+// Like bike.ts / police.ts / pickup.ts (and UNLIKE ui.ts, the ONE module left in
+// src/systems with a runtime `import Phaser` — decorations.ts was the example
+// here until PLAN-07 task 3 made it import-safe too, see its own doc), this
 // module has NO runtime Phaser import and does NOT import ui.ts — its only
 // non-type imports are the pure constants + pedals.ts's pure zoom helpers —
 // so it stays import-safe in Node. The pure helpers below (flip counting,

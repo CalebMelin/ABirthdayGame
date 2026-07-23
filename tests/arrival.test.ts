@@ -7,6 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   ARRIVAL_DISMOUNT_OFFSETS,
+  DOOR_WIDTH_PX,
+  FIGURE_SPRITE_WIDTH_PX,
+  VENUE_WIDTH_PX,
   arrivalCrawlPedals,
   arrivalGeometry,
   nextArrivalPhase,
@@ -68,6 +71,16 @@ describe('arrivalGeometry', () => {
 describe('level 22 authors an arrival that fits the level it ships on', () => {
   it('carries the partyArrival event NORTH_STAR §5 row 22 requires', () => {
     expect(LEVEL22_ARRIVAL).toBeDefined();
+  });
+
+  it('restates the ARRIVAL defaults EXACTLY — level22.ts says so, so pin it', () => {
+    // level22.ts authors both placement leads explicitly and its comment claims
+    // they are "the ARRIVAL block's own defaults". True today, and nothing was
+    // stopping a later retune of one from silently diverging from the other —
+    // which would leave that comment lying and the level quietly composed
+    // differently from every number the system documents.
+    expect(LEVEL22_ARRIVAL?.rideInLeadPx).toBe(ARRIVAL.rideInLeadPx);
+    expect(LEVEL22_ARRIVAL?.doorAheadOfFinishPx).toBe(ARRIVAL.doorAheadOfFinishPx);
   });
 
   it('slows down INSIDE the finish flat zone, on genuinely level ground', () => {
@@ -206,13 +219,31 @@ describe('ARRIVAL_DISMOUNT_OFFSETS — the two figures walk in side by side', ()
     expect(gabby.landAheadPx).toBeGreaterThan(0);
   });
 
-  it('stops both of them short of the doorway centre, never past it', () => {
-    expect(gabby.doorStopShortPx).toBeGreaterThan(0);
-    expect(caleb.doorStopShortPx).toBeGreaterThan(0);
+  it('never walks either of them PAST the doorway centre', () => {
+    // Zero is legitimate and is what Gabby uses — she stops dead centre in the
+    // opening. Negative would walk her out the far side of the building.
+    expect(gabby.doorStopShortPx).toBeGreaterThanOrEqual(0);
+    expect(caleb.doorStopShortPx).toBeGreaterThanOrEqual(0);
+  });
+
+  it('leaves both of them INSIDE the doorway opening, not straddling a jamb', () => {
+    // The opening is DOOR_WIDTH_PX wide, centred on doorX, so a figure's stop
+    // offset plus its own half-width has to stay inside half the opening. Caleb
+    // used to stop with his outer edge flush against the frame (screenshot-
+    // caught); this is the check that makes that a test failure next time.
+    const halfOpeningPx = DOOR_WIDTH_PX / 2;
+    const halfFigurePx = FIGURE_SPRITE_WIDTH_PX / 2;
+    expect(gabby.doorStopShortPx + halfFigurePx).toBeLessThanOrEqual(halfOpeningPx);
+    expect(caleb.doorStopShortPx + halfFigurePx).toBeLessThanOrEqual(halfOpeningPx);
   });
 });
 
 describe('ARRIVAL pacing invariants', () => {
+  /** Browser-measured gas-only cruise on level 22, px/step — scripts/
+   * playtest-arrival.mjs reports it every run (~9.5). Deliberately rounded DOWN,
+   * so bounds derived from it stay conservative and can't go stale upward. */
+  const measuredCruisePxPerStep = 9;
+
   it('holds the hand-off until every finale tween has finished', () => {
     // finaleHoldMs is what onFinish() returns to GameScene; the LAST thing the
     // finale animates is the dusk wash, which ends at washDelayMs + washFadeMs +
@@ -256,16 +287,42 @@ describe('ARRIVAL pacing invariants', () => {
     expect(msToFlag).toBeGreaterThan(ARRIVAL.doorsOpenMs);
   });
 
-  it('keeps the venue inside the runway the level has past the flag', () => {
-    // LEVEL.finishMarginPx of ground exists past the finish flag on EVERY level;
-    // the doorway (and so the facade drawn around it) has to fit in it.
+  it('keeps the whole VENUE inside the runway the level has past the flag', () => {
+    // LEVEL.finishMarginPx of ground exists past the finish flag on EVERY level,
+    // and the facade is drawn AROUND the doorway — so the claim to check is the
+    // one doorAheadOfFinishPx's doc actually makes: the doorway PLUS half the
+    // facade fits. Checking only the doorway would pass with the building
+    // hanging off the end of the world.
     expect(ARRIVAL.doorAheadOfFinishPx).toBeGreaterThan(0);
-    expect(ARRIVAL.doorAheadOfFinishPx).toBeLessThan(LEVEL.finishMarginPx);
+    expect(ARRIVAL.doorAheadOfFinishPx + VENUE_WIDTH_PX / 2).toBeLessThanOrEqual(
+      LEVEL.finishMarginPx
+    );
   });
 
-  it('crawls slower than the bike cruises, and slower than its full-gas top speed', () => {
-    const topSpeed = BIKE_TUNING.maxWheelAngularVelocity * BIKE_TUNING.wheelRadius;
+  it('crawls slower than the bike CRUISES, not merely slower than its top speed', () => {
+    // Both halves, because only the second was ever checked. The cruise is the
+    // one that matters: the crawl exists to make her arrive at a walking pace,
+    // and the flat-ground top speed is far above what level 22's rolling terrain
+    // actually delivers, so `< topSpeed` alone would pass at a near-cruise value
+    // that visibly wouldn't slow her down at all.
+    const topSpeedPxPerStep = BIKE_TUNING.maxWheelAngularVelocity * BIKE_TUNING.wheelRadius;
     expect(ARRIVAL.crawlSpeedPxPerStep).toBeGreaterThan(0);
-    expect(ARRIVAL.crawlSpeedPxPerStep).toBeLessThan(topSpeed);
+    expect(ARRIVAL.crawlSpeedPxPerStep).toBeLessThan(measuredCruisePxPerStep);
+    expect(ARRIVAL.crawlSpeedPxPerStep).toBeLessThan(topSpeedPxPerStep);
+  });
+
+  it('only takes the pedals from a bike already moving at least as fast as it will drive', () => {
+    // The takeover gate exists so forced gas is never slammed on at a standstill
+    // (which can stall or loop the bike out on a climb, AND denies the player
+    // the roll-back run-up they would recover with). Requiring at least the
+    // arrival's own travel speed is the principled bound: never take control of
+    // a bike that is going slower than you intend to drive it.
+    expect(ARRIVAL.takeoverMinSpeedPxPerStep).toBeGreaterThan(0);
+    expect(ARRIVAL.takeoverMinSpeedPxPerStep).toBeGreaterThanOrEqual(
+      ARRIVAL.crawlSpeedPxPerStep
+    );
+    // And well under cruise, or a normal gas-holding player would never trigger
+    // the ride-in at all.
+    expect(ARRIVAL.takeoverMinSpeedPxPerStep).toBeLessThan(measuredCruisePxPerStep);
   });
 });
