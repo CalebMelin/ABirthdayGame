@@ -173,10 +173,12 @@ export function dispatchLevelEvents(
         // speed — including from a dead stop — slowing her to a walking pace so
         // she rolls up to the venue's doors, which open ahead of her with warm
         // light spilling onto the road. Crossing the flag, onFinish() plays the
-        // hop-off (ctx.passenger.hide() + a standing Caleb walking inside) and
-        // holds the PartyScene hand-off while the light takes the screen. It
-        // never soft-fails and never touches the bike's bodies —
-        // src/systems/arrival.ts.
+        // DISMOUNT — Caleb off the pillion first (ctx.passenger.hide()), then
+        // Gabby off the bike itself (ctx.bike.setRiderVisible(false), the one
+        // cosmetic seam bike.ts exposes), the two of them walking into the lit
+        // doorway together — and holds the PartyScene hand-off while the light
+        // takes the screen. It never soft-fails and never touches the bike's
+        // bodies or its tuning — src/systems/arrival.ts.
         handles.push(createArrival(scene, event, ctx));
         break;
       default: {

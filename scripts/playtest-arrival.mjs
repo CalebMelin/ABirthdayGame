@@ -197,7 +197,7 @@ const READ = ({ riderPrefix, calebKey }) => {
     gabbyDismounted: a ? a.gabbyDismounted() : null,
     calebX: a ? a.calebX() : null,
     gabbyX: a ? a.gabbyX() : null,
-    restX: a ? a.restX() : null,
+    dismountAnchorX: a ? a.dismountAnchorX() : null,
     riderTextureKey: a ? a.riderTextureKey : null,
     washAlpha: a ? a.washAlpha() : null,
     duskAlpha: a ? a.duskAlpha() : null,
@@ -445,9 +445,11 @@ async function main() {
     // beat is staged in, asserted from when each figure first exists.
     const calebFirstMs = dismountSamples.length > 0 ? dismountSamples[0].atMs : null;
     const gabbyFirstMs = gabbySamples.length > 0 ? gabbySamples[0].atMs : null;
-    // Their landings are anchored to ONE measured resting x, so the gap between
-    // them is exact rather than drifting with the still-creeping bike.
-    const measuredRestX = lastLive(gas.samples)?.restX ?? null;
+    // Their landings are anchored to ONE sampled bike x, so the gap between
+    // them is exact rather than drifting with the still-creeping bike. This is
+    // deliberately NOT the bike's final resting x (reported separately as
+    // rideIn.restX) — it is read a little before the bike settles.
+    const measuredAnchorX = lastLive(gas.samples)?.dismountAnchorX ?? null;
     // The doors must be open BEFORE she crosses the flag — the venue opens up
     // ahead of her, it does not pop open behind her.
     const doorsOpenBeforeFinish = gas.samples.some((s) => s.phase === 'crawling' && s.doorsOpen01 >= 0.98);
@@ -466,8 +468,8 @@ async function main() {
       problems.push(`Gabby never walked toward the doorway (moved ${gabbyWalkedPx}px)`);
     if (calebFirstMs === null || gabbyFirstMs === null || !(calebFirstMs < gabbyFirstMs))
       problems.push(`the pillion did not dismount first (Caleb at ${calebFirstMs}ms, Gabby at ${gabbyFirstMs}ms)`);
-    if (measuredRestX === null)
-      problems.push('the dismount never measured the bike resting x it anchors both landings to');
+    if (measuredAnchorX === null)
+      problems.push('the dismount never sampled the bike x it anchors both landings to');
     // She must be the PLAYER'S character, from the one-source-of-truth path —
     // the same `tex-gabby|<hair>|<eyes>|<outfit>` variant the seated rider uses.
     if (typeof live?.riderTextureKey !== 'string' || live.riderTextureKey.indexOf(RIDER_TEXTURE_PREFIX) !== 0)
@@ -615,7 +617,7 @@ async function main() {
         // is the whole point: the pillion gets off first.
         gabbyAfterCalebMs:
           calebFirstMs === null || gabbyFirstMs === null ? null : gabbyFirstMs - calebFirstMs,
-        measuredRestX: measuredRestX === null ? null : Math.round(measuredRestX),
+        measuredAnchorX: measuredAnchorX === null ? null : Math.round(measuredAnchorX),
         standingGabbyTexture: live ? live.riderTextureKey : null,
         calebWalkedPx,
         gabbyWalkedPx,
@@ -665,7 +667,7 @@ async function main() {
         `the venue drew ${r.finale.venue.rects} rects + ${r.finale.venue.graphics} Graphics, its doors opened to ` +
         `${Math.round(r.finale.doorsOpen01 * 100)}% BEFORE the flag with light spilling to alpha ${r.finale.spillAlpha}, ` +
         `Caleb hopped off first and Gabby (as "${r.finale.standingGabbyTexture}") ${r.finale.gabbyAfterCalebMs}ms later, ` +
-        `both anchored to the measured rest x ${r.finale.measuredRestX} and walking ` +
+        `both anchored to the sampled dismount x ${r.finale.measuredAnchorX} and walking ` +
         `${r.finale.calebWalkedPx}/${r.finale.gabbyWalkedPx}px into the doorway together, and the warm+dusk washes reached ` +
         `${r.finale.washAlpha}/${r.finale.duskAlpha} over the ${r.finale.finaleHoldMs}ms hold; ` +
         `exactly ${r.cast.maxGabbyVisible} Gabby and ${r.cast.maxCalebVisible} Caleb visible throughout, including the ` +

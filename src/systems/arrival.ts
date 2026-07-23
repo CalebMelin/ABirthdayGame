@@ -247,23 +247,37 @@ const SPILL_CENTER_BELOW_GROUND_PX = 26;
 const FIGURE_SPRITE_WIDTH_PX = 24;
 const FIGURE_SPRITE_HEIGHT_PX = 48;
 const CALEB_HAIR_BAND_HEIGHT_PX = 12;
-// WHERE THEY LAND AND WHERE THEY STOP, both as offsets from the bike's MEASURED
-// resting x / from the doorway centre. Gabby leads (it is her party) and Caleb
-// trails half a body behind her. The two gaps are EQUAL, which is the point: it
-// makes both walks exactly `doorX - restX - 56` px long, so they cross the
-// forecourt side by side in step instead of one drifting away from the other.
-/** Where GABBY lands, px ahead of the bike's resting x. */
-const GABBY_LANDING_X_OFFSET_PX = 74;
-/** Where CALEB lands, px ahead of the bike's resting x. A full sprite-width
- * clear of the SEATED rider's spot (BIKE_TUNING.riderOffsetX, ~0), because that
- * is exactly where Gabby materialises a beat later — any closer and the two
- * sprites overlap on the frame she steps off (screenshot-caught). */
-const CALEB_LANDING_X_OFFSET_PX = 40;
-/** How far short of the doorway centre GABBY walks before she is inside, px. */
-const GABBY_DOOR_STOP_SHORT_PX = 8;
-/** How far short of the doorway centre CALEB walks, px (see above — the 34px
- * difference is the same gap they land with). */
-const CALEB_DOOR_STOP_SHORT_PX = 42;
+// WHERE THEY LAND AND WHERE THEY STOP — landings as offsets ahead of the
+// dismount anchor, stops as offsets short of the doorway centre. Gabby leads (it
+// is her party) and Caleb trails half a body behind her.
+//
+// THE LOAD-BEARING PROPERTY IS AN EQUALITY, NOT A DISTANCE. Each figure walks
+// `doorX - anchor - (landOffset + doorStopShort)`, so as long as those two SUMS
+// match, both walks are the same length and the pair crosses the forecourt in
+// step instead of one drifting away from the other. Stated as the rule rather
+// than as a px figure on purpose: an earlier draft quoted the arithmetic result
+// and went stale the moment a screenshot pass moved the landings.
+/**
+ * EXPORTED, unlike every other placeholder-art const in this file, for exactly
+ * one reason: so tests/arrival.test.ts can PIN the equal-walk property above
+ * instead of this comment merely asserting it. That is the fix for the failure
+ * mode this plan kept hitting — a number restated in prose drifts the moment the
+ * change moves it, where a number the test derives from cannot.
+ *
+ * `landAheadPx` is px ahead of the dismount anchor; `doorStopShortPx` is px
+ * short of the doorway centre.
+ *
+ * Caleb lands far enough forward to clear the SEATED rider's spot
+ * (BIKE_TUNING.riderOffsetX, ~0), because that is exactly where Gabby
+ * materialises a beat later. In practice they end up about one sprite width
+ * apart at that instant — touching, not overlapping — because the anchor is
+ * sampled a little before the bike has fully stopped (see `dismountAnchor`).
+ * Any less and they genuinely overlap (screenshot-caught).
+ */
+export const ARRIVAL_DISMOUNT_OFFSETS = {
+  gabby: { landAheadPx: 74, doorStopShortPx: 8 },
+  caleb: { landAheadPx: 40, doorStopShortPx: 42 },
+} as const;
 
 // ---------------------------------------------------------------------------
 // Runtime factory (calls scene/ctx methods only — see module doc).
@@ -295,9 +309,10 @@ interface ArrivalDebug {
   /** Their live x, or null before they step off / after teardown. */
   calebX(): number | null;
   gabbyX(): number | null;
-  /** The bike's MEASURED resting x that both landings are anchored to, or null
-   * before the first dismount reads it. */
-  restX(): number | null;
+  /** The dismount anchor both landings are placed from — the bike's x sampled
+   * once at the first dismount (NOT its final resting x; see dismountAnchor).
+   * null before that first read. */
+  dismountAnchorX(): number | null;
   /** The texture key the standing Gabby renders with — the one-source-of-truth
    * rider key, exposed so a harness can prove she is the player's character and
    * not some second sprite. */
@@ -479,21 +494,28 @@ export function createArrival(
   }
 
   /**
-   * The bike's RESTING x, measured ONCE at the first dismount and reused by
-   * both figures.
+   * The DISMOUNT ANCHOR: the bike's x sampled ONCE, at the first dismount, and
+   * reused for both figures' landings.
    *
-   * It has to be measured rather than derived: past the flag GameScene forces
-   * the pedals false, so the bike free-coasts and where it stops is a property
-   * of the physics, not of any constant (see ARRIVAL.crawlSpeedPxPerStep). And
-   * it has to be measured ONCE: the two step off a beat apart
-   * (ARRIVAL.gabbyOffDelayMs - hopOffDelayMs), during which the bike is still
-   * creeping to a halt, so reading it twice would quietly stretch the gap
-   * between them and desynchronise their walk.
+   * Deliberately NOT called the bike's "resting" x, because it is not one — it
+   * is read at ARRIVAL.hopOffDelayMs, while the bike is still creeping the last
+   * few tens of px to a halt (browser-measured ~35px short of where it finally
+   * settles). Sampling once anyway is the right trade and the reason this
+   * function exists: the two step off a beat apart
+   * (ARRIVAL.gabbyOffDelayMs - hopOffDelayMs), so reading the bike twice would
+   * quietly stretch the gap between them and desynchronise their walk. One
+   * slightly-early anchor keeps their spacing exact; a "more accurate" second
+   * read would not.
+   *
+   * It has to be measured rather than derived either way: past the flag
+   * GameScene forces the pedals false, so the bike free-coasts and where it ends
+   * up is a property of the physics, not of any constant (see
+   * ARRIVAL.crawlSpeedPxPerStep).
    */
-  let restX: number | null = null;
-  function bikeRestX(): number {
-    if (restX === null) restX = ctx.bike.x;
-    return restX;
+  let dismountAnchorX: number | null = null;
+  function dismountAnchor(): number {
+    if (dismountAnchorX === null) dismountAnchorX = ctx.bike.x;
+    return dismountAnchorX;
   }
 
   /**
@@ -505,7 +527,7 @@ export function createArrival(
    *
    * `startX`/`startY` are the LIVE position of the sprite being replaced, so
    * the swap is invisible on the frame it happens; the landing spot comes off
-   * `bikeRestX()` so both figures share one anchor.
+   * `dismountAnchor()` so both figures share one anchor.
    *
    * Runs from a timed event during the finale hold, never from update() —
    * GameScene has stopped calling that by now.
@@ -517,7 +539,7 @@ export function createArrival(
     depth: number;
     landOffsetPx: number;
   }): Phaser.GameObjects.Container {
-    const landX = bikeRestX() + opts.landOffsetPx;
+    const landX = dismountAnchor() + opts.landOffsetPx;
     const figure = track(
       scene.add.container(opts.startX, opts.startY, opts.parts).setDepth(opts.depth)
     );
@@ -556,8 +578,8 @@ export function createArrival(
         ease: 'Sine.easeInOut',
       });
     };
-    walk(standingGabby, GABBY_DOOR_STOP_SHORT_PX);
-    walk(standingCaleb, CALEB_DOOR_STOP_SHORT_PX);
+    walk(standingGabby, ARRIVAL_DISMOUNT_OFFSETS.gabby.doorStopShortPx);
+    walk(standingCaleb, ARRIVAL_DISMOUNT_OFFSETS.caleb.doorStopShortPx);
   }
 
   /** Caleb comes off the back FIRST (the pillion always dismounts first): his
@@ -589,7 +611,7 @@ export function createArrival(
       startX: ctx.bike.x + PASSENGER.offsetX,
       startY: ctx.bike.y + PASSENGER.offsetY + FIGURE_SPRITE_HEIGHT_PX / 2,
       depth: PASSENGER.depth,
-      landOffsetPx: CALEB_LANDING_X_OFFSET_PX,
+      landOffsetPx: ARRIVAL_DISMOUNT_OFFSETS.caleb.landAheadPx,
     });
   }
 
@@ -610,7 +632,7 @@ export function createArrival(
       startX: ctx.bike.x + BIKE_TUNING.riderOffsetX,
       startY: ctx.bike.y + BIKE_TUNING.riderOffsetY + FIGURE_SPRITE_HEIGHT_PX / 2,
       depth: DEPTHS.rider,
-      landOffsetPx: GABBY_LANDING_X_OFFSET_PX,
+      landOffsetPx: ARRIVAL_DISMOUNT_OFFSETS.gabby.landAheadPx,
     });
   }
 
@@ -747,7 +769,7 @@ export function createArrival(
       gabbyDismounted: () => standingGabby !== undefined,
       calebX: () => standingCaleb?.x ?? null,
       gabbyX: () => standingGabby?.x ?? null,
-      restX: () => restX,
+      dismountAnchorX: () => dismountAnchorX,
       riderTextureKey,
       washAlpha: () => warmWash?.alpha ?? 0,
       duskAlpha: () => duskWash?.alpha ?? 0,

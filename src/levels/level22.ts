@@ -37,8 +37,8 @@ export const level22: LevelConfig = {
     {
       // THE ARRIVAL (src/systems/arrival.ts). Everything is placed relative to
       // the finish flag, which sits at length - LEVEL.finishMarginPx = 15500:
-      // the scripted ride-in takes the pedals at 14600 (900px out, ~2s at
-      // gas-only cruise) and the venue's doorway stands at 15800. Both are the
+      // the scripted ride-in takes the pedals at 14600 (900px out, ~1.6s at the
+      // measured gas-only cruise) and the venue's doorway stands at 15800. Both are the
       // ARRIVAL block's own defaults, authored here so the finale can be
       // re-composed without touching the system. The ride-in itself starts on
       // ordinary rolling terrain (gas is what a player holds there anyway), but

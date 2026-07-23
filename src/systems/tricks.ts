@@ -21,7 +21,12 @@
 // ZERO Matter bodies: the bouquet, count, toast, and arcing tulips are plain
 // GameObjects (Image/Text/Container), so they never touch NORTH_STAR §8's
 // <100-body budget. Detection reads BikeHandle getters only — no collision
-// hooks, no bodies, and bike.ts stays byte-unchanged.
+// hooks, no bodies, and this system needed no change to bike.ts at all. (That
+// used to read "bike.ts stays byte-unchanged"; PLAN-09 ST-5 deliberately
+// retired that project-wide invariant by adding one additive, cosmetic
+// `setRiderVisible` seam for level 22's dismount — see its doc in bike.ts. The
+// feel tuning the invariant actually protected is untouched, and this module
+// still contributes nothing to that file either way.)
 //
 // Fixed-step discipline (the house rule bike.ts/traffic.ts/police.ts follow):
 // the landing transition is sampled on the SAME fixed 60 Hz

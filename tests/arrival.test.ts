@@ -6,6 +6,7 @@
 // (scripts/playtest-arrival.mjs), not here.
 import { describe, expect, it } from 'vitest';
 import {
+  ARRIVAL_DISMOUNT_OFFSETS,
   arrivalCrawlPedals,
   arrivalGeometry,
   nextArrivalPhase,
@@ -175,6 +176,39 @@ describe('nextArrivalPhase', () => {
     // already past both points on a replay), but the machine still steps
     // through ridingIn so the pedals are actually taken before the crawl.
     expect(nextArrivalPhase('approaching', atCrawl)).toBe('ridingIn');
+  });
+});
+
+describe('ARRIVAL_DISMOUNT_OFFSETS — the two figures walk in side by side', () => {
+  const { gabby, caleb } = ARRIVAL_DISMOUNT_OFFSETS;
+
+  it('gives them EXACTLY equal walks, so they cross the forecourt in step', () => {
+    // Each walks `doorX - anchor - (landAheadPx + doorStopShortPx)`, so equal
+    // sums == equal distances. Both set off on one shared beat
+    // (ARRIVAL.walkInDelayMs), so equal distance is what actually keeps them
+    // together — chaining each walk onto its own landing let the first to land
+    // overtake the other. Asserted here rather than claimed in a comment: an
+    // earlier comment quoted the arithmetic result and went stale the moment a
+    // screenshot pass moved the landings.
+    expect(gabby.landAheadPx + gabby.doorStopShortPx).toBe(
+      caleb.landAheadPx + caleb.doorStopShortPx
+    );
+  });
+
+  it('keeps Gabby ahead of Caleb the whole way — she leads, it is her party', () => {
+    expect(gabby.landAheadPx).toBeGreaterThan(caleb.landAheadPx);
+    // Smaller "short of the doorway" == further along, so she stays in front.
+    expect(gabby.doorStopShortPx).toBeLessThan(caleb.doorStopShortPx);
+  });
+
+  it('lands both of them AHEAD of the bike, on the doorway side', () => {
+    expect(caleb.landAheadPx).toBeGreaterThan(0);
+    expect(gabby.landAheadPx).toBeGreaterThan(0);
+  });
+
+  it('stops both of them short of the doorway centre, never past it', () => {
+    expect(gabby.doorStopShortPx).toBeGreaterThan(0);
+    expect(caleb.doorStopShortPx).toBeGreaterThan(0);
   });
 });
 

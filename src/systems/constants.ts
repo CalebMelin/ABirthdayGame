@@ -850,9 +850,9 @@ export const POLICE = {
  * PartyArrivalEvent authors both explicitly and may override them. */
 export const ARRIVAL = {
   /** How far BEFORE the finish flag the scripted ride-in takes control, px.
-   * Long enough to read as a deliberate ride-in (~2s at gas-only cruise) and to
-   * re-accelerate a player who rolled to a stop, short enough that the player
-   * keeps the level. */
+   * Long enough to read as a deliberate ride-in (~1.6s at the browser-measured
+   * gas-only cruise of ~9.5 px/step, i.e. ~570 px/s) and to re-accelerate a
+   * player who rolled to a stop, short enough that the player keeps the level. */
   rideInLeadPx: 900,
   /** How far before the finish flag the ride-in stops accelerating and starts
    * holding `crawlSpeedPxPerStep`, px. Comfortably longer than the bike's
