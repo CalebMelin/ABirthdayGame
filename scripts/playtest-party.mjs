@@ -117,7 +117,7 @@ function oracleToast(count) {
 const BALLOON_BODY_HEIGHT_PX = 32 * 2.4;
 
 // --- Cast sprite oracle, re-derived the same way: BootScene's tex-gabby-base /
-// tex-caleb placeholders are 24x48, bottom-anchored at a member's feet and drawn
+// tex-caleb sprites are 24x48, bottom-anchored at a member's feet and drawn
 // at that member's own scale. Used to work out which balloons are HIDDEN BEHIND
 // a front-row figure. ---
 const SPRITE_WIDTH_PX = 24;

@@ -1536,8 +1536,8 @@ export const LEVEL_COMPLETE = {
  * bouncePhaseStep so nobody moves in lockstep.
  *
  * As with decorations.ts / pickup.ts / police.ts / tricks.ts, the throwaway
- * placeholder DRAWING dimensions (the 24x48 base-sprite size, Caleb's hair band,
- * Allison's ponytail rect) stay as local documented consts in partyCast.ts —
+ * placeholder DRAWING dimensions (the 24x48 base-sprite size, Allison's ponytail
+ * rect) stay as local documented consts in partyCast.ts —
  * PLAN-10 replaces that art wholesale. Everything TUNABLE (positions, depths,
  * scales, counts, bounce, name-tag geometry) lives here; the guests' COLORS and
  * all verbatim copy live in src/data/finale.ts.

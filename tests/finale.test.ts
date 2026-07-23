@@ -342,8 +342,8 @@ describe('guest appearance invariants', () => {
     // The REAL invariant (NORTH_STAR §5 / DECISIONS.md 2026-07-15): Dom must
     // never share Caleb's hair, since blonde-Dom is exactly why Caleb is
     // brown-haired. Asserted against PALETTE.brown — the literal colour
-    // partyCast.ts paints Caleb's hair band — so retuning Andrea (or any other
-    // guest) can't silently take this guard with it.
+    // src/art/sprites.mjs drawCaleb bakes into tex-caleb's hair — so retuning
+    // Andrea (or any other guest) can't silently take this guard with it.
     expect(dom.hairColor).not.toBe(PALETTE.brown);
     expect(dom.hairColor).toBe(resolveHair('blonde').color);
     // ...and no OTHER named guest is blonde either, so the tag-less crowd aside,

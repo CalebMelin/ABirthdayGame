@@ -12,6 +12,7 @@ import {
   resolveOutfit,
 } from '../src/data/characters';
 import { PROP_SIZES, readCommittedAsset, SPRITE_SIZES } from './committedArt.mjs';
+import { ASSETS_TO_BUILD, renderAssetBytes } from '../src/art/assets.mjs';
 
 // -----------------------------------------------------------------------------
 // Tiny helpers to read a big-endian PNG without a Buffer type (the tsconfig
@@ -221,4 +222,34 @@ describe('committed art PNGs', () => {
     expect(u32(bytes, 16)).toBe(size.width);
     expect(u32(bytes, 20)).toBe(size.height);
   });
+});
+
+describe('committed art PNGs are FRESH (byte-identical to their generators)', () => {
+  // The size test above only checks a PNG's IHDR dimensions. This one regenerates
+  // every committed asset's FULL bytes with the exact generators `npm run art`
+  // uses (ASSETS_TO_BUILD + renderAssetBytes, imported from the side-effect-free
+  // src/art/assets.mjs — importing it writes nothing) and asserts byte-equality
+  // with the committed file. So editing a drawX generator without re-running
+  // `npm run art` now fails CI instead of silently shipping stale pixels — and
+  // this covers every future PLAN-10 subtask's PNGs automatically, no per-asset
+  // test to remember.
+  it.each(ASSETS_TO_BUILD)(
+    'committed $file is byte-identical to its generator',
+    (asset) => {
+      const committed = readCommittedAsset(asset.file);
+      const fresh = renderAssetBytes(asset);
+      const stale = `committed public/assets/${asset.file} is stale — run \`npm run art\``;
+      expect(committed.length, stale).toBe(fresh.length);
+      // Find the first differing byte so a failure points at an offset rather
+      // than dumping a multi-KB array diff.
+      let firstDiff = -1;
+      for (let i = 0; i < fresh.length; i++) {
+        if (committed[i] !== fresh[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      expect(firstDiff, `${stale} (first differing byte at offset ${firstDiff})`).toBe(-1);
+    }
+  );
 });

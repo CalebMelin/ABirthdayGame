@@ -299,9 +299,9 @@ const SPILL_CENTER_BELOW_GROUND_PX = 26;
 // riderTextureKey from buildCharacterTextures — the same one-source-of-truth
 // path GameScene, CharacterCreationScene and partyCast.ts use, so she matches
 // the look chosen at character creation); Caleb comes from the shared
-// calebFigure.ts, which is the one home for his brown-haired placeholder look
-// (NORTH_STAR §5 / DECISIONS.md 2026-07-15).
-/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (both 24x48).
+// calebFigure.ts, which is the one home for his real brown-haired look (tex-caleb,
+// real art as of PLAN-10 ST-2 — NORTH_STAR §5 / DECISIONS.md 2026-07-15).
+/** Matches BootScene's tex-gabby-base / tex-caleb sprites (both 24x48).
  * The HEIGHT anchors a bottom-origin Container against the CENTRE-origin sprite
  * it replaces on the bike; the WIDTH is EXPORTED so tests/arrival.test.ts can
  * check both figures come to rest inside the doorway opening. */
