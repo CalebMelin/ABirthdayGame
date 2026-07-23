@@ -10,6 +10,7 @@ import {
 } from '../systems/constants';
 import { loadPixelFont } from '../systems/fonts';
 import { MARKERS } from '../systems/palette';
+import { ART_MANIFEST } from '../systems/artManifest';
 
 type TextureName = keyof typeof TEXTURE_KEYS;
 
@@ -75,6 +76,7 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     this.createProgressBar();
+    this.loadManifestArt();
   }
 
   create(): void {
@@ -86,15 +88,31 @@ export class BootScene extends Phaser.Scene {
     });
   }
 
+  /** PLAN-10: queue the real committed PNGs (src/art -> public/assets) named in
+   * ART_MANIFEST. This also finally gives the progress bar something to show.
+   * Guarded by textures.exists so a BootScene restart doesn't re-queue an
+   * already-registered key. Every other TEXTURE_KEYS entry is generated as a
+   * placeholder in create() until a later subtask adds its art + manifest row. */
+  private loadManifestArt(): void {
+    (Object.entries(ART_MANIFEST) as [TextureName, string][]).forEach(
+      ([name, path]) => {
+        const key = TEXTURE_KEYS[name];
+        if (this.textures.exists(key)) {
+          return;
+        }
+        this.load.image(key, path);
+      }
+    );
+  }
+
   /**
    * Chunky, sharp-cornered pixel loading bar wired to the real Phaser
-   * loader. The load queue is currently EMPTY (the pixel font is fetched
-   * separately via the CSS Font Loading API in create(), and art PNGs
-   * don't exist yet), so Phaser fires progress=1 / 'complete' ~immediately
-   * with nothing to show — that is expected; this wiring is the
-   * deliverable, so later plans that add `this.load.image(...)` calls get
-   * a working bar for free. No text is drawn here since the pixel font
-   * isn't loaded yet at preload() time.
+   * loader. As of PLAN-10 the queue carries the real committed art PNGs
+   * (loadManifestArt), so the bar finally shows genuine load progress; the
+   * pixel font is still fetched separately via the CSS Font Loading API in
+   * create(). Keys without real art yet are generated as placeholders in
+   * create(), so the queue grows as more art is committed. No text is drawn
+   * here since the pixel font isn't loaded yet at preload() time.
    */
   private createProgressBar(): void {
     const barWidth = 400;
@@ -147,7 +165,9 @@ export class BootScene extends Phaser.Scene {
   private generatePlaceholderTextures(): void {
     (Object.keys(TEXTURE_SPECS) as SolidTextureName[]).forEach((name) => {
       const key = TEXTURE_KEYS[name];
-      if (this.textures.exists(key)) {
+      // PLAN-10: keys with real committed art (loaded in preload from
+      // ART_MANIFEST) never get a placeholder — only keys without art do.
+      if (name in ART_MANIFEST || this.textures.exists(key)) {
         return;
       }
 
@@ -174,8 +194,15 @@ export class BootScene extends Phaser.Scene {
    * textures, and tex-wheel is always used as-is (wheels are never
    * recolored). All coexist by design. */
   private generateMarkerBaseTextures(): void {
-    this.generateGabbyBaseTexture();
-    this.generateBikeBaseTexture();
+    // PLAN-10: skip any base that has real committed art (loaded in preload
+    // from ART_MANIFEST); the marker-composite placeholder only stands in for a
+    // base without art yet. Each generator keeps its own textures.exists guard.
+    if (!('gabbyBase' in ART_MANIFEST)) {
+      this.generateGabbyBaseTexture();
+    }
+    if (!('bikeBase' in ART_MANIFEST)) {
+      this.generateBikeBaseTexture();
+    }
   }
 
   /** 24x48 — MUST match the existing tex-gabby placeholder size (read
