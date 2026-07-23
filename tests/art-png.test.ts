@@ -3,6 +3,15 @@ import { encodePng } from '../src/art/lib/png.mjs';
 import { Framebuffer } from '../src/art/lib/framebuffer.mjs';
 import { MARKERS as ART_MARKERS, PALETTE as ART_PALETTE } from '../src/art/palette.mjs';
 import { MARKERS } from '../src/systems/palette';
+import { PALETTE } from '../src/systems/constants';
+import {
+  DEFAULT_CHARACTER,
+  resolveBike,
+  resolveEyes,
+  resolveHair,
+  resolveOutfit,
+} from '../src/data/characters';
+import { PROP_SIZES, readCommittedAsset, SPRITE_SIZES } from './committedArt.mjs';
 
 // -----------------------------------------------------------------------------
 // Tiny helpers to read a big-endian PNG without a Buffer type (the tsconfig
@@ -163,5 +172,51 @@ describe('art palette markers', () => {
     expect(ART_PALETTE.markerSuit).toBe(MARKERS.suit);
     expect(ART_PALETTE.outline).toBe(0x2a1820);
     expect(ART_PALETTE.skin).toBe(0xffcf9c);
+  });
+
+  it('default-look tones mirror DEFAULT_CHARACTER resolved colors, and a pastel/theme subset mirrors constants PALETTE', () => {
+    // The raw tex-gabby / tex-bike fallback PNGs bake these four tones directly
+    // into their committed bytes; if DEFAULT_CHARACTER's resolved colors drift,
+    // those PNGs go silently stale. Resolve straight from DEFAULT_CHARACTER's
+    // field values so the guard tracks the REAL default (not a hard-coded id).
+    expect(ART_PALETTE.hairBlonde).toBe(resolveHair(DEFAULT_CHARACTER.hairColor).color);
+    expect(ART_PALETTE.eyeBlue).toBe(resolveEyes(DEFAULT_CHARACTER.eyeColor).color);
+    expect(ART_PALETTE.suitClassic).toBe(resolveOutfit(DEFAULT_CHARACTER.outfit).suitColor);
+    expect(ART_PALETTE.bikePink).toBe(resolveBike(DEFAULT_CHARACTER.bikeColor).color);
+
+    // Spot guard on the broader hand-mirrored pastel/theme set: a representative
+    // subset must equal constants.ts PALETTE (the whole set is mirrored by hand
+    // because palette.mjs is plain JS and can't import the TS constant).
+    expect(ART_PALETTE.bgPink).toBe(PALETTE.bgPink);
+    expect(ART_PALETTE.cream).toBe(PALETTE.cream);
+    expect(ART_PALETTE.outline).toBe(PALETTE.outline);
+    expect(ART_PALETTE.sunshine).toBe(PALETTE.sunshine);
+    expect(ART_PALETTE.duskIndigo).toBe(PALETTE.duskIndigo);
+  });
+});
+
+describe('committed art PNGs', () => {
+  // Each committed PNG paired with the generator size it MUST match
+  // (SPRITE_SIZES/PROP_SIZES hand-mirror BIKE_TUNING/TEXTURE_SPECS). Decoding
+  // the real committed files makes "NEVER change an asset's committed size"
+  // (src/art/palette.mjs STYLE GUIDE) enforceable in CI.
+  const CASES: { file: string; size: { width: number; height: number } }[] = [
+    { file: 'sprites/gabby-base.png', size: SPRITE_SIZES.rider },
+    { file: 'sprites/bike-base.png', size: SPRITE_SIZES.bike },
+    { file: 'sprites/gabby.png', size: SPRITE_SIZES.rider },
+    { file: 'sprites/bike.png', size: SPRITE_SIZES.bike },
+    { file: 'sprites/wheel.png', size: SPRITE_SIZES.wheel },
+    { file: 'props/flag.png', size: PROP_SIZES.flag },
+  ];
+
+  it.each(CASES)('$file is committed at its generator size', ({ file, size }) => {
+    const bytes = readCommittedAsset(file);
+    // It really is a PNG...
+    expect(Array.from(bytes.slice(0, 8))).toEqual(PNG_SIGNATURE);
+    // ...and its IHDR width/height — right after the 8-byte signature + 4-byte
+    // length + 4-byte "IHDR" type (offsets 16/20), the same layout the
+    // encodePng tests above read — equal the generator's declared size.
+    expect(u32(bytes, 16)).toBe(size.width);
+    expect(u32(bytes, 20)).toBe(size.height);
   });
 });

@@ -2,7 +2,10 @@
 // pipeline. 8-bit RGBA (color type 6), one None-filter byte per scanline,
 // a single IDAT deflated by Node's built-in zlib at a FIXED level so the
 // same pixels always encode to the same bytes (the `npm run art` determinism
-// gate — a second run must leave git clean). No color chunks are written
+// gate — a second run must leave git clean). That byte-determinism is scoped
+// to a given Node/zlib version: a Node upgrade can re-churn the compressed
+// IDAT bytes even though the DECODED pixels stay identical, so the git-clean
+// gate assumes an unchanged toolchain. No color chunks are written
 // (no gAMA/sRGB/iCCP/cHRM): an untagged PNG is treated as sRGB and a browser
 // draws it to a 2D canvas with NO color conversion, so getImageData() hands
 // back the exact bytes encoded here. That round-trip fidelity is load-bearing

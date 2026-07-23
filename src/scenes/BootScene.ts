@@ -165,9 +165,14 @@ export class BootScene extends Phaser.Scene {
   private generatePlaceholderTextures(): void {
     (Object.keys(TEXTURE_SPECS) as SolidTextureName[]).forEach((name) => {
       const key = TEXTURE_KEYS[name];
-      // PLAN-10: keys with real committed art (loaded in preload from
-      // ART_MANIFEST) never get a placeholder — only keys without art do.
-      if (name in ART_MANIFEST || this.textures.exists(key)) {
+      // PLAN-10: generate a placeholder ONLY when the texture doesn't already
+      // exist. A manifested key's real committed art was loaded in preload()
+      // (Phaser finishes preload() loads before create() runs), so it already
+      // exists and is skipped automatically; a key with no art — or one whose
+      // PNG FAILED to load — doesn't exist, so its placeholder generates as a
+      // genuine fallback. (This also keeps a scene restart from re-registering
+      // an existing key.)
+      if (this.textures.exists(key)) {
         return;
       }
 
@@ -194,15 +199,14 @@ export class BootScene extends Phaser.Scene {
    * textures, and tex-wheel is always used as-is (wheels are never
    * recolored). All coexist by design. */
   private generateMarkerBaseTextures(): void {
-    // PLAN-10: skip any base that has real committed art (loaded in preload
-    // from ART_MANIFEST); the marker-composite placeholder only stands in for a
-    // base without art yet. Each generator keeps its own textures.exists guard.
-    if (!('gabbyBase' in ART_MANIFEST)) {
-      this.generateGabbyBaseTexture();
-    }
-    if (!('bikeBase' in ART_MANIFEST)) {
-      this.generateBikeBaseTexture();
-    }
+    // PLAN-10: each generator is gated SOLELY by its own this.textures.exists
+    // check. A base whose real committed art loaded in preload() (from
+    // ART_MANIFEST) already exists, so its marker-composite placeholder is
+    // skipped; a base with no art — or one whose PNG FAILED to load — doesn't
+    // exist, so the marker-composite base generates as a genuine fallback (it
+    // still carries the recolorable MARKERS regions the palette swap needs).
+    this.generateGabbyBaseTexture();
+    this.generateBikeBaseTexture();
   }
 
   /** 24x48 — MUST match the existing tex-gabby placeholder size (read
