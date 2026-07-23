@@ -440,7 +440,7 @@ export class PartyScene extends Phaser.Scene {
   }
 
   // --------------------------------------------------------- bouquet payoff
-  /** The `You brought N tulips to the party!! \u{1F337}` toast, on its own cream
+  /** The bouquet toast (bouquetToastText's exact output), on its own cream
    * panel under the banner. Only ever called with tulips > 0, and the string is
    * always bouquetToastText's — never re-typed here (CLAUDE.md Rule 4). */
   private drawToast(text: string): void {

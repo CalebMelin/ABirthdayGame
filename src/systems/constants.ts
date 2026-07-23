@@ -2050,7 +2050,7 @@ export const PARTY = {
    * PALETTE.outline rather than PALETTE.brown, which was the first attempt and
    * vanished against the brown-lit patio, and rather than a cream "paper wrap",
    * which vanished against Gabby's default off-white racing suit. A chunky
-   * chunky block cannot be confused with a balloon's 3x40 string. */
+   * block cannot be confused with a balloon's 3x40 string. */
   bouquetGripWidthPx: 12,
   bouquetGripHeightPx: 12,
   /** Bouquet render depth — one above the front row so it draws IN FRONT of
