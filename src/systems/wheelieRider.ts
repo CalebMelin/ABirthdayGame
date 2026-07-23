@@ -134,35 +134,16 @@ export function shouldDespawnWheelieRider(
 }
 
 // ---------------------------------------------------------------------------
-// Presentation-only local constants (placeholder art). Following the
-// decorations.ts / pickup.ts / police.ts / tricks.ts precedent, the DRAWING
-// dimensions/colors of the placeholder rider texture + the dust puff (no
-// gameplay effect — PLAN-10 replaces the art) stay here rather than in
-// constants.ts. The GAMEPLAY/feel tunables live in the WHEELIE_RIDER block
-// (constants.ts). All lengths are px at the 1280x720 DESIGN scale.
+// Presentation-only local constants. Following the decorations.ts / pickup.ts /
+// police.ts / tricks.ts precedent, the dust-puff DRAWING value (no gameplay
+// effect) stays here rather than in constants.ts; the GAMEPLAY/feel tunables
+// live in the WHEELIE_RIDER block (constants.ts). Both TEXTURES are REAL
+// committed art now (PLAN-10 ST-2): the all-black rider is a committed PNG
+// (src/art/sprites.mjs drawWheelieRider — 24x48 to match BIKE_TUNING's rider
+// placement math) that BootScene loads from artManifest.ts, and the yellow bike
+// is the real tex-bike-base recolored below.
 // ---------------------------------------------------------------------------
 
-/** Matches BootScene's tex-gabby/tex-caleb placeholder rider size (24x48), so
- * the SAME BIKE_TUNING.riderOffsetX/Y placement math used for the player's
- * own rider (bike.ts) produces an equally coherent look here. */
-const RIDER_TEXTURE_WIDTH_PX = 24;
-const RIDER_TEXTURE_HEIGHT_PX = 48;
-/** Helmet band height across the top of the texture, px — the rest reads as
- * the suit/jacket. */
-const HELMET_HEIGHT_PX = 14;
-/** A thin visor stripe within the helmet band — "black ROUND/VISOR helmet"
- * (NORTH_STAR §5): a hair lighter than pure black so the helmet silhouettes
- * with a visor line rather than reading as a flat block, while staying
- * overwhelmingly black at game scale. */
-const VISOR_Y_PX = 6;
-const VISOR_HEIGHT_PX = 3;
-const VISOR_INSET_PX = 2;
-/** Near-black suit/jacket fill. */
-const RIDER_BODY_COLOR = 0x141414;
-/** Pure black helmet dome. */
-const RIDER_HELMET_COLOR = 0x000000;
-/** Dark-grey visor stripe — subtle, not a real color. */
-const RIDER_VISOR_COLOR = 0x3a3a3a;
 /** Dust puff peak scale (grows from 1 to this while fading — "Quad.easeOut",
  * matching police.ts's spin-out-puff style). */
 const DUST_PUFF_GROW = 1.8;
@@ -184,29 +165,6 @@ const YELLOW_BIKE_VARIANT_KEY = 'tex-wheelie-rider-bike';
 function ensureYellowBikeTexture(scene: Phaser.Scene): string {
   const remap: ColorRemap = [{ from: MARKERS.bikeBody, to: resolveBike('yellow').color }];
   return recolorTexture(scene, TEXTURE_KEYS.bikeBase, YELLOW_BIKE_VARIANT_KEY, remap);
-}
-
-/** Generates the bespoke all-black + black-helmet rider texture the first
- * time it's needed (guarded by a key-exists check — the same lazy,
- * cache-once convention recolorTexture itself uses), rather than in
- * BootScene: this rider is confined to a single level, so there's no reason
- * to pre-generate it for every boot. Crude, clearly-separated bands (helmet
- * + visor stripe over a near-black suit) at placeholder-art fidelity —
- * matches every other TEXTURE_SPECS placeholder in this codebase (solid
- * rectangles; PLAN-10 replaces the art wholesale). */
-function ensureWheelieRiderTexture(scene: Phaser.Scene): void {
-  const key = TEXTURE_KEYS.wheelieRider;
-  if (scene.textures.exists(key)) return;
-
-  const gfx = scene.add.graphics();
-  gfx.fillStyle(RIDER_BODY_COLOR, 1);
-  gfx.fillRect(0, 0, RIDER_TEXTURE_WIDTH_PX, RIDER_TEXTURE_HEIGHT_PX);
-  gfx.fillStyle(RIDER_HELMET_COLOR, 1);
-  gfx.fillRect(0, 0, RIDER_TEXTURE_WIDTH_PX, HELMET_HEIGHT_PX);
-  gfx.fillStyle(RIDER_VISOR_COLOR, 1);
-  gfx.fillRect(VISOR_INSET_PX, VISOR_Y_PX, RIDER_TEXTURE_WIDTH_PX - VISOR_INSET_PX * 2, VISOR_HEIGHT_PX);
-  gfx.generateTexture(key, RIDER_TEXTURE_WIDTH_PX, RIDER_TEXTURE_HEIGHT_PX);
-  gfx.destroy();
 }
 
 // ---------------------------------------------------------------------------
@@ -267,9 +225,9 @@ export function createWheelieRider(
   const speedPxPerStep = wheelieRiderTopSpeedPxPerStep(bikeFullGasTopSpeed, WHEELIE_RIDER.speedMultiplier);
   const stepMs = 1000 / WHEELIE_RIDER.fps;
 
-  // Prepared eagerly (guarded/cached, cheap) so the very first trigger never
-  // hitches on texture generation.
-  ensureWheelieRiderTexture(scene);
+  // The rider is a real committed PNG BootScene already loaded (artManifest.ts);
+  // the yellow bike is prepared eagerly (recolorTexture is guarded/cached, cheap)
+  // so the very first trigger never hitches on the recolor.
   const bikeTextureKey = ensureYellowBikeTexture(scene);
   const riderTextureKey = TEXTURE_KEYS.wheelieRider;
 

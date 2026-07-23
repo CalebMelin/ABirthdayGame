@@ -8,10 +8,13 @@ export interface PixelSize {
   readonly height: number;
 }
 
-/** Re-exported from src/art/sprites.mjs — the sizes drawRider/drawBike/drawWheel
- * render at, which the committed sprite PNGs must match. */
+/** Re-exported from src/art/sprites.mjs — the sizes
+ * drawRider/drawCaleb/drawWheelieRider/drawBike/drawWheel render at, which the
+ * committed sprite PNGs must match. */
 export declare const SPRITE_SIZES: {
   readonly rider: PixelSize;
+  readonly caleb: PixelSize;
+  readonly wheelieRider: PixelSize;
   readonly bike: PixelSize;
   readonly wheel: PixelSize;
 };

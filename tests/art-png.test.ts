@@ -205,6 +205,8 @@ describe('committed art PNGs', () => {
     { file: 'sprites/bike-base.png', size: SPRITE_SIZES.bike },
     { file: 'sprites/gabby.png', size: SPRITE_SIZES.rider },
     { file: 'sprites/bike.png', size: SPRITE_SIZES.bike },
+    { file: 'sprites/caleb.png', size: SPRITE_SIZES.caleb },
+    { file: 'sprites/wheelie-rider.png', size: SPRITE_SIZES.wheelieRider },
     { file: 'sprites/wheel.png', size: SPRITE_SIZES.wheel },
     { file: 'props/flag.png', size: PROP_SIZES.flag },
   ];

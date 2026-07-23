@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { Framebuffer } from './lib/framebuffer.mjs';
 import { encodePng } from './lib/png.mjs';
 import { MARKERS, PALETTE } from './palette.mjs';
-import { drawBike, drawRider, drawWheel, SPRITE_SIZES } from './sprites.mjs';
+import { drawBike, drawCaleb, drawRider, drawWheel, drawWheelieRider, SPRITE_SIZES } from './sprites.mjs';
 import { drawFlag, PROP_SIZES } from './props.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +64,14 @@ const ASSETS_TO_BUILD = [
     file: 'sprites/bike.png',
     ...SPRITE_SIZES.bike,
     draw: (fb) => drawBike(fb, PALETTE.bikePink),
+  },
+  // Never-recolored fixed-color characters (NO markers): Caleb (brown-haired,
+  // NORTH_STAR §5) and the level-11 all-black wheelie-rider easter egg.
+  { file: 'sprites/caleb.png', ...SPRITE_SIZES.caleb, draw: (fb) => drawCaleb(fb) },
+  {
+    file: 'sprites/wheelie-rider.png',
+    ...SPRITE_SIZES.wheelieRider,
+    draw: (fb) => drawWheelieRider(fb),
   },
   // Never-recolored.
   { file: 'sprites/wheel.png', ...SPRITE_SIZES.wheel, draw: (fb) => drawWheel(fb) },

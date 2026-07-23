@@ -275,11 +275,11 @@ export function createPickup(
   );
 
   // --- Standing (brown-haired) Caleb, waving outside; runs to the bike on
-  // pickup. A Container of the tex-caleb Image + a brown hair band, so one tween
-  // slides both together. NOTE(PLAN-10): the persistent PILLION Caleb
-  // (passenger.ts, activated below) still renders as the neutral sky-blue
-  // tex-caleb placeholder — NOT blonde — until PLAN-10 gives him real brown-haired
-  // art; only this standing Caleb gets the brown-band overlay for now. ---
+  // pickup. A Container of the tex-caleb Image (real brown-haired art as of
+  // PLAN-10 ST-2 — src/art/sprites.mjs drawCaleb; the old brown hair-band overlay
+  // is gone, see calebFigure.ts), so one tween slides it. The persistent PILLION
+  // Caleb (passenger.ts, activated below) uses the same tex-caleb sprite, so he
+  // now reads as brown-haired seated behind Gabby too. ---
   const calebStandX = pickupX + CALEB_STAND_X_OFFSET_PX;
   const calebGroundY = ctx.terrain.heightAt(calebStandX);
   const standingCaleb = track(

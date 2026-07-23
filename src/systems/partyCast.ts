@@ -31,15 +31,15 @@
 // (tests/finale.test.ts), and createPartyCast only ever CALLS METHODS on the
 // runtime `scene` handle it is given (same contract as createBike).
 //
-// PLACEHOLDER ART (PLAN-10 replaces it): guests are palette swaps of the ONE
-// marker-composite rider base texture (except Caleb, who keeps the raw
-// tex-caleb placeholder), plus cheap overlay rectangles for the hair
-// silhouettes. Every tunable NUMBER lives in constants.ts's PARTY block; every
-// COLOR and every verbatim NAME lives in src/data/finale.ts.
+// PLACEHOLDER ART (PLAN-10 replaces the rest): the named/crowd guests are still
+// palette swaps of the ONE marker-composite rider base texture, plus a cheap
+// overlay rectangle for the ponytail hair silhouette. Caleb is the exception —
+// his tex-caleb is REAL brown-haired art now (PLAN-10 ST-2), so he needs no
+// overlay. Every tunable NUMBER lives in constants.ts's PARTY block; every COLOR
+// and every verbatim NAME lives in src/data/finale.ts.
 import type Phaser from 'phaser';
 import { PARTY, PALETTE, TEXTURE_KEYS } from './constants';
 import { pixelText } from './pixelText';
-import { calebHairBand } from './calebFigure';
 import { recolorTexture } from './palette';
 import { buildCharacterTextures } from './characterTextures';
 import type { CharacterConfig } from './save';
@@ -76,8 +76,8 @@ export interface PartyCastSlot {
   readonly nameTag: string | null;
   /** The palette swap this member renders with, or `null` when the member uses
    * a texture that is NOT authored here: Gabby AND Dallas (both the player's
-   * live rider texture — the twin joke) and Caleb (the raw tex-caleb
-   * placeholder + his brown hair band). */
+   * live rider texture — the twin joke) and Caleb (the tex-caleb sprite, now
+   * real brown-haired art). */
   readonly appearance: AuthoredGuestAppearance | null;
   /** Member centre x, px (design space). */
   readonly x: number;
@@ -227,8 +227,8 @@ export function buildPartyCastSlots(): readonly PartyCastSlot[] {
 /** Where a cast member's texture comes from. `'player'` is THE TWIN JOKE: both
  * Gabby and Dallas resolve to it, so they render with the very same
  * `buildCharacterTextures` rider key. `'authored'` means a `tex-party|` palette
- * swap built from the member's own colors; `'caleb'` is the raw placeholder. An
- * `as const` union — this project forbids TS enums. */
+ * swap built from the member's own colors; `'caleb'` is the real tex-caleb
+ * sprite. An `as const` union — this project forbids TS enums. */
 export type CastTextureSource = 'caleb' | 'player' | 'authored';
 
 /**
@@ -255,10 +255,10 @@ export function castTextureSource(slot: PartyCastSlot): CastTextureSource {
 // scale is applied).
 // ---------------------------------------------------------------------------
 
-/** Matches BootScene's tex-gabby-base / tex-caleb placeholders (24x48). Only the
- * HEIGHT is needed here now — it seats the ponytail overlay and the floating
- * name tags. (Caleb's brown hair band used to need the width too; it comes from
- * the shared calebFigure.ts now, the one home for his placeholder look.) */
+/** The 24x48 rider/Caleb sprite height. Only the HEIGHT is needed here now — it
+ * seats the ponytail overlay and the floating name tags. (Caleb's brown hair
+ * band used to need the width too, but tex-caleb bakes his hair in as of PLAN-10
+ * ST-2, so the band is gone — see calebFigure.ts.) */
 const SPRITE_HEIGHT_PX = 48;
 /** Allison's ponytail: a small hair-colored rectangle hanging off the side of
  * her head, the cheap placeholder stand-in for "a different hairstyle than
@@ -371,15 +371,14 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
 
   /** A member's figure: the bottom-anchored sprite plus any hair-silhouette
    * overlay, in ONE Container so a single setPosition/setScale moves it all
-   * (and one destroy() takes the children with it). */
+   * (and one destroy() takes the children with it). Caleb needs no overlay —
+   * tex-caleb bakes in his brown hair (PLAN-10 ST-2). */
   function buildFigure(slot: PartyCastSlot, textureKey: string): Phaser.GameObjects.Container {
     const parts: Phaser.GameObjects.GameObject[] = [
       scene.add.image(0, 0, textureKey).setOrigin(0.5, 1),
     ];
 
-    if (slot.role === 'caleb') {
-      parts.push(calebHairBand(scene));
-    } else if (slot.appearance !== null && slot.appearance.hairStyle === 'ponytail') {
+    if (slot.appearance !== null && slot.appearance.hairStyle === 'ponytail') {
       parts.push(
         scene.add.rectangle(
           PONYTAIL_OFFSET_X_PX,

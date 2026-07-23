@@ -1135,8 +1135,8 @@ export const TRICKS = {
  * NORTH_STAR §8's <100-body budget. The motorcycle reuses the real
  * bike-base texture recolored to characters.ts's dedicated 'yellow' bike
  * swatch (palette.ts's recolorTexture); the rider is a bespoke all-black +
- * black-helmet texture wheelieRider.ts generates lazily (guarded, like
- * recolorTexture's own cache) the first time level 11 actually needs it.
+ * black-helmet committed PNG (src/art/sprites.mjs drawWheelieRider) that
+ * BootScene loads from artManifest.ts (PLAN-10 ST-2).
  *
  * Speeds are px per fixed 60 Hz step (BikeHandle.speed units); times are ms;
  * margins/offsets are px at the 1280x720 DESIGN scale. */
@@ -2334,11 +2334,9 @@ export const SCENE_KEYS = {
  * (PLAN-04 task 4) overrides them per-instance with the palette-swapped
  * character variants recolored from `gabbyBase` / `bikeBase`. `wheel` is
  * always used raw (wheels are never recolored). `wheelieRider` (PLAN-07 task
- * 2) is level 11's bespoke all-black + black-helmet rider texture — unlike
- * every key above, BootScene never generates it; src/systems/wheelieRider.ts
- * generates it lazily (guarded, like a recolorTexture variant) the first time
- * level 11 actually needs it, since it's the one entity confined to a single
- * level. */
+ * 2) is level 11's bespoke all-black + black-helmet rider texture — REAL
+ * committed art as of PLAN-10 ST-2 (src/art/sprites.mjs drawWheelieRider),
+ * loaded by BootScene from ART_MANIFEST like every other real sprite. */
 export const TEXTURE_KEYS = {
   bike: 'tex-bike',
   bikeBase: 'tex-bike-base',
