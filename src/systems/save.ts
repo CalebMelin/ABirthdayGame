@@ -409,6 +409,24 @@ export function deriveCalebPickedUp(level: number, progress: LevelProgress): boo
   return progress.completed?.[11] === true;
 }
 
+/** Whether the whole game has been beaten — the FINAL level (index
+ * TOTAL_LEVELS - 1 in the 0-based `completed` array) is done. Pure and total
+ * (no Phaser, no storage), a sibling of deriveCalebPickedUp: TitleScene calls
+ * it read-only to decide whether to offer the post-game "Party" revisit button,
+ * and tests exercise it in plain Node.
+ *
+ * No separate "beat the game" boolean is stored: GameScene runs
+ * markLevelCompleted(this.level) for level 22 at the arrival hand-off (before
+ * PartyScene, which the final level skips LevelCompleteScene to reach), so
+ * finishing the arrival is exactly what sets this.
+ *
+ * `?.[...] === true` guards a malformed/absent/short `completed` array
+ * (undefined -> false, never a throw), the same total-function guard
+ * deriveCalebPickedUp uses. */
+export function hasBeatenGame(progress: LevelProgress): boolean {
+  return progress.completed?.[TOTAL_LEVELS - 1] === true;
+}
+
 let singleton: SaveSystem | undefined;
 
 /** Lazily-created shared SaveSystem for scenes. Does not touch

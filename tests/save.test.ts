@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSaveSystem, getSave, SAVE_VERSION } from '../src/systems/save';
-import type { CharacterConfig, KVStorage } from '../src/systems/save';
+import { createSaveSystem, getSave, hasBeatenGame, SAVE_VERSION } from '../src/systems/save';
+import type { CharacterConfig, KVStorage, LevelProgress } from '../src/systems/save';
 import { TOTAL_LEVELS } from '../src/systems/constants';
 
 /** Simple Map-backed fake that implements the KVStorage structural subset
@@ -434,5 +434,61 @@ describe('versioning', () => {
     const save = createSaveSystem(storage);
 
     expect(save.getTulips()).toBe(3);
+  });
+});
+
+// The pure "post-game" derivation TitleScene reads to decide whether to offer
+// the "Party" revisit button (PLAN-09 ST-6). Total, like deriveCalebPickedUp:
+// a corrupt/absent completed array must resolve to false, never throw.
+describe('hasBeatenGame', () => {
+  /** A LevelProgress whose FINAL level (index TOTAL_LEVELS - 1) is set as given
+   * and every other level is incomplete. */
+  function progressWithFinalCompleted(finalDone: boolean): LevelProgress {
+    const completed = Array<boolean>(TOTAL_LEVELS).fill(false);
+    completed[TOTAL_LEVELS - 1] = finalDone;
+    return { highestUnlocked: TOTAL_LEVELS, completed };
+  }
+
+  it('is false on a fresh default save (nothing completed)', () => {
+    const save = createSaveSystem(createFakeStorage());
+    expect(hasBeatenGame(save.loadProgress())).toBe(false);
+  });
+
+  it('is true once the final level is completed (through the real save write path)', () => {
+    const save = createSaveSystem(createFakeStorage());
+    save.markLevelCompleted(TOTAL_LEVELS);
+    expect(hasBeatenGame(save.loadProgress())).toBe(true);
+  });
+
+  it('is false when many levels are done but NOT the final one', () => {
+    const save = createSaveSystem(createFakeStorage());
+    for (let level = 1; level < TOTAL_LEVELS; level++) {
+      save.markLevelCompleted(level);
+    }
+    expect(hasBeatenGame(save.loadProgress())).toBe(false);
+  });
+
+  it('keys ONLY on the final level, not the second-to-last', () => {
+    const almost = Array<boolean>(TOTAL_LEVELS).fill(false);
+    almost[TOTAL_LEVELS - 2] = true; // finished the penultimate level, not the last
+    expect(hasBeatenGame({ highestUnlocked: TOTAL_LEVELS, completed: almost })).toBe(false);
+    expect(hasBeatenGame(progressWithFinalCompleted(true))).toBe(true);
+  });
+
+  it('tolerates a short completed array (missing the final index → false)', () => {
+    const malformed = { highestUnlocked: 1, completed: [true, true] } as unknown as LevelProgress;
+    expect(hasBeatenGame(malformed)).toBe(false);
+  });
+
+  it('tolerates an empty completed array (→ false, no throw)', () => {
+    const empty = { highestUnlocked: 1, completed: [] } as unknown as LevelProgress;
+    expect(() => hasBeatenGame(empty)).not.toThrow();
+    expect(hasBeatenGame(empty)).toBe(false);
+  });
+
+  it('tolerates an ABSENT completed array (optional-chaining guard → false, no throw)', () => {
+    const noArray = { highestUnlocked: 1 } as unknown as LevelProgress;
+    expect(() => hasBeatenGame(noArray)).not.toThrow();
+    expect(hasBeatenGame(noArray)).toBe(false);
   });
 });

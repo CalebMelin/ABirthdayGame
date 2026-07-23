@@ -1,14 +1,15 @@
 import Phaser from 'phaser';
 import { DESIGN_WIDTH, PASTEL_BG_COLOR, PALETTE, SCENE_KEYS, hexToCss } from '../systems/constants';
 import { createPixelText, createPixelButton } from '../systems/ui';
-import { getSave } from '../systems/save';
+import { getSave, hasBeatenGame } from '../systems/save';
 
-/** Shared min-width for the stacked Play / Edit Character buttons so they align. */
+/** Shared min-width for the stacked Play / Edit Character / Party buttons so
+ * they align. */
 const MENU_BUTTON_MIN_WIDTH = 320;
 
 /** Title screen: logo, Play (routes to character creation or level select
- * depending on save state), Edit Character, and a muted-music toggle
- * placeholder. */
+ * depending on save state), Edit Character, a post-game "Party" revisit button
+ * shown ONLY once the game is beaten, and a muted-music toggle placeholder. */
 export class TitleScene extends Phaser.Scene {
   /** In-memory only — no persistence and no real audio yet; PLAN-10 wires
    * up actual music and will presumably persist this. */
@@ -60,6 +61,26 @@ export class TitleScene extends Phaser.Scene {
         this.scene.start(SCENE_KEYS.characterCreation);
       },
     });
+
+    // Post-game revisit: once the game is beaten (level 22 completed, which
+    // GameScene marks at the arrival hand-off — see save.ts's hasBeatenGame), a
+    // "Party" button joins the stack directly below Edit Character so the whole
+    // party -> credits finale can be replayed from the Title anytime. Absent
+    // before then, so the menu simply reads Play / Edit Character with no gap.
+    if (hasBeatenGame(getSave().loadProgress())) {
+      createPixelButton(this, {
+        x: DESIGN_WIDTH / 2,
+        y: 640,
+        // Balloon emoji U+1F388 via escape (ASCII-only source rule); it renders
+        // through the system emoji font behind the pixel-font stack, the same
+        // way the party toast's tulip and the credits tally's glyphs do.
+        label: 'Party \u{1F388}',
+        minWidth: MENU_BUTTON_MIN_WIDTH,
+        onClick: () => {
+          this.scene.start(SCENE_KEYS.party);
+        },
+      });
+    }
 
     this.renderSoundButton();
   }
