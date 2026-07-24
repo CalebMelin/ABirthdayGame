@@ -78,6 +78,60 @@ const CREDITS_BUTTON_LABEL = 'Credits \u{2192}';
  * it instead of in constants.ts. */
 const STREAMER_COLORS: readonly number[] = [PALETTE.coral, PALETTE.sunshine, PALETTE.bgPink];
 
+/** Warm festive tones cycled across the string-light bulbs (ST-6) — a multi-
+ * colour strand reads more "party" than a row of identical yellow bulbs. Same
+ * presentation-content-beside-the-code rationale as STREAMER_COLORS, and the same
+ * warm palette family the arrival venue's garland uses, for continuity. */
+const LIGHT_STRING_COLORS: readonly number[] = [PALETTE.sunshine, PALETTE.coral, PALETTE.bgPink];
+
+/** Pennant-bunting colours swagged behind the banner (ST-6). Same set + rationale
+ * as the arrival venue's awning/garland, so the banner reads as the same party. */
+const BUNTING_COLORS: readonly number[] = [PALETTE.coral, PALETTE.sunshine, PALETTE.bgPink];
+
+/** A small triangular pennant flag at each hanging streamer's bottom tip (ST-6),
+ * so a ribbon reads as a festive streamer rather than a bare zigzag. Half-width
+ * and drop, px — the drop is kept short so the tip still clears the toast panel
+ * (streamerLengthPx + this stays above toastTop; tests/finale.test.ts pins the
+ * streamerLengthPx < toastTop gap, this stays inside it). */
+const STREAMER_PENNANT_HALF_PX = 9;
+const STREAMER_PENNANT_DROP_PX = 12;
+
+/** Pennant bunting behind the banner (ST-6): how many flags, how far the swag
+ * string dips below its end anchors at centre (px), each flag's half-width and
+ * drop (px), and how far the swag's end anchors sit outside the banner panel
+ * (px) so the flags peek out both sides of "HAPPY 22nd GABBY!!". */
+const BANNER_BUNTING_COUNT = 11;
+const BANNER_BUNTING_SAG_PX = 20;
+const BANNER_BUNTING_FLAG_HALF_PX = 12;
+const BANNER_BUNTING_FLAG_DROP_PX = 22;
+const BANNER_BUNTING_OVERHANG_PX = 46;
+/** Screen y the bunting swag's end anchors sit at (its string runs behind the
+ * banner panel from here, dipping BANNER_BUNTING_SAG_PX at centre). */
+const BANNER_BUNTING_ANCHOR_Y = 10;
+
+// --- The warm party BUILDING glimpsed over the back fence (ST-6): the same lit
+// venue Gabby just walked into (src/systems/arrival.ts), so the arrival and the
+// party read as ONE place. Brick walls + warm sunshine windows exactly like the
+// arrival building, standing behind the fence at dusk. Presentation-only drawing
+// dimensions beside the code that draws them (the arrival.ts / decorations.ts
+// precedent — the party venue is runtime Graphics, never a committed PNG). Screen
+// px at the 1280x720 design scale. --------------------------------------------
+/** Left/right screen x of the building wall, and its roofline top y (it runs
+ * DOWN behind the fence, whose top edge hides its base). */
+const VENUE_BUILDING_LEFT_X = 936;
+const VENUE_BUILDING_RIGHT_X = 1200;
+const VENUE_BUILDING_TOP_Y = 308;
+/** The dark roof cap band across the wall top, px tall, and its small overhang
+ * past each wall edge, px. */
+const VENUE_BUILDING_ROOF_HEIGHT_PX = 10;
+const VENUE_BUILDING_ROOF_OVERHANG_PX = 8;
+/** Warm lit windows on the building: size px, their centre y, and their centre
+ * xs. */
+const VENUE_BUILDING_WINDOW_W_PX = 26;
+const VENUE_BUILDING_WINDOW_H_PX = 32;
+const VENUE_BUILDING_WINDOW_Y = 352;
+const VENUE_BUILDING_WINDOW_XS: readonly number[] = [988, 1068, 1148];
+
 /** DEV-only live snapshot the browser playtest harness
  * (scripts/playtest-party.mjs) reads off the scene to assert the banner/toast/
  * bouquet/cast/balloons/Credits button (stripped from prod builds via
@@ -300,6 +354,47 @@ export class PartyScene extends Phaser.Scene {
       PARTY.venueHorizonGlowCoreHeightPx
     );
 
+    // The party venue itself, glimpsed over the back fence to the right — the
+    // same warm brick building with sunshine-lit windows Gabby just walked into
+    // (arrival.ts), so the arrival and the party read as ONE place. Drawn BEFORE
+    // the fence (both at DEPTHS.background) so the fence hides its base and it
+    // recedes behind the yard. Left of it the sunset horizon stays clear.
+    this.add
+      .rectangle(
+        VENUE_BUILDING_LEFT_X,
+        VENUE_BUILDING_TOP_Y,
+        VENUE_BUILDING_RIGHT_X - VENUE_BUILDING_LEFT_X,
+        PARTY.venueGroundY - VENUE_BUILDING_TOP_Y,
+        PALETTE.brickRed
+      )
+      .setOrigin(0, 0)
+      .setDepth(DEPTHS.background);
+    // Dark roof cap across the wall top, overhanging the eaves a touch.
+    this.add
+      .rectangle(
+        (VENUE_BUILDING_LEFT_X + VENUE_BUILDING_RIGHT_X) / 2,
+        VENUE_BUILDING_TOP_Y,
+        VENUE_BUILDING_RIGHT_X - VENUE_BUILDING_LEFT_X + VENUE_BUILDING_ROOF_OVERHANG_PX * 2,
+        VENUE_BUILDING_ROOF_HEIGHT_PX,
+        PALETTE.outline
+      )
+      .setOrigin(0.5, 0)
+      .setDepth(DEPTHS.background);
+    // Warm lit windows — the "the venue is glowing inside" cue, same sunshine as
+    // the arrival building's windows.
+    for (const wx of VENUE_BUILDING_WINDOW_XS) {
+      this.add
+        .rectangle(
+          wx,
+          VENUE_BUILDING_WINDOW_Y,
+          VENUE_BUILDING_WINDOW_W_PX,
+          VENUE_BUILDING_WINDOW_H_PX,
+          PALETTE.sunshine
+        )
+        .setStrokeStyle(3, PALETTE.outline)
+        .setDepth(DEPTHS.background);
+    }
+
     // Fence: a brown board wall with a darker rail across its top and evenly
     // spaced plank seams.
     band(PARTY.venueFenceTopY, PARTY.venueGroundY, PALETTE.brown);
@@ -372,7 +467,7 @@ export class PartyScene extends Phaser.Scene {
           bulbY(t),
           PARTY.lightStringBulbSizePx,
           PARTY.lightStringBulbSizePx,
-          PALETTE.sunshine
+          LIGHT_STRING_COLORS[i % LIGHT_STRING_COLORS.length]
         )
         .setOrigin(0.5, 0)
         .setDepth(DEPTHS.background);
@@ -400,27 +495,39 @@ export class PartyScene extends Phaser.Scene {
     // follows it, so each strokePath() below draws in its own color.
     const ribbons = this.add.graphics().setDepth(DEPTHS.background);
     PARTY.streamerXsPx.forEach((x, index) => {
-      ribbons.lineStyle(
-        PARTY.streamerThicknessPx,
-        STREAMER_COLORS[index % STREAMER_COLORS.length],
-        1
-      );
+      const color = STREAMER_COLORS[index % STREAMER_COLORS.length];
+      ribbons.lineStyle(PARTY.streamerThicknessPx, color, 1);
       ribbons.beginPath();
       ribbons.moveTo(x, 0);
+      let tipX = x;
       for (let segment = 1; segment <= PARTY.streamerSegments; segment++) {
         const y = (segment / PARTY.streamerSegments) * PARTY.streamerLengthPx;
         const offsetX = segment % 2 === 0 ? PARTY.streamerAmplitudePx : -PARTY.streamerAmplitudePx;
-        ribbons.lineTo(x + offsetX, y);
+        tipX = x + offsetX;
+        ribbons.lineTo(tipX, y);
       }
       ribbons.strokePath();
+      // A little pennant flag at the ribbon's tip, in the same colour.
+      const tipY = PARTY.streamerLengthPx;
+      ribbons.fillStyle(color, 1);
+      ribbons.fillTriangle(
+        tipX - STREAMER_PENNANT_HALF_PX,
+        tipY,
+        tipX + STREAMER_PENNANT_HALF_PX,
+        tipY,
+        tipX,
+        tipY + STREAMER_PENNANT_DROP_PX
+      );
     });
   }
 
   // ---------------------------------------------------------------- banner
   /** The big banner. Text FIRST so the cream panel can be sized to the MEASURED
    * label rather than a guessed font metric (the LevelCompleteScene note-card /
-   * partyCast name-tag convention), then two "strings" up to the top edge so it
-   * reads as hung rather than floating. */
+   * partyCast name-tag convention), then a pennant-bunting swag + two "strings"
+   * up to the top edge so it reads as hung and festive rather than floating. The
+   * banner STRING itself (PARTY_BANNER_TEXT) is verbatim personal content and is
+   * untouched here — only the art around it changed (ST-6). */
   private drawBanner(): void {
     const cx = DESIGN_WIDTH / 2;
     const label = createPixelText(this, cx, PARTY.bannerCenterY, PARTY_BANNER_TEXT, PARTY.bannerFontSizePx);
@@ -428,11 +535,47 @@ export class PartyScene extends Phaser.Scene {
     const panelHeight = label.height + PARTY.bannerPadYPx * 2;
     const panelTop = PARTY.bannerCenterY - panelHeight / 2;
 
-    // Hangers behind the panel (createPixelPanel sits at DEPTHS.ui).
-    const hangers = this.add.graphics().setDepth(DEPTHS.ui - 1);
-    hangers.fillStyle(PALETTE.outline, 1);
+    // Everything BEHIND the cream panel (createPixelPanel sits at DEPTHS.ui): a
+    // festive pennant-bunting swag framing the banner, plus the two hanging
+    // strings that pin it to the top edge. The flags over the panel are hidden by
+    // it; the ones to each side peek out around "HAPPY 22nd GABBY!!".
+    const backing = this.add.graphics().setDepth(DEPTHS.ui - 1);
+
+    // Pennant bunting: a cord dipping across the top, with triangular flags in
+    // the same warm tones as the arrival venue's awning/garland.
+    const buntingLeft = cx - panelWidth / 2 - BANNER_BUNTING_OVERHANG_PX;
+    const buntingRight = cx + panelWidth / 2 + BANNER_BUNTING_OVERHANG_PX;
+    const spans = Math.max(1, BANNER_BUNTING_COUNT - 1);
+    const swagY = (t: number): number =>
+      BANNER_BUNTING_ANCHOR_Y + BANNER_BUNTING_SAG_PX * 4 * t * (1 - t);
+    backing.lineStyle(PARTY.bannerHangerWidthPx, PALETTE.outline, 1);
+    backing.beginPath();
+    for (let i = 0; i < BANNER_BUNTING_COUNT; i++) {
+      const t = i / spans;
+      const x = buntingLeft + (buntingRight - buntingLeft) * t;
+      if (i === 0) backing.moveTo(x, swagY(t));
+      else backing.lineTo(x, swagY(t));
+    }
+    backing.strokePath();
+    for (let i = 0; i < BANNER_BUNTING_COUNT; i++) {
+      const t = i / spans;
+      const x = buntingLeft + (buntingRight - buntingLeft) * t;
+      const y = swagY(t);
+      backing.fillStyle(BUNTING_COLORS[i % BUNTING_COLORS.length], 1);
+      backing.fillTriangle(
+        x - BANNER_BUNTING_FLAG_HALF_PX,
+        y,
+        x + BANNER_BUNTING_FLAG_HALF_PX,
+        y,
+        x,
+        y + BANNER_BUNTING_FLAG_DROP_PX
+      );
+    }
+
+    // The two hanging strings pinning the panel to the top edge.
+    backing.fillStyle(PALETTE.outline, 1);
     for (const x of [cx - panelWidth / 2, cx + panelWidth / 2]) {
-      hangers.fillRect(x - PARTY.bannerHangerWidthPx / 2, 0, PARTY.bannerHangerWidthPx, panelTop);
+      backing.fillRect(x - PARTY.bannerHangerWidthPx / 2, 0, PARTY.bannerHangerWidthPx, panelTop);
     }
 
     createPixelPanel(this, cx, PARTY.bannerCenterY, panelWidth, panelHeight);

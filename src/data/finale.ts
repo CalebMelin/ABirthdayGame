@@ -240,13 +240,15 @@ export const GUEST_ANDREA: NamedGuest = {
 
 /** Allison — girl, BROWN hair too, but she must never read as "Andrea again"
  * (NORTH_STAR §5: "visually distinct from Andrea: different outfit/hairstyle").
- * Three independent differences at placeholder fidelity: a LIGHTER/redder brown,
- * a completely different suit color, and a ponytail silhouette. */
+ * THREE independent differences so she reads distinct at a glance: a clearly
+ * lighter, warmer AUBURN (vs Andrea's dark brown — the contrast bumped in ST-6
+ * so the two brunettes never blur together at cast scale), a completely different
+ * suit color, and a full side PONYTAIL silhouette (partyCast.ts's overlay). */
 export const GUEST_ALLISON: NamedGuest = {
   name: 'Allison',
   appearance: {
     kind: 'authored',
-    hairColor: 0x9c6b3f,
+    hairColor: 0xb5713a,
     eyeColor: 0x5fa463,
     suitColor: 0xff8fc4,
     hairStyle: 'ponytail',

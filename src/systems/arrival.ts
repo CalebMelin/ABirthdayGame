@@ -89,11 +89,16 @@
 // tests/arrival.test.ts. createArrival only ever CALLS METHODS on the runtime
 // scene/ctx handles handed to it (same contract as createBike).
 //
-// FORWARD-NOTE (PLAN-10 owns ALL audio + art): the venue here is placeholder
-// geometry built from PALETTE, deliberately echoing PartyScene's dusk venue
-// (brown fence-brown structure, sunshine bulbs, a sunsetGlow light pool on a
-// plum-dark ground) so the cut into the party never changes palette. The music
-// swell / door SFX hook in at openVenue() and the wash.
+// FORWARD-NOTE (PLAN-10 owns ALL audio; ART landed in ST-6): the venue is now a
+// real cute pixel-art party building drawn from PALETTE (warm brickRed walls,
+// cream trim, a plum pitched roof, sunshine-lit windows, a striped marquee
+// awning, a swagged bulb garland, a coral heart sign, and a sunsetGlow light
+// pool spilling from the doors), deliberately echoing PartyScene's warm dusk
+// venue so the cut into the party never changes palette. Like PartyScene's
+// backdrop it is runtime Phaser Graphics/Rectangles (NOT a committed PNG), ZERO
+// Matter bodies. The music swell / door SFX still hook in at openVenue() and the
+// wash. The DOORWAY GEOMETRY is unchanged from the placeholder, so the never-fail
+// dismount choreography (ARRIVAL_DISMOUNT_OFFSETS) needed no re-tuning.
 import type Phaser from 'phaser';
 import {
   ARRIVAL,
@@ -216,49 +221,104 @@ export function nextArrivalPhase(phase: ArrivalPhase, signals: ArrivalSignals): 
 }
 
 // ---------------------------------------------------------------------------
-// Presentation-only local constants (PLACEHOLDER art). Following the
-// decorations.ts / pickup.ts / police.ts / partyCast.ts precedent, the DRAWING
-// dimensions of the throwaway placeholder venue + standing Caleb (no gameplay
-// effect — PLAN-10 replaces the art wholesale) stay here rather than in
-// constants.ts. The GEOMETRY/pacing tunables live in the ARRIVAL block. All
-// lengths are px at the 1280x720 DESIGN scale.
+// Presentation-only local constants (the venue's + standing Caleb's DRAWING
+// dimensions). Following the decorations.ts / pickup.ts / police.ts /
+// partyCast.ts precedent, the drawing dimensions of runtime-Graphics art (no
+// gameplay effect) stay here rather than in constants.ts; the GEOMETRY/pacing
+// tunables that DO move the bike/figures live in the ARRIVAL block. Real art as
+// of PLAN-10 ST-6, but still local because — like PartyScene's backdrop — the
+// party/arrival venue is drawn with runtime Phaser Graphics, not a committed
+// PNG. All lengths are px at the 1280x720 DESIGN scale.
 // ---------------------------------------------------------------------------
 
-// --- The venue: a warm-lit party house at dusk, standing just past the flag.
-// Colours deliberately mirror PartyScene's backyard (PALETTE.brown structure,
-// PALETTE.sunshine bulbs/windows, a PALETTE.sunsetGlow light pool) so riding in
-// and cutting to the party reads as ONE place.
+// --- The venue: a cute, warm party building standing just past the flag, lit up
+// against the dusk. Its palette echoes PartyScene's warm dusk backyard —
+// PALETTE.sunshine windows/lights, a PALETTE.sunsetGlow spill from the doors,
+// PALETTE.coral/bgPink festive trim over PALETTE.brickRed walls — so riding in
+// and cutting to the party reads as ONE warm place.
+//
+// THE DOORWAY GEOMETRY IS LOAD-BEARING; THE REST IS DRESSING. doorX (derived
+// from finishX + ARRIVAL.doorAheadOfFinishPx), DOOR_WIDTH_PX and DOOR_HEIGHT_PX
+// are UNCHANGED from the placeholder: the scripted crawl rolls the bike up to
+// doorX and both figures walk INTO the DOOR_WIDTH_PX opening centred on it (see
+// ARRIVAL_DISMOUNT_OFFSETS, tuned against exactly these). Everything else here —
+// the walls, roof, marquee awning, garland and heart sign — is art hung AROUND
+// that fixed opening, so ST-6's new art left the never-fail choreography and the
+// dismount offsets untouched.
 /** EXPORTED (like ARRIVAL_DISMOUNT_OFFSETS, and for the same reason) so
  * tests/arrival.test.ts can check the REAL claim ARRIVAL.doorAheadOfFinishPx
  * makes — that the doorway PLUS half this facade fits inside the runway every
  * level has past its flag (LEVEL.finishMarginPx) — instead of the weaker
  * "the doorway alone fits", which would pass with the building hanging off the
- * end of the world. */
+ * end of the world. Kept at 300 so the runway check (340 + 150 <= 500) and the
+ * dismount tuning both stand unchanged. */
 export const VENUE_WIDTH_PX = 300;
 const VENUE_HEIGHT_PX = 250;
 const VENUE_OUTLINE_PX = 4;
-/** The darker rail capping the venue — the same trick PartyScene's fence uses. */
-const VENUE_ROOF_HEIGHT_PX = 16;
+/** A darker wainscot band along the base of the wall, px tall. */
+const WAINSCOT_HEIGHT_PX = 30;
+/** Cream corner pilasters framing the facade: face width px. */
+const PILASTER_WIDTH_PX = 14;
+/** The plum pitched roof sitting on the wall: eave overhang past each wall edge
+ * (px, small so doorX + VENUE_WIDTH/2 + overhang stays inside the runway), how
+ * far the flat ridge is inset from the eaves (px), roof height above the wall
+ * (px), and the warm trim band under the eaves (px). */
+const ROOF_EAVE_OVERHANG_PX = 6;
+const ROOF_RIDGE_INSET_PX = 44;
+const ROOF_HEIGHT_PX = 46;
+const ROOF_TRIM_PX = 6;
 /** The lit doorway opening (both door panels together close over exactly this).
  * EXPORTED so tests/arrival.test.ts can check that both dismounted figures come
- * to a stop INSIDE it rather than straddling a jamb. */
+ * to a stop INSIDE it rather than straddling a jamb. UNCHANGED by ST-6's art. */
 export const DOOR_WIDTH_PX = 108;
 const DOOR_HEIGHT_PX = 150;
 /** How far the door panels shrink toward their outer hinges when fully open, as
  * a fraction of their closed width — not 0, so a sliver of each panel still
  * reads as an open door rather than vanishing. */
 const DOOR_OPEN_SCALE = 0.12;
-/** Two warm lit windows flanking the doorway. */
-const WINDOW_WIDTH_PX = 44;
-const WINDOW_HEIGHT_PX = 40;
-const WINDOW_INSET_X_PX = 100;
+/** A cream frame around the doorway: how far it juts past each side + the top,
+ * px. Purely visual trim around the fixed DOOR_WIDTH_PX opening. */
+const DOOR_FRAME_PX = 10;
+/** A cream threshold step at the foot of the door: px wider each side than the
+ * opening, and px tall. */
+const DOORSTEP_OVERHANG_PX = 12;
+const DOORSTEP_HEIGHT_PX = 10;
+/** Two warm lit windows flanking the doorway, each split into panes by a dark
+ * muntin cross. */
+const WINDOW_WIDTH_PX = 48;
+const WINDOW_HEIGHT_PX = 52;
+const WINDOW_INSET_X_PX = 104;
 /** Window centre height above the ground. */
-const WINDOW_ABOVE_GROUND_PX = 190;
-/** A short strand of warm bulbs along the venue's roofline (PartyScene's string
- * lights, in miniature). */
-const BULB_COUNT = 7;
-const BULB_SIZE_PX = 8;
-const BULB_ABOVE_ROOF_PX = 14;
+const WINDOW_ABOVE_GROUND_PX = 196;
+/** Muntin bar thickness dividing each window into four panes, px. */
+const WINDOW_MUNTIN_PX = 4;
+/** The striped marquee awning over the doorway (the "party venue" flourish):
+ * half-width (px, a little wider than the door), band height (px), the scallop
+ * triangle depth along its bottom edge (px), the stripe/scallop count, and the
+ * gap between the door opening's top and the awning's scallops (px). */
+const AWNING_HALF_WIDTH_PX = 78;
+const AWNING_HEIGHT_PX = 18;
+const AWNING_SCALLOP_PX = 12;
+const AWNING_STRIPES = 6;
+const AWNING_ABOVE_DOOR_PX = 4;
+/** A little heart "sign" plaque above the door — no text, just a warm welcome.
+ * Cream plaque WxH px, gap above the awning px, and the coral heart's radius px. */
+const SIGN_PLAQUE_WIDTH_PX = 42;
+const SIGN_PLAQUE_HEIGHT_PX = 34;
+const SIGN_ABOVE_AWNING_PX = 10;
+const HEART_RADIUS_PX = 9;
+/** A swagged strand of warm bulbs across the facade (PartyScene's string lights,
+ * in miniature): bulb count, bulb square size px, inset from each wall edge px,
+ * anchor height above the ground px, and how far it sags below the anchors at
+ * centre px. */
+const GARLAND_BULB_COUNT = 7;
+const GARLAND_BULB_SIZE_PX = 9;
+const GARLAND_INSET_X_PX = 28;
+const GARLAND_ABOVE_GROUND_PX = 240;
+const GARLAND_SAG_PX = 12;
+const GARLAND_WIRE_PX = 3;
+/** Festive multicolour bulbs cycled along the garland (warm party tones). */
+const GARLAND_BULB_COLORS: readonly number[] = [PALETTE.sunshine, PALETTE.coral, PALETTE.bgPink];
 /** The pool of light the open doors throw across the road: nested ellipses on
  * ONE Graphics, not one flat ellipse. Same lesson PartyScene's floor pool
  * records: a single translucent ellipse of a saturated warm colour has a visible
@@ -429,54 +489,115 @@ export function createArrival(
     return obj;
   }
 
-  // --- the venue (non-Matter placeholder) ---------------------------------
+  // --- the venue (body-free party building, drawn AROUND the fixed doorway) --
+  const halfW = VENUE_WIDTH_PX / 2;
+  const roofY = groundY - VENUE_HEIGHT_PX;
+  const doorTop = groundY - DOOR_HEIGHT_PX;
+
+  // The warm terracotta wall.
   track(
     scene.add
-      .rectangle(doorX, groundY, VENUE_WIDTH_PX, VENUE_HEIGHT_PX, PALETTE.brown)
+      .rectangle(doorX, groundY, VENUE_WIDTH_PX, VENUE_HEIGHT_PX, PALETTE.brickRed)
       .setOrigin(0.5, 1)
       .setStrokeStyle(VENUE_OUTLINE_PX, PALETTE.outline)
       .setDepth(DEPTHS.props)
   );
-  const roofY = groundY - VENUE_HEIGHT_PX;
+  // A darker wainscot band along the base, and cream corner pilasters — enough
+  // trim that the wall never reads as a flat block (DECISIONS' complaint).
   track(
     scene.add
-      .rectangle(doorX, roofY, VENUE_WIDTH_PX, VENUE_ROOF_HEIGHT_PX, PALETTE.outline)
-      .setOrigin(0.5, 0)
+      .rectangle(doorX, groundY, VENUE_WIDTH_PX, WAINSCOT_HEIGHT_PX, PALETTE.brown)
+      .setOrigin(0.5, 1)
       .setDepth(DEPTHS.props + 1)
   );
   for (const side of [-1, 1]) {
     track(
       scene.add
         .rectangle(
-          doorX + side * WINDOW_INSET_X_PX,
-          groundY - WINDOW_ABOVE_GROUND_PX,
-          WINDOW_WIDTH_PX,
-          WINDOW_HEIGHT_PX,
-          PALETTE.sunshine
+          doorX + side * (halfW - PILASTER_WIDTH_PX / 2),
+          groundY,
+          PILASTER_WIDTH_PX,
+          VENUE_HEIGHT_PX,
+          PALETTE.cream
         )
-        .setStrokeStyle(VENUE_OUTLINE_PX, PALETTE.outline)
+        .setOrigin(0.5, 1)
         .setDepth(DEPTHS.props + 1)
     );
   }
-  // Warm bulbs along the roofline — PartyScene's string lights, in miniature.
-  const bulbSpan = VENUE_WIDTH_PX - BULB_SIZE_PX * 2;
-  // Math.max(1, …) guards a hypothetical single-bulb strand against a
-  // divide-by-zero — the same shape PartyScene.drawStringLights uses.
-  const bulbSpans = Math.max(1, BULB_COUNT - 1);
-  for (let i = 0; i < BULB_COUNT; i++) {
-    const t = i / bulbSpans;
+
+  // The plum pitched roof — a filled+stroked trapezoid (wider eaves, flat ridge)
+  // on ONE Graphics, kept inside the runway by ROOF_EAVE_OVERHANG_PX.
+  const eaveL = doorX - halfW - ROOF_EAVE_OVERHANG_PX;
+  const eaveR = doorX + halfW + ROOF_EAVE_OVERHANG_PX;
+  const ridgeY = roofY - ROOF_HEIGHT_PX;
+  const roofPoints = [
+    { x: eaveL, y: roofY },
+    { x: doorX - ROOF_RIDGE_INSET_PX, y: ridgeY },
+    { x: doorX + ROOF_RIDGE_INSET_PX, y: ridgeY },
+    { x: eaveR, y: roofY },
+  ];
+  const roof = track(scene.add.graphics().setDepth(DEPTHS.props + 1));
+  roof.fillStyle(PALETTE.plum, 1);
+  roof.fillPoints(roofPoints, true);
+  roof.lineStyle(VENUE_OUTLINE_PX, PALETTE.outline, 1);
+  roof.strokePoints(roofPoints, true);
+  // A warm trim band under the eaves.
+  track(
+    scene.add
+      .rectangle(doorX, roofY, VENUE_WIDTH_PX, ROOF_TRIM_PX, PALETTE.sunsetGlow)
+      .setOrigin(0.5, 0)
+      .setDepth(DEPTHS.props + 1)
+  );
+
+  // Two warm lit windows, dark-framed and split into four panes by a muntin
+  // cross so they read as real windows rather than yellow squares.
+  for (const side of [-1, 1]) {
+    const wx = doorX + side * WINDOW_INSET_X_PX;
+    const wy = groundY - WINDOW_ABOVE_GROUND_PX;
     track(
       scene.add
-        .rectangle(
-          doorX - bulbSpan / 2 + t * bulbSpan,
-          roofY - BULB_ABOVE_ROOF_PX,
-          BULB_SIZE_PX,
-          BULB_SIZE_PX,
-          PALETTE.sunshine
-        )
+        .rectangle(wx, wy, WINDOW_WIDTH_PX, WINDOW_HEIGHT_PX, PALETTE.sunshine)
+        .setStrokeStyle(VENUE_OUTLINE_PX, PALETTE.outline)
+        .setDepth(DEPTHS.props + 1)
+    );
+    track(
+      scene.add
+        .rectangle(wx, wy, WINDOW_MUNTIN_PX, WINDOW_HEIGHT_PX, PALETTE.outline)
+        .setDepth(DEPTHS.props + 2)
+    );
+    track(
+      scene.add
+        .rectangle(wx, wy, WINDOW_WIDTH_PX, WINDOW_MUNTIN_PX, PALETTE.outline)
         .setDepth(DEPTHS.props + 2)
     );
   }
+
+  // A cream frame + threshold step around the fixed doorway opening.
+  track(
+    scene.add
+      .rectangle(
+        doorX,
+        groundY,
+        DOOR_WIDTH_PX + DOOR_FRAME_PX * 2,
+        DOOR_HEIGHT_PX + DOOR_FRAME_PX,
+        PALETTE.cream
+      )
+      .setOrigin(0.5, 1)
+      .setStrokeStyle(VENUE_OUTLINE_PX, PALETTE.outline)
+      .setDepth(DEPTHS.props + 1)
+  );
+  track(
+    scene.add
+      .rectangle(
+        doorX,
+        groundY,
+        DOOR_WIDTH_PX + DOORSTEP_OVERHANG_PX * 2,
+        DOORSTEP_HEIGHT_PX,
+        PALETTE.cream
+      )
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTHS.props + 2)
+  );
   // The lit interior behind the doors — revealed as the panels swing open.
   track(
     scene.add
@@ -485,7 +606,8 @@ export function createArrival(
       .setDepth(DEPTHS.props + 2)
   );
   // The two door panels, each anchored on its OUTER edge so shrinking its
-  // scaleX reads as that panel swinging open against the jamb.
+  // scaleX reads as that panel swinging open against the jamb. GEOMETRY UNCHANGED
+  // (DOOR_WIDTH_PX/DOOR_HEIGHT_PX): the dismount offsets are tuned against it.
   const doorPanels = [-1, 1].map((side) =>
     track(
       scene.add
@@ -501,6 +623,86 @@ export function createArrival(
         .setDepth(DEPTHS.props + 3)
     )
   );
+
+  // A striped marquee awning over the doorway — the flourish that says "party
+  // venue". Alternating coral/cream stripes with a scalloped bottom edge, on ONE
+  // Graphics sitting just above the door opening so it never covers the light.
+  const awningBottomY = doorTop - AWNING_ABOVE_DOOR_PX;
+  const awningTopY = awningBottomY - AWNING_HEIGHT_PX;
+  const awningLeft = doorX - AWNING_HALF_WIDTH_PX;
+  const stripeW = (AWNING_HALF_WIDTH_PX * 2) / AWNING_STRIPES;
+  const awning = track(scene.add.graphics().setDepth(DEPTHS.props + 3));
+  for (let i = 0; i < AWNING_STRIPES; i++) {
+    const sx = awningLeft + i * stripeW;
+    awning.fillStyle(i % 2 === 0 ? PALETTE.coral : PALETTE.cream, 1);
+    awning.fillRect(sx, awningTopY, stripeW, AWNING_HEIGHT_PX);
+    awning.fillTriangle(
+      sx,
+      awningBottomY,
+      sx + stripeW,
+      awningBottomY,
+      sx + stripeW / 2,
+      awningBottomY + AWNING_SCALLOP_PX
+    );
+  }
+  awning.lineStyle(VENUE_OUTLINE_PX, PALETTE.outline, 1);
+  awning.strokeRect(awningLeft, awningTopY, AWNING_HALF_WIDTH_PX * 2, AWNING_HEIGHT_PX);
+
+  // A little coral heart "sign" over the door — a warm, wordless welcome.
+  const signCy = awningTopY - SIGN_ABOVE_AWNING_PX - SIGN_PLAQUE_HEIGHT_PX / 2;
+  track(
+    scene.add
+      .rectangle(doorX, signCy, SIGN_PLAQUE_WIDTH_PX, SIGN_PLAQUE_HEIGHT_PX, PALETTE.cream)
+      .setStrokeStyle(VENUE_OUTLINE_PX, PALETTE.outline)
+      .setDepth(DEPTHS.props + 2)
+  );
+  const heart = track(scene.add.graphics().setDepth(DEPTHS.props + 3));
+  const hr = HEART_RADIUS_PX;
+  const heartCy = signCy - hr / 3;
+  heart.fillStyle(PALETTE.coral, 1);
+  heart.fillCircle(doorX - hr * 0.5, heartCy, hr * 0.6);
+  heart.fillCircle(doorX + hr * 0.5, heartCy, hr * 0.6);
+  heart.fillTriangle(
+    doorX - hr,
+    heartCy + hr * 0.05,
+    doorX + hr,
+    heartCy + hr * 0.05,
+    doorX,
+    heartCy + hr * 1.35
+  );
+
+  // A swagged strand of warm multicolour bulbs across the facade — PartyScene's
+  // string lights in miniature (a parabola sagging GARLAND_SAG_PX at centre).
+  const garland = track(scene.add.graphics().setDepth(DEPTHS.props + 2));
+  const gLeft = doorX - halfW + GARLAND_INSET_X_PX;
+  const gRight = doorX + halfW - GARLAND_INSET_X_PX;
+  const gAnchorY = groundY - GARLAND_ABOVE_GROUND_PX;
+  const gSpans = Math.max(1, GARLAND_BULB_COUNT - 1);
+  const garlandY = (t: number): number => gAnchorY + GARLAND_SAG_PX * 4 * t * (1 - t);
+  garland.lineStyle(GARLAND_WIRE_PX, PALETTE.outline, 1);
+  garland.beginPath();
+  for (let i = 0; i < GARLAND_BULB_COUNT; i++) {
+    const t = i / gSpans;
+    const gx = gLeft + (gRight - gLeft) * t;
+    if (i === 0) garland.moveTo(gx, garlandY(t));
+    else garland.lineTo(gx, garlandY(t));
+  }
+  garland.strokePath();
+  for (let i = 0; i < GARLAND_BULB_COUNT; i++) {
+    const t = i / gSpans;
+    const gx = gLeft + (gRight - gLeft) * t;
+    track(
+      scene.add
+        .rectangle(
+          gx,
+          garlandY(t) + GARLAND_BULB_SIZE_PX / 2,
+          GARLAND_BULB_SIZE_PX,
+          GARLAND_BULB_SIZE_PX,
+          GARLAND_BULB_COLORS[i % GARLAND_BULB_COLORS.length]
+        )
+        .setDepth(DEPTHS.props + 3)
+    );
+  }
   // The pool of warm light the open doors throw across the road. Depth sits just
   // ABOVE the ground layer but BELOW every prop and the bike, so it lights the
   // ROAD — Gabby, the finish flag and the venue all stand IN the light rather

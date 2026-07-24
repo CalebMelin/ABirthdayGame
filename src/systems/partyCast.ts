@@ -31,12 +31,14 @@
 // (tests/finale.test.ts), and createPartyCast only ever CALLS METHODS on the
 // runtime `scene` handle it is given (same contract as createBike).
 //
-// PLACEHOLDER ART (PLAN-10 replaces the rest): the named/crowd guests are still
-// palette swaps of the ONE marker-composite rider base texture, plus a cheap
-// overlay rectangle for the ponytail hair silhouette. Caleb is the exception —
-// his tex-caleb is REAL brown-haired art now (PLAN-10 ST-2), so he needs no
-// overlay. Every tunable NUMBER lives in constants.ts's PARTY block; every COLOR
-// and every verbatim NAME lives in src/data/finale.ts.
+// GUEST ART: the named/crowd guests are palette swaps of the ONE (now real, PLAN-10
+// ST-1) rider base texture — recolored hair/eyes/suit per guest — plus, for
+// Allison, a multi-segment hair-coloured PONYTAIL overlay (ST-6) that reads as a
+// distinct hairstyle from brown-haired Andrea at a glance (NORTH_STAR §5). Caleb
+// is the exception — his tex-caleb is REAL brown-haired art (PLAN-10 ST-2), so he
+// needs no overlay. Every tunable NUMBER lives in constants.ts's PARTY block; the
+// small ponytail overlay DRAWING dims stay local here (the arrival.ts precedent);
+// every COLOR and every verbatim NAME lives in src/data/finale.ts.
 import type Phaser from 'phaser';
 import { PARTY, PALETTE, TEXTURE_KEYS } from './constants';
 import { pixelText } from './pixelText';
@@ -256,17 +258,23 @@ export function castTextureSource(slot: PartyCastSlot): CastTextureSource {
 // ---------------------------------------------------------------------------
 
 /** The 24x48 rider/Caleb sprite height. Only the HEIGHT is needed here now — it
- * seats the ponytail overlay and the floating name tags. (Caleb's brown hair
- * band used to need the width too, but tex-caleb bakes his hair in as of PLAN-10
- * ST-2, so the band is gone — see calebFigure.ts.) */
+ * seats the floating name tags. (Caleb's brown hair band used to need the width
+ * too, but tex-caleb bakes his hair in as of PLAN-10 ST-2, so the band is gone —
+ * see calebFigure.ts.) */
 const SPRITE_HEIGHT_PX = 48;
-/** Allison's ponytail: a small hair-colored rectangle hanging off the side of
- * her head, the cheap placeholder stand-in for "a different hairstyle than
- * Andrea" (NORTH_STAR §5). Offsets are from the sprite's centre x / top edge. */
-const PONYTAIL_WIDTH_PX = 8;
-const PONYTAIL_HEIGHT_PX = 18;
-const PONYTAIL_OFFSET_X_PX = 15;
-const PONYTAIL_TOP_INSET_PX = 4;
+/** Allison's side PONYTAIL — the hairstyle silhouette that keeps her distinct
+ * from brown-haired Andrea at a glance (NORTH_STAR §5). Refined in ST-6 from one
+ * lump into a real ponytail: a hair-tie knot at the head's upper-right side, a
+ * full upper tail, and a tapering tip that flicks down and out. Each segment is
+ * {dx, dy, w, h} in SPRITE-LOCAL px measured from the sprite's centre-x and FEET
+ * (dy negative = up), so the whole strand scales and bounces WITH its owner;
+ * every segment is drawn in the guest's own hairColor. Only Allison ever carries
+ * hairStyle 'ponytail' — the crowd never does (guarded by tests/finale.test.ts). */
+const PONYTAIL_SEGMENTS: readonly { dx: number; dy: number; w: number; h: number }[] = [
+  { dx: 6, dy: -40, w: 6, h: 5 }, // hair-tie knot at the head's upper side
+  { dx: 9, dy: -33, w: 8, h: 10 }, // the full upper tail
+  { dx: 12, dy: -22, w: 5, h: 11 }, // the tapering, out-flicking tip
+];
 
 // ---------------------------------------------------------------------------
 // Runtime factory (calls scene methods only — see module doc).
@@ -379,15 +387,11 @@ export function createPartyCast(scene: Phaser.Scene, opts: PartyCastOptions): Pa
     ];
 
     if (slot.appearance !== null && slot.appearance.hairStyle === 'ponytail') {
-      parts.push(
-        scene.add.rectangle(
-          PONYTAIL_OFFSET_X_PX,
-          -SPRITE_HEIGHT_PX + PONYTAIL_TOP_INSET_PX + PONYTAIL_HEIGHT_PX / 2,
-          PONYTAIL_WIDTH_PX,
-          PONYTAIL_HEIGHT_PX,
-          slot.appearance.hairColor
-        )
-      );
+      for (const seg of PONYTAIL_SEGMENTS) {
+        parts.push(
+          scene.add.rectangle(seg.dx, seg.dy, seg.w, seg.h, slot.appearance.hairColor)
+        );
+      }
     }
 
     return scene.add
