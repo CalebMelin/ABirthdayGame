@@ -645,11 +645,12 @@ export function createBackdrop(
     update(): void {
       // Autonomous cloud drift: slide each cloud by elapsed scene time (NOT
       // Date.now), wrapping so it recycles off-screen. ALLOCATION-FREE — no
-      // per-frame objects, just moving the existing clouds. No clouds -> the
-      // loop body never runs.
+      // per-frame objects (a classic index loop, so not even an iterator), just
+      // moving the existing clouds. No clouds -> the loop body never runs.
       if (clouds.length === 0) return;
       const now = scene.time ? scene.time.now : 0;
-      for (const c of clouds) {
+      for (let i = 0; i < clouds.length; i++) {
+        const c = clouds[i];
         c.g.x = wrapX(c.baseX + now * c.speed, cloudBandMinX, cloudBandWidth);
       }
     },

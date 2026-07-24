@@ -248,13 +248,14 @@ export function castTextureSource(slot: PartyCastSlot): CastTextureSource {
 }
 
 // ---------------------------------------------------------------------------
-// Presentation-only local constants (PLACEHOLDER art). Following the
-// decorations.ts / pickup.ts / police.ts precedent, the DRAWING dimensions of
-// the throwaway placeholder sprites stay here rather than in constants.ts —
-// PLAN-10 replaces this art wholesale. The LAYOUT/FEEL tunables (positions,
-// depths, scales, crowd count, bounce, name-tag geometry) live in the PARTY
-// block in constants.ts. All lengths are SPRITE-LOCAL px (before a slot's
-// scale is applied).
+// Presentation-only local constants (real art, refined in PLAN-10 ST-6).
+// Following the decorations.ts / pickup.ts / police.ts precedent, the DRAWING
+// dimensions of the scenery/accessory shapes drawn here (the ponytail strand)
+// stay local rather than in constants.ts — they are the shape of the art
+// itself, not gameplay tunables. The LAYOUT/FEEL tunables (positions, depths,
+// scales, crowd count, bounce, name-tag geometry) live in the PARTY block in
+// constants.ts. All lengths are SPRITE-LOCAL px (before a slot's scale is
+// applied).
 // ---------------------------------------------------------------------------
 
 /** The 24x48 rider/Caleb sprite height. Only the HEIGHT is needed here now — it

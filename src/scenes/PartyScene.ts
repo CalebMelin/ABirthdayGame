@@ -39,10 +39,11 @@
 // compensation anywhere. All tunable numbers live in constants.ts's PARTY block.
 //
 // FORWARD-NOTES: PLAN-10 owns ALL audio (party music here, balloon-pop SFX at
-// partyBalloons.ts's single pop() call site) and replaces this placeholder
-// backdrop art with real pixel art. ST-5 owns the scripted level-22 arrival that
-// runs BEFORE this scene; ST-4 builds the real CreditsScene this button routes
-// to; ST-6 adds the Title screen's "Party" revisit entry point.
+// partyBalloons.ts's single pop() call site). The backdrop is real pixel art as
+// of ST-6 — the warm brick venue building glimpsed over the fence. ST-5 owns the
+// scripted level-22 arrival that runs BEFORE this scene; ST-4 builds the real
+// CreditsScene this button routes to; ST-6 adds the Title screen's "Party"
+// revisit entry point.
 import Phaser from 'phaser';
 import {
   DEPTHS,
@@ -126,12 +127,13 @@ const VENUE_BUILDING_TOP_Y = 308;
  * past each wall edge, px. */
 const VENUE_BUILDING_ROOF_HEIGHT_PX = 10;
 const VENUE_BUILDING_ROOF_OVERHANG_PX = 8;
-/** Warm lit windows on the building: size px, their centre y, and their centre
- * xs. */
+/** Warm lit windows on the building: size px, their centre y, their centre
+ * xs, and their outline stroke width px. */
 const VENUE_BUILDING_WINDOW_W_PX = 26;
 const VENUE_BUILDING_WINDOW_H_PX = 32;
 const VENUE_BUILDING_WINDOW_Y = 352;
 const VENUE_BUILDING_WINDOW_XS: readonly number[] = [988, 1068, 1148];
+const VENUE_BUILDING_WINDOW_STROKE_PX = 3;
 
 /** DEV-only live snapshot the browser playtest harness
  * (scripts/playtest-party.mjs) reads off the scene to assert the banner/toast/
@@ -397,7 +399,7 @@ export class PartyScene extends Phaser.Scene {
           VENUE_BUILDING_WINDOW_H_PX,
           PALETTE.sunshine
         )
-        .setStrokeStyle(3, PALETTE.outline)
+        .setStrokeStyle(VENUE_BUILDING_WINDOW_STROKE_PX, PALETTE.outline)
         .setDepth(DEPTHS.background);
     }
 

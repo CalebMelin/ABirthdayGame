@@ -380,7 +380,7 @@ export const FIGURE_SPRITE_WIDTH_PX = 24;
 // than as a px figure on purpose: an earlier draft quoted the arithmetic result
 // and went stale the moment a screenshot pass moved the landings.
 /**
- * EXPORTED, unlike every other placeholder-art const in this file, for exactly
+ * EXPORTED, unlike every other local drawing const in this file, for exactly
  * one reason: so tests/arrival.test.ts can PIN the equal-walk property above
  * instead of this comment merely asserting it. That is the fix for the failure
  * mode this plan kept hitting — a number restated in prose drifts the moment the
