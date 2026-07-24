@@ -131,6 +131,47 @@ export class Framebuffer {
     }
   }
 
+  /**
+   * Alpha byte at (x,y). Out-of-bounds reads as 0 (fully transparent), so a
+   * silhouette scan can safely probe past the edge without a bounds check at
+   * every call site.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  alphaAt(x, y) {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
+    return this.data[(y * this.width + x) * 4 + 3];
+  }
+
+  /**
+   * Lay a clean 1px dark outline around whatever opaque silhouette has been
+   * painted: every TRANSPARENT pixel 4-adjacent to an opaque one becomes
+   * `color`. 4-neighbour (x±1,y / x,y±1 — not 8) keeps it a true 1px band with
+   * no diagonal thickening. Targets are collected BEFORE any write so the
+   * freshly-added outline never re-outlines itself (the two-pass is
+   * load-bearing). Deterministic (pure function of the current pixels).
+   * @param {number} color
+   * @param {number} [alpha]
+   */
+  outlineSilhouette(color, alpha = 255) {
+    const targets = [];
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        if (this.alphaAt(x, y) !== 0) continue;
+        if (
+          this.alphaAt(x - 1, y) ||
+          this.alphaAt(x + 1, y) ||
+          this.alphaAt(x, y - 1) ||
+          this.alphaAt(x, y + 1)
+        ) {
+          targets.push([x, y]);
+        }
+      }
+    }
+    for (const [x, y] of targets) this.setPixel(x, y, color, alpha);
+  }
+
   /** The raw RGBA byte buffer, ready for encodePng(width,height,bytes). */
   bytes() {
     return this.data;

@@ -9,42 +9,11 @@
 import { PALETTE } from './palette.mjs';
 import { assertGrid } from './sprites.mjs';
 
-// -----------------------------------------------------------------------------
-// Shared low-level helpers (ST-4a). Same pattern vehicles.mjs uses: read the
-// Framebuffer's raw alpha so an auto-outliner can lay a clean 1px dark band
-// around whatever opaque silhouette was painted. Authoring a shape by its COLOR
-// regions only (no hand-placed 'o') and letting outlineSilhouette wrap it is far
-// less error-prone than counting outline cells by hand — the tulip's petals/leaf
-// and the balloon's round body both use it.
-// -----------------------------------------------------------------------------
-
-/** Alpha byte at (x,y), 0 for out-of-bounds. */
-function alphaAt(fb, x, y) {
-  if (x < 0 || y < 0 || x >= fb.width || y >= fb.height) return 0;
-  return fb.data[(y * fb.width + x) * 4 + 3];
-}
-
-/**
- * Lay a clean 1px dark outline around whatever opaque silhouette has been
- * painted: every TRANSPARENT pixel 4-adjacent to an opaque one becomes `color`.
- * 4-neighbour (not 8) keeps it a true 1px band with no diagonal thickening.
- * Targets are collected BEFORE any write so the freshly-added outline never
- * re-outlines itself. Deterministic (pure function of the current pixels).
- * (Byte-identical in spirit to vehicles.mjs's private copy; kept local so
- * props.mjs pulls in nothing from the vehicle file.)
- */
-function outlineSilhouette(fb, color) {
-  const targets = [];
-  for (let y = 0; y < fb.height; y++) {
-    for (let x = 0; x < fb.width; x++) {
-      if (alphaAt(fb, x, y) !== 0) continue;
-      if (alphaAt(fb, x - 1, y) || alphaAt(fb, x + 1, y) || alphaAt(fb, x, y - 1) || alphaAt(fb, x, y + 1)) {
-        targets.push([x, y]);
-      }
-    }
-  }
-  for (const [x, y] of targets) fb.setPixel(x, y, color);
-}
+// The auto-outliner (fb.outlineSilhouette) lives on the shared Framebuffer now:
+// author a shape by its COLOR regions only (no hand-placed 'o') and let it wrap
+// the opaque silhouette in a clean 1px dark band — far less error-prone than
+// counting outline cells by hand. The tulip's petals/leaf and the balloon's
+// round body both rely on it.
 
 // -----------------------------------------------------------------------------
 // Finish flag — 24x64 (matches BootScene TEXTURE_SPECS.flag). A checkered
@@ -138,7 +107,7 @@ export function drawTulip(fb) {
     p: PALETTE.bgPink, // lighter-pink glint
     G: PALETTE.grass, // stem + leaf
   });
-  outlineSilhouette(fb, PALETTE.outline);
+  fb.outlineSilhouette(PALETTE.outline);
 }
 
 // -----------------------------------------------------------------------------
@@ -210,7 +179,7 @@ export function drawBalloon(fb) {
   // Body + knot as one white silhouette so the outline wraps them together.
   for (const [y, l, r] of BALLOON_BODY_SPANS) fb.hLine(l, y, r - l + 1, PALETTE.white);
   for (const [y, l, r] of BALLOON_KNOT_SPANS) fb.hLine(l, y, r - l + 1, PALETTE.white);
-  outlineSilhouette(fb, PALETTE.outline);
+  fb.outlineSilhouette(PALETTE.outline);
   // Roundness crescent: darken the lower-right interior (never the outline —
   // r is the rightmost INTERIOR cell, the outline sits one past it at r+1).
   for (const [y, , r] of BALLOON_BODY_SPANS) {

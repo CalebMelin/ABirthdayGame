@@ -8,9 +8,10 @@
 //
 // See the PICKUP constants block (src/systems/constants.ts) for the gameplay
 // tunables (trigger window, stop threshold, cutscene/heart/toast timing) and
-// level12.ts's CalebPickupEvent for the per-level placement. The placeholder
-// DRAWING dimensions for the house/mailbox/Caleb stay as local documented consts
-// below (decorations.ts precedent — PLAN-10 replaces the art wholesale).
+// level12.ts's CalebPickupEvent for the per-level placement. The (permanently
+// procedural) DRAWING dimensions for the house/mailbox/Caleb stay as local
+// documented consts below (decorations.ts precedent — intentional pixel art,
+// improved in place by PLAN-10 ST-4a, not placeholder awaiting replacement).
 //
 // ZERO Matter bodies: the house, mailbox, standing Caleb, heart and toast are all
 // plain Phaser GameObjects (Rectangle/Graphics/Image/Container/Text), so they
@@ -116,12 +117,13 @@ export function nextPickupPhase(
 }
 
 // ---------------------------------------------------------------------------
-// Presentation-only local constants (placeholder art). Following the
-// decorations.ts / themes.ts precedent, the DRAWING dimensions of the throwaway
-// placeholder house/mailbox/Caleb/heart/toast (no gameplay effect — PLAN-10
-// replaces the art) stay here rather than in constants.ts. The GAMEPLAY tunables
-// (trigger window, stop threshold, cutscene/heart/toast timing) live in the
-// PICKUP block in constants.ts. All lengths are px at the 1280x720 DESIGN scale.
+// Presentation-only local constants. Following the decorations.ts / themes.ts
+// precedent, the DRAWING dimensions of the (permanently procedural)
+// house/mailbox/Caleb/heart/toast — intentional pixel art improved in place by
+// PLAN-10 ST-4a, no gameplay effect — stay here rather than in constants.ts. The
+// GAMEPLAY tunables (trigger window, stop threshold, cutscene/heart/toast timing)
+// live in the PICKUP block in constants.ts. All lengths are px at the 1280x720
+// DESIGN scale.
 // ---------------------------------------------------------------------------
 
 // --- Caleb's house: a cute cottage (body + peaked roof w/ eave + door w/ knob +
@@ -141,6 +143,8 @@ const HOUSE_DOOR_WIDTH_PX = 46;
 const HOUSE_DOOR_HEIGHT_PX = 74;
 /** Round brass-ish door knob, px. */
 const HOUSE_DOOR_KNOB_SIZE_PX = 7;
+/** How far the knob's centre is inset from the door's road-side (right) edge, px. */
+const HOUSE_DOOR_KNOB_INSET_PX = 9;
 /** Two square paned windows flanking the door: size, centre inset from the house
  * centre x, and centre height above the ground. */
 const HOUSE_WINDOW_SIZE_PX = 38;
@@ -350,7 +354,11 @@ export function createPickup(
   );
   const knob = track(scene.add.graphics().setDepth(DEPTHS.props + 2));
   knob.fillStyle(PALETTE.sunshine, 1);
-  knob.fillCircle(houseX + HOUSE_DOOR_WIDTH_PX / 2 - 9, houseGroundY - HOUSE_DOOR_HEIGHT_PX / 2, HOUSE_DOOR_KNOB_SIZE_PX / 2);
+  knob.fillCircle(
+    houseX + HOUSE_DOOR_WIDTH_PX / 2 - HOUSE_DOOR_KNOB_INSET_PX,
+    houseGroundY - HOUSE_DOOR_HEIGHT_PX / 2,
+    HOUSE_DOOR_KNOB_SIZE_PX / 2
+  );
 
   // --- Mailbox with the MELIN nameplate (verbatim). A wood post carries a
   // rounded mailbox body + a red flag; the nameplate IS the box's front. ---

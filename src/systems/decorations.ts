@@ -1,10 +1,12 @@
 // Ambient decoration renderer (PLAN-05 ST-4): draws a level's static scenery
-// — tutorial signs, ad billboards, party balloons, streamers — as PLACEHOLDER
+// — tutorial signs, ad billboards, party balloons, streamers — as procedural
 // pixel shapes sitting relative to the ground surface. Purely visual: NOTHING
 // here creates a Matter body, so decorations never touch NORTH_STAR §8's
-// <100-physics-bodies-per-level budget. Real pixel-art decorations arrive in
-// PLAN-10; this file is placeholder plumbing (create-once / destroy-on-teardown
-// handle), mirroring terrain.ts's / themes.ts's handle pattern.
+// <100-physics-bodies-per-level budget. This scenery stays PERMANENTLY
+// procedural — it carries dynamic text / sizes-to-fit, so it is never
+// texturised; PLAN-10 ST-4a improved these shapes in place (cuter, intentional
+// pixel art with the STYLE-GUIDE 1px-dark look). Create-once /
+// destroy-on-teardown handle, mirroring terrain.ts's / themes.ts's pattern.
 //
 // AS OF PLAN-07 task 3, this module IS Node/Vitest import-safe (like
 // terrain.ts/bike.ts/themes.ts/traffic.ts/police.ts/wheelieRider.ts): it no
@@ -50,11 +52,11 @@ export interface DecorationsHandle {
 
 // ---------------------------------------------------------------------------
 // Presentation-only local constants. Following the themes.ts / terrain.ts /
-// ui.ts precedent, placeholder-art DRAWING dimensions (with no gameplay
-// effect) stay as documented local constants here rather than in constants.ts
-// — they're the shape of throwaway placeholder art (PLAN-10 replaces the art
-// wholesale), not tunable gameplay numbers. All lengths are px at the
-// 1280x720 DESIGN scale.
+// ui.ts precedent, these scenery DRAWING dimensions (with no gameplay effect)
+// stay as documented local constants here rather than in constants.ts — they're
+// the shape of intentional, permanently-procedural pixel art (improved in place
+// by PLAN-10 ST-4a, never texturised), not tunable gameplay numbers. All lengths
+// are px at the 1280x720 DESIGN scale.
 // ---------------------------------------------------------------------------
 
 // --- Sign: a small roadside post + board carrying a short tutorial callout.
@@ -82,7 +84,7 @@ const SIGN_HEART_SIZE_PX = 14;
 // --- Billboard: a larger board on a tall pole, elevated well above the road.
 // Board WIDTH/HEIGHT/padding + word-wrap tunables live in constants.ts's
 // BILLBOARD block (PLAN-07 task 3) instead of here — unlike this pole/outline/
-// text-size placeholder-art shape, board sizing now serves a real gameplay
+// text-size procedural-art shape, board sizing now serves a real gameplay
 // requirement (the level-18 easter egg's "subtle, same family as the decoys"
 // mandate), not just decorative fluff — see that block's doc comment.
 const BILLBOARD_POST_WIDTH_PX = 16;
@@ -104,7 +106,7 @@ const BILLBOARD_FRAME_MARGIN_PX = 6;
 const BALLOON_FLOAT_HEIGHT_PX = 170;
 const BALLOON_STRING_WIDTH_PX = 3;
 const BALLOON_STRING_LENGTH_PX = 40;
-/** The tex-balloon placeholder is 24x32; scale it up to read as a balloon. */
+/** The tex-balloon texture is 24x32; scale it up to read as a balloon. */
 const BALLOON_SCALE = 2.4;
 
 // --- Streamer: a hanging pennant garland — a draped dark cord with little
@@ -397,7 +399,7 @@ function drawStreamer(
 // ---------------------------------------------------------------------------
 
 /**
- * Renders every entry in `config.decorations` as placeholder scenery sitting
+ * Renders every entry in `config.decorations` as procedural scenery sitting
  * relative to the ground surface (`terrain.heightAt(spec.x)`), tinted with the
  * level theme's prop accent. Returns a handle whose destroy() removes them all.
  *

@@ -37,49 +37,19 @@ export const VEHICLE_SIZES = {
 };
 
 // -----------------------------------------------------------------------------
-// Shared low-level helpers (read the Framebuffer's raw alpha so details clip to
-// the painted silhouette and the auto-outliner never fattens itself).
+// Shared low-level helper (reads the Framebuffer's raw alpha via fb.alphaAt so
+// details clip to the painted silhouette). The auto-outliner itself now lives on
+// the shared Framebuffer as fb.outlineSilhouette.
 // -----------------------------------------------------------------------------
-
-/** Alpha byte at (x,y), 0 for out-of-bounds. */
-function alphaAt(fb, x, y) {
-  if (x < 0 || y < 0 || x >= fb.width || y >= fb.height) return 0;
-  return fb.data[(y * fb.width + x) * 4 + 3];
-}
 
 /** fillRect but ONLY over already-opaque pixels — so a detail (two-tone panel,
  * accent light) can never spill past the body silhouette or stomp transparent. */
 function fillOverOpaque(fb, x, y, w, h, color) {
   for (let yy = y; yy < y + h; yy++) {
     for (let xx = x; xx < x + w; xx++) {
-      if (alphaAt(fb, xx, yy) !== 0) fb.setPixel(xx, yy, color);
+      if (fb.alphaAt(xx, yy) !== 0) fb.setPixel(xx, yy, color);
     }
   }
-}
-
-/**
- * Lay a clean 1px dark outline around whatever opaque silhouette has been painted:
- * every TRANSPARENT pixel 4-adjacent to an opaque one becomes `color`. 4-neighbour
- * (not 8) keeps it a true 1px band with no diagonal thickening. Targets are
- * collected before any write so the freshly-added outline never re-outlines itself.
- * Deterministic (pure function of the current pixels).
- */
-function outlineSilhouette(fb, color) {
-  const targets = [];
-  for (let y = 0; y < fb.height; y++) {
-    for (let x = 0; x < fb.width; x++) {
-      if (alphaAt(fb, x, y) !== 0) continue;
-      if (
-        alphaAt(fb, x - 1, y) ||
-        alphaAt(fb, x + 1, y) ||
-        alphaAt(fb, x, y - 1) ||
-        alphaAt(fb, x, y + 1)
-      ) {
-        targets.push([x, y]);
-      }
-    }
-  }
-  for (const [x, y] of targets) fb.setPixel(x, y, color);
 }
 
 // -----------------------------------------------------------------------------
@@ -168,7 +138,7 @@ function accentLight(fb, x, y, w, h, color) {
  */
 export function drawCar(fb) {
   paintSedanBody(fb, PALETTE.white);
-  outlineSilhouette(fb, PALETTE.outline);
+  fb.outlineSilhouette(PALETTE.outline);
   drawWindows(fb, PALETTE.steelBlue);
   // Front headlight (warm) at the right; rear taillight (coral) at the left.
   accentLight(fb, 97, 24, 3, 4, PALETTE.sunshine);
@@ -215,7 +185,7 @@ export function drawPoliceCar(fb) {
   // coral taillight's dark frame reads against it. Recoloring this to a non-outline
   // tone means re-adding the lower-body outline + the taillight's dark framing.
   fillOverOpaque(fb, 8, 24, 94, 10, PALETTE.outline);
-  outlineSilhouette(fb, PALETTE.outline);
+  fb.outlineSilhouette(PALETTE.outline);
   drawWindows(fb, PALETTE.steelBlue);
   // Headlight / taillight (same placement as the car).
   accentLight(fb, 97, 24, 3, 4, PALETTE.sunshine);

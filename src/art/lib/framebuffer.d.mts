@@ -14,6 +14,8 @@ export declare class Framebuffer {
   vLine(x: number, y: number, len: number, color: number, alpha?: number): void;
   outlineRect(x: number, y: number, w: number, h: number, color: number, alpha?: number): void;
   fillCircle(cx: number, cy: number, r: number, color: number, alpha?: number): void;
+  alphaAt(x: number, y: number): number;
+  outlineSilhouette(color: number, alpha?: number): void;
   drawPixels(
     originX: number,
     originY: number,
