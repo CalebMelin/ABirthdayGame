@@ -14,6 +14,7 @@ import { MARKERS, PALETTE } from './palette.mjs';
 import { drawBike, drawCaleb, drawRider, drawWheel, drawWheelieRider, SPRITE_SIZES } from './sprites.mjs';
 import { drawBalloon, drawFlag, drawTulip, PROP_SIZES } from './props.mjs';
 import { drawCar, drawPoliceCar, VEHICLE_SIZES } from './vehicles.mjs';
+import { drawAppIcon, ICON_SIZE } from './icon.mjs';
 
 /** Every committed asset: { file (path relative to public/assets), width, height, draw }. */
 export const ASSETS_TO_BUILD = [
@@ -64,6 +65,19 @@ export const ASSETS_TO_BUILD = [
   // TRAFFIC.tints read as 5 pastel variants) and the friendly police car.
   { file: 'vehicles/car.png', ...VEHICLE_SIZES.car, draw: (fb) => drawCar(fb) },
   { file: 'vehicles/police-car.png', ...VEHICLE_SIZES.policeCar, draw: (fb) => drawPoliceCar(fb) },
+];
+
+/**
+ * Assets written to the public/ ROOT (not public/assets/). Same {file, width,
+ * height, draw} shape as ASSETS_TO_BUILD, but their `file` is relative to
+ * public/ — build.mjs writes these to a different base dir. Right now this is
+ * just the app icon: index.html references /apple-touch-icon.png at the site
+ * root (an app-shell file, not a game texture BootScene loads), so it can't live
+ * under public/assets/. It still flows through the SAME deterministic
+ * renderAssetBytes path, so `npm run art` regenerates it byte-identically.
+ */
+export const ROOT_ASSETS_TO_BUILD = [
+  { file: 'apple-touch-icon.png', width: ICON_SIZE, height: ICON_SIZE, draw: (fb) => drawAppIcon(fb) },
 ];
 
 /**

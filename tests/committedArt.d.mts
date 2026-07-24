@@ -44,3 +44,7 @@ export declare const POLICE_LIGHT_MIRROR: {
 };
 
 export declare function readCommittedAsset(relPath: string): Uint8Array;
+
+/** Read a committed app-shell PNG relative to the public/ ROOT (e.g. the app
+ * icon apple-touch-icon.png), not under public/assets/. */
+export declare function readCommittedRootAsset(relPath: string): Uint8Array;

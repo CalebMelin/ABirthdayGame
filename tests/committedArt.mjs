@@ -16,7 +16,8 @@ import { POLICE_LIGHT_MIRROR, VEHICLE_SIZES } from '../src/art/vehicles.mjs';
 
 export { SPRITE_SIZES, PROP_SIZES, VEHICLE_SIZES, POLICE_LIGHT_MIRROR };
 
-const ASSETS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'assets');
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const ASSETS_DIR = join(PUBLIC_DIR, 'assets');
 
 /**
  * Read a committed asset PNG (path relative to public/assets/) as raw bytes.
@@ -31,6 +32,23 @@ export function readCommittedAsset(relPath) {
   } catch {
     throw new Error(
       `committed asset public/assets/${relPath} is missing or unreadable — run \`npm run art\` to (re)generate the committed PNGs`
+    );
+  }
+}
+
+/**
+ * Read a committed app-shell PNG (path relative to the public/ ROOT — e.g. the
+ * app icon apple-touch-icon.png, which lives at the site root, not under
+ * public/assets/) as raw bytes. Same actionable error as readCommittedAsset.
+ * @param {string} relPath e.g. 'apple-touch-icon.png'
+ * @returns {Uint8Array}
+ */
+export function readCommittedRootAsset(relPath) {
+  try {
+    return new Uint8Array(readFileSync(join(PUBLIC_DIR, relPath)));
+  } catch {
+    throw new Error(
+      `committed asset public/${relPath} is missing or unreadable — run \`npm run art\` to (re)generate the committed PNGs`
     );
   }
 }

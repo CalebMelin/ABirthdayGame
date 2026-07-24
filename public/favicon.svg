@@ -1,4 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
-  <rect width="48" height="48" rx="12" fill="#ff8fc0"/>
-  <text x="24" y="32" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="bold" fill="#ffffff">22</text>
+  <!-- Tab icon, matching the tulip app icon (public/apple-touch-icon.png, from
+       the src/art pipeline) so the tab + home-screen icons read as one. Shared
+       game palette: bgPink bg, coral petals, grass leaves, plum outline. -->
+  <rect width="48" height="48" rx="12" fill="#ffd6e8"/>
+  <!-- stem (plum outline under a grass core) -->
+  <path d="M24 27 L24 41" stroke="#2a1820" stroke-width="5" stroke-linecap="round"/>
+  <path d="M24 27 L24 41" stroke="#b8e6a0" stroke-width="3" stroke-linecap="round"/>
+  <!-- leaves -->
+  <path d="M24 36 C18 35 15 31 14 27 C19 27 23 31 24 35 Z" fill="#b8e6a0" stroke="#2a1820" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M24 38 C30 37 33 33 34 29 C29 29 25 33 24 37 Z" fill="#b8e6a0" stroke="#2a1820" stroke-width="1.2" stroke-linejoin="round"/>
+  <!-- bloom: three-lobed tulip cup -->
+  <path d="M20 31 L15 19 Q15 12 20 13 Q22 8 24 12 Q26 8 28 13 Q33 12 33 19 L28 31 Z" fill="#ffb3a7" stroke="#2a1820" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- petal seams -->
+  <path d="M21 13 L20 23" fill="none" stroke="#2a1820" stroke-width="1" opacity="0.5"/>
+  <path d="M27 13 L28 23" fill="none" stroke="#2a1820" stroke-width="1" opacity="0.5"/>
 </svg>

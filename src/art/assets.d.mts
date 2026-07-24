@@ -13,9 +13,13 @@ export interface Asset {
   readonly draw: (fb: Framebuffer) => void;
 }
 
-/** Every committed asset the build writes — the single registry build.mjs and the
- * freshness guard both drive. */
+/** Every committed asset the build writes under public/assets/ — the single
+ * registry build.mjs and the freshness guard both drive. */
 export declare const ASSETS_TO_BUILD: readonly Asset[];
+
+/** App-shell assets written to the public/ ROOT (their `file` is relative to
+ * public/, not public/assets/) — currently just apple-touch-icon.png. */
+export declare const ROOT_ASSETS_TO_BUILD: readonly Asset[];
 
 /** Render one asset to its PNG bytes (pure — no file I/O), the same code path
  * build.mjs writes to disk. */

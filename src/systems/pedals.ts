@@ -139,18 +139,54 @@ interface Pedal {
 }
 
 /** Draws the directional glyph centered on (0,0) in its own Graphics so the
- * pressed-state shift just nudges its y. Solid fill (no outline) in plum for
- * crisp contrast on the cream face — placeholder art (real glyphs: PLAN-10). */
+ * pressed-state shift just nudges its y. Real pixel-art icons (PLAN-10 ST-4b),
+ * still drawn procedurally so they stay crisp at the pedal's zoom-compensated
+ * scale and need no committed PNG: GAS is a chunky forward double-chevron (>>)
+ * that reads instantly as "go/speed"; BRAKE is a bold stop-sign octagon. Both
+ * live inside the PEDALS.glyphSizePx box in PALETTE.plum on the cream face.
+ * NOTE (like the rest of this module) NO Phaser namespace is touched — fillPoints
+ * takes plain {x,y} points, never `new Phaser.Geom.Point`, so pedals.ts stays
+ * runtime-Phaser-free (see module header). */
 function drawGlyph(scene: Phaser.Scene, glyph: PedalGlyph): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
-  const half = PEDALS.glyphSizePx / 2;
   g.fillStyle(PALETTE.plum, 1);
   if (glyph === 'gas') {
-    // Right-pointing triangle (▶) = forward/go.
-    g.fillTriangle(-half, -half, -half, half, half, 0);
+    // GAS = double chevron ">>", pointing the way the bike travels. Each chevron
+    // is one 6-point band (a thick ">"): outer top-left -> tip -> outer
+    // bottom-left, then the inset return path gives it its stroke thickness.
+    const a = 26; // vertical half-height of each chevron
+    const armW = 15; // horizontal reach of each arm
+    const t = 14; // horizontal stroke thickness
+    const chevron = (cx: number): void => {
+      g.fillPoints(
+        [
+          { x: cx - armW, y: -a },
+          { x: cx + armW, y: 0 },
+          { x: cx - armW, y: a },
+          { x: cx - armW + t, y: a },
+          { x: cx + armW - t, y: 0 },
+          { x: cx - armW + t, y: -a },
+        ],
+        true
+      );
+    };
+    chevron(-13);
+    chevron(9);
   } else {
-    // Solid square (■) = a distinct "stop" symbol.
-    g.fillRect(-half, -half, PEDALS.glyphSizePx, PEDALS.glyphSizePx);
+    // BRAKE = a bold stop-sign octagon with a cream inner ring (the classic
+    // sign border), so it reads as STOP however the face is tinted on press.
+    const octagon = (r: number, color: number): void => {
+      g.fillStyle(color, 1);
+      const pts: Vec2[] = [];
+      for (let k = 0; k < 8; k++) {
+        const ang = Math.PI / 8 + (k * Math.PI) / 4; // 22.5 deg + k*45 deg
+        pts.push({ x: Math.cos(ang) * r, y: Math.sin(ang) * r });
+      }
+      g.fillPoints(pts, true);
+    };
+    octagon(34, PALETTE.plum); // sign body
+    octagon(30, PALETTE.cream); // border ring
+    octagon(25, PALETTE.plum); // sign centre
   }
   return g;
 }

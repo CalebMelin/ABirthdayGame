@@ -15,10 +15,11 @@ import {
   POLICE_LIGHT_MIRROR,
   PROP_SIZES,
   readCommittedAsset,
+  readCommittedRootAsset,
   SPRITE_SIZES,
   VEHICLE_SIZES,
 } from './committedArt.mjs';
-import { ASSETS_TO_BUILD, renderAssetBytes } from '../src/art/assets.mjs';
+import { ASSETS_TO_BUILD, ROOT_ASSETS_TO_BUILD, renderAssetBytes } from '../src/art/assets.mjs';
 import { LIGHT_SPREAD_PX, LIGHT_WIDTH_PX } from '../src/systems/police';
 
 // -----------------------------------------------------------------------------
@@ -277,4 +278,34 @@ describe('committed art PNGs are FRESH (byte-identical to their generators)', ()
       expect(firstDiff, `${stale} (first differing byte at offset ${firstDiff})`).toBe(-1);
     }
   );
+});
+
+describe('committed public/ ROOT app-shell PNGs (app icon)', () => {
+  // ROOT_ASSETS_TO_BUILD write to public/ (not public/assets/) — the app icon
+  // apple-touch-icon.png that index.html references at the site root. Same two
+  // guards as the game textures above, read through readCommittedRootAsset:
+  // its IHDR dimensions match the generator's declared size, and its full bytes
+  // are byte-identical to a fresh render (so editing drawAppIcon without
+  // re-running `npm run art` fails CI, and the icon stays deterministic).
+  it.each(ROOT_ASSETS_TO_BUILD)('committed public/$file is at its generator size', (asset) => {
+    const bytes = readCommittedRootAsset(asset.file);
+    expect(Array.from(bytes.slice(0, 8))).toEqual(PNG_SIGNATURE);
+    expect(u32(bytes, 16)).toBe(asset.width);
+    expect(u32(bytes, 20)).toBe(asset.height);
+  });
+
+  it.each(ROOT_ASSETS_TO_BUILD)('committed public/$file is byte-identical to its generator', (asset) => {
+    const committed = readCommittedRootAsset(asset.file);
+    const fresh = renderAssetBytes(asset);
+    const stale = `committed public/${asset.file} is stale — run \`npm run art\``;
+    expect(committed.length, stale).toBe(fresh.length);
+    let firstDiff = -1;
+    for (let i = 0; i < fresh.length; i++) {
+      if (committed[i] !== fresh[i]) {
+        firstDiff = i;
+        break;
+      }
+    }
+    expect(firstDiff, `${stale} (first differing byte at offset ${firstDiff})`).toBe(-1);
+  });
 });

@@ -15,7 +15,7 @@
 // installOrientationGuard (never at module import), so importing this module in
 // Node is side-effect-free.
 import type Phaser from 'phaser';
-import { PASTEL_BG_COLOR, TEXT_COLOR, FONT_STACK_PIXEL, hexToCss } from './constants';
+import { PALETTE, PASTEL_BG_COLOR, TEXT_COLOR, FONT_STACK_PIXEL, hexToCss } from './constants';
 import { isTouchDevice } from './device';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,43 @@ const PHONE_CLASS = 'gabby-orientation-phone';
  * opaque BLOCKING overlay that must sit above the #app canvas (z-index auto)
  * and any future DOM chrome, so "always on top" is intentional. */
 const OVERLAY_Z_INDEX = 2147483647;
+
+/** Cute pixel-art phone icon for the overlay (PLAN-10 ST-4b — replaces the old
+ * placeholder 📱 emoji). Inline SVG rather than a raster so it stays crisp at
+ * any size and needs no committed PNG; `shape-rendering="crispEdges"` keeps the
+ * whole thing hard-edged (pixel-art, no anti-aliasing), and the colors are the
+ * shared game PALETTE so the phone matches the canvas + chrome. A plum handset
+ * with a sky screen showing a little coral heart (a birthday-gift wink); the
+ * existing CSS wobble rotates the whole SVG 0->90->0 to say "turn me sideways".
+ * The 22x34 viewBox is the design grid; every rect lands on an integer cell. */
+const PHONE_SVG = (() => {
+  const plum = hexToCss(PALETTE.plum);
+  const sky = hexToCss(PALETTE.sky);
+  const cream = hexToCss(PALETTE.cream);
+  const coral = hexToCss(PALETTE.coral);
+  // A little pixel heart on the screen, drawn as horizontal runs [x, y, w].
+  const heart: readonly [number, number, number][] = [
+    [9, 13, 2],
+    [12, 13, 2],
+    [8, 14, 7],
+    [8, 15, 7],
+    [9, 16, 5],
+    [10, 17, 3],
+    [11, 18, 1],
+  ];
+  const heartRects = heart
+    .map(([x, y, w]) => `<rect x="${x}" y="${y}" width="${w}" height="1" fill="${coral}"/>`)
+    .join('');
+  return (
+    `<svg viewBox="0 0 22 34" shape-rendering="crispEdges" aria-hidden="true" focusable="false">` +
+    `<rect x="3" y="1" width="16" height="32" rx="3" fill="${plum}"/>` + // handset frame
+    `<rect x="5" y="5" width="12" height="22" fill="${sky}"/>` + // screen
+    `<rect x="9" y="3" width="4" height="1" fill="${cream}"/>` + // earpiece slit
+    `<rect x="8" y="30" width="6" height="1" fill="${cream}"/>` + // home bar
+    heartRects +
+    `</svg>`
+  );
+})();
 
 /** Phaser's Phaser.Core.Events.POST_STEP string. We can't import the enum
  * (runtime-Phaser-free module, see file header); this value is stable. Used to
@@ -96,10 +133,14 @@ function injectStyle(): void {
 }
 #${OVERLAY_ID}[hidden] { display: none; }
 #${OVERLAY_ID} .${PHONE_CLASS} {
-  font-size: 76px;
-  line-height: 1;
   display: inline-block;
+  line-height: 0;
   animation: gabby-phone-wobble 2.4s ease-in-out infinite;
+}
+#${OVERLAY_ID} .${PHONE_CLASS} svg {
+  display: block;
+  width: auto;
+  height: 128px;
 }
 #${OVERLAY_ID} .${MSG_CLASS} {
   font-size: clamp(12px, 3.6vw, 20px);
@@ -117,9 +158,9 @@ function injectStyle(): void {
 }
 
 /** Builds the overlay element (permanent in the DOM; visibility is toggled via
- * the `hidden` attribute so show/hide is INSTANT). PLACEHOLDER art: a 📱 emoji
- * with a gentle CSS wobble suggesting "turn me sideways"; real pixel-art
- * rotating-phone lands in PLAN-10 (swap the markup, keep the wiring). */
+ * the `hidden` attribute so show/hide is INSTANT). The phone is the inline
+ * pixel-art PHONE_SVG (PLAN-10 ST-4b, replacing the old 📱 placeholder), with a
+ * gentle CSS wobble that rotates it sideways to suggest "turn me". */
 function createOverlay(): HTMLDivElement {
   injectStyle();
   const overlay = document.createElement('div');
@@ -128,8 +169,9 @@ function createOverlay(): HTMLDivElement {
 
   const phone = document.createElement('div');
   phone.className = PHONE_CLASS;
-  phone.textContent = '📱';
-  // Emoji is decorative; the message carries the meaning for screen readers.
+  phone.innerHTML = PHONE_SVG;
+  // The phone graphic is decorative; the message carries the meaning for
+  // screen readers (the SVG is aria-hidden too, belt-and-suspenders).
   phone.setAttribute('aria-hidden', 'true');
 
   const msg = document.createElement('div');
