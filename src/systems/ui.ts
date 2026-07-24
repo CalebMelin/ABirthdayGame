@@ -12,6 +12,7 @@
 import Phaser from 'phaser';
 import { PALETTE, UI_MIN_TOUCH_PX, DEPTHS } from './constants';
 import { pixelText } from './pixelText';
+import { getAudio } from './audio';
 
 /** Drop-shadow offset for the chunky pixel button/panel look, and the
  * distance a button's face travels when pressed onto its shadow. */
@@ -166,7 +167,14 @@ export function createPixelButton(
   container.on('pointerup', (pointer: Phaser.Input.Pointer) => {
     const wasPressedHere = pressedPointers.delete(pointer.id);
     restore();
-    if (wasPressedHere) onClick();
+    if (wasPressedHere) {
+      // Soft menu-button blip (PLAN-10 ST-7a). Fired BEFORE onClick so the click
+      // is heard even when onClick transitions scenes (the audio engine is a
+      // module-level singleton, independent of any scene's lifetime). Fully
+      // guarded + a no-op while muted / before the first gesture unlocks audio.
+      getAudio().playSfx('click');
+      onClick();
+    }
   });
 
   return container;

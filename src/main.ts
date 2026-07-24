@@ -10,6 +10,7 @@ import { PartyScene } from './scenes/PartyScene';
 import { CreditsScene } from './scenes/CreditsScene';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, PASTEL_BG_COLOR, GRAVITY_Y } from './systems/constants';
 import { installOrientationGuard } from './systems/orientation';
+import { installAudioUnlock } from './systems/audio';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -52,6 +53,12 @@ const game = new Phaser.Game(config);
 // game.loop.sleep) until rotated back to landscape. No-op on desktop. Installed
 // once here for the page's lifetime.
 installOrientationGuard(game);
+
+// Audio first-gesture unlock (PLAN-10 ST-7a): browsers block audio until a user
+// gesture, so this installs a one-time global pointer/key/touch listener that
+// resumes the (lazily-created) AudioContext on the first interaction. Import-safe
+// and DOM-guarded; the game is fully playable muted, so this is purely additive.
+installAudioUnlock();
 
 // Dev-only: expose the game instance so browser-automation playtests
 // (scripts/playtest-drive.mjs) can poll scene state / Matter body counts.

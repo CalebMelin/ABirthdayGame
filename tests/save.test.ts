@@ -249,6 +249,54 @@ describe('resetNotesSeen', () => {
   });
 });
 
+describe('muted (audio mute flag, PLAN-10 ST-7a)', () => {
+  it('defaults to false (UNMUTED) when unset', () => {
+    const save = createSaveSystem(createFakeStorage());
+    expect(save.getMuted()).toBe(false);
+  });
+
+  it('round-trips set true / set false', () => {
+    const save = createSaveSystem(createFakeStorage());
+    save.setMuted(true);
+    expect(save.getMuted()).toBe(true);
+    save.setMuted(false);
+    expect(save.getMuted()).toBe(false);
+  });
+
+  it('persists across a reload (a new instance over the same storage)', () => {
+    const storage = createFakeStorage();
+    const first = createSaveSystem(storage);
+    first.setMuted(true);
+
+    const second = createSaveSystem(storage);
+    expect(second.getMuted()).toBe(true);
+    expect(storage.getItem('gabby22.muted')).toBe('true');
+  });
+
+  it('normalizes a corrupt / non-boolean stored value to false', () => {
+    const storage = createFakeStorage();
+    storage.setItem('gabby22.muted', '{oops');
+    expect(createSaveSystem(storage).getMuted()).toBe(false);
+
+    storage.setItem('gabby22.muted', '"yes"');
+    expect(createSaveSystem(storage).getMuted()).toBe(false);
+
+    storage.setItem('gabby22.muted', '1');
+    expect(createSaveSystem(storage).getMuted()).toBe(false);
+  });
+
+  it('is cleared (back to the false default) by resetAll', () => {
+    const storage = createFakeStorage();
+    const save = createSaveSystem(storage);
+    save.setMuted(true);
+
+    save.resetAll();
+
+    expect(save.getMuted()).toBe(false);
+    expect(storage.getItem('gabby22.muted')).toBeNull();
+  });
+});
+
 describe('resetAll', () => {
   it('clears every gabby22 key and restores defaults', () => {
     const storage = createFakeStorage();
@@ -257,6 +305,7 @@ describe('resetAll', () => {
     save.markLevelCompleted(5);
     save.addTulips(9);
     save.markNoteSeen(1);
+    save.setMuted(true);
 
     save.resetAll();
 
@@ -266,11 +315,13 @@ describe('resetAll', () => {
     expect(progress.completed.every((c) => c === false)).toBe(true);
     expect(save.getTulips()).toBe(0);
     expect(save.getNotesSeen()).toEqual([]);
+    expect(save.getMuted()).toBe(false);
 
     expect(storage.getItem('gabby22.character')).toBeNull();
     expect(storage.getItem('gabby22.progress')).toBeNull();
     expect(storage.getItem('gabby22.tulips')).toBeNull();
     expect(storage.getItem('gabby22.notesSeen')).toBeNull();
+    expect(storage.getItem('gabby22.muted')).toBeNull();
     expect(storage.getItem('gabby22.saveVersion')).toBeNull();
   });
 });

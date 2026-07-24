@@ -42,6 +42,12 @@ export interface SaveSystem {
   getNotesSeen(): number[];
   markNoteSeen(index: number): void;
   resetNotesSeen(): void;
+  /** Whether audio is muted. DEFAULT when unset: `false` (UNMUTED) — the game
+   * plays music/SFX once the first user gesture unlocks the AudioContext, with a
+   * prominent Title mute toggle (PLAN-10 ST-7a; see DECISIONS.md). Total: any
+   * non-`true` stored value (absent/corrupt/legacy) normalizes to false. */
+  getMuted(): boolean;
+  setMuted(muted: boolean): void;
   resetAll(): void;
 }
 
@@ -53,9 +59,17 @@ const KEY_CHARACTER = 'gabby22.character';
 const KEY_PROGRESS = 'gabby22.progress';
 const KEY_TULIPS = 'gabby22.tulips';
 const KEY_NOTES_SEEN = 'gabby22.notesSeen';
+const KEY_MUTED = 'gabby22.muted';
 const KEY_SAVE_VERSION = 'gabby22.saveVersion';
 
-const ALL_KEYS = [KEY_CHARACTER, KEY_PROGRESS, KEY_TULIPS, KEY_NOTES_SEEN, KEY_SAVE_VERSION];
+const ALL_KEYS = [
+  KEY_CHARACTER,
+  KEY_PROGRESS,
+  KEY_TULIPS,
+  KEY_NOTES_SEEN,
+  KEY_MUTED,
+  KEY_SAVE_VERSION,
+];
 
 // ---------------------------------------------------------------------------
 // Storage plumbing: in-memory fallback + resilient wrapper + default probe.
@@ -258,6 +272,13 @@ function normalizeNotesSeen(value: unknown): number[] {
   return result;
 }
 
+/** Total boolean normalizer for the muted flag: ONLY a stored JSON `true`
+ * reads as muted; everything else (absent → parseJson `undefined`, a corrupt
+ * value, a legacy non-boolean) collapses to `false` (UNMUTED default). */
+function normalizeBoolean(value: unknown): boolean {
+  return value === true;
+}
+
 // ---------------------------------------------------------------------------
 // Versioning / migration scaffold.
 // ---------------------------------------------------------------------------
@@ -363,6 +384,14 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
     store.removeItem(KEY_NOTES_SEEN);
   }
 
+  function getMuted(): boolean {
+    return normalizeBoolean(parseJson(store.getItem(KEY_MUTED)));
+  }
+
+  function setMuted(muted: boolean): void {
+    store.setItem(KEY_MUTED, JSON.stringify(muted === true));
+  }
+
   function resetAll(): void {
     for (const key of ALL_KEYS) {
       store.removeItem(key);
@@ -379,6 +408,8 @@ export function createSaveSystem(storage?: KVStorage): SaveSystem {
     getNotesSeen,
     markNoteSeen,
     resetNotesSeen,
+    getMuted,
+    setMuted,
     resetAll,
   };
 }

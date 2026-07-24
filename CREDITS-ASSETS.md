@@ -32,12 +32,22 @@ image assets are used anywhere in the game.
 
 ## Audio (music & sound effects)
 
-_To be filled in by PLAN-10 ST-7 (audio)._ The game is fully playable muted, so
-no audio ships until then. When audio is added, every track/SFX must be listed
-here with its source and license (generated/synthesized → project-owned/CC0, or
-a vendored CC0 file with a link to its source), so that "no license-unknown
-assets" holds.
+**ALL audio is SYNTHESIZED at runtime via the Web Audio API — project-owned /
+CC0, no vendored files.** There are no committed audio binaries and no audio npm
+dependencies: every tone is generated in code by the engine in
+`src/systems/audio.ts` (soft oscillators + gain envelopes), matching the
+project's generate-don't-vendor ethos so "no license-unknown assets" holds by
+construction. The game is fully playable muted (a persisted `gabby22.muted`
+flag + a Title toggle); audio only starts after the first user gesture (mobile
+autoplay policy).
 
-- Music (title/menu, riding, police-chase, party loops): _TBD_
-- Jingles (level complete, gentle fail, tulip sparkle): _TBD_
-- SFX (engine, brake, jump/land, car whoosh, siren, balloon pop, button): _TBD_
+- Generator: `src/systems/audio.ts` — no external tools, no files to license.
+- Status: **PLAN-10 ST-7a** shipped the audio ENGINE + mute persistence + a
+  small proof (a soft menu-button click SFX + a gentle title-music loop). The
+  full track/SFX set is added by **ST-7b**, and each entry is listed below as it
+  lands (all rows resolve to "synthesized at runtime, project-owned / CC0").
+- Music (title/menu, riding, police-chase, party loops): title/menu loop DONE
+  (synthesized); riding / police-chase / party loops _TBD (ST-7b)_.
+- Jingles (level complete, gentle fail, tulip sparkle): _TBD (ST-7b)_.
+- SFX (engine, brake, jump/land, car whoosh, siren, balloon pop, button):
+  button-click DONE (synthesized); the rest _TBD (ST-7b)_.
