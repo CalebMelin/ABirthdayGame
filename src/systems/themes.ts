@@ -1,10 +1,15 @@
-// Per-theme parallax backdrop system (PLAN-05 task 2): a data table of the
-// 15 city-arc themes (NORTH_STAR §5) plus a Phaser-side builder that renders
-// each one as a genuinely-parallaxing, zoom-safe backdrop. Placeholder art
-// (flat-colored silhouette bands + small accent blocks) is intentional — real
-// pixel art swaps in during PLAN-10 — but the LAYER PLUMBING (independent
-// horizontal parallax rates + leak-free teardown) is real, matching this
-// file's own acceptance bar.
+// Per-theme parallax backdrop system (PLAN-05 task 2, art by PLAN-10 ST-5): a
+// data table of the 15 city-arc themes (NORTH_STAR §5) plus a Phaser-side
+// builder that renders each one as a genuinely-parallaxing, zoom-safe backdrop.
+// The LAYER PLUMBING (independent horizontal parallax rates + zoom-safe
+// coverage + leak-free teardown) is defined here; the actual PIXEL ART — a
+// stepped-gradient sky, a celestial disc, drifting clouds, and a per-layer
+// "motif" (skyline / hills / tree-line / houses / bridge / cranes / water /
+// party bunting) — lives in the sibling src/systems/backdropArt.ts, dispatched
+// per theme by the MOTIF_DRAWERS table. PLAN-05 shipped flat placeholder
+// silhouette bands here; ST-5 replaced them with backdropArt's motifs without
+// changing this file's zoom-safety contract or the createBackdrop/BackdropHandle
+// shape GameScene calls.
 //
 // IMPORTANT — like terrain.ts/bike.ts/pedals.ts/characterTextures.ts, this
 // file must have NO RUNTIME import of 'phaser': Vitest runs in plain Node (no
@@ -77,14 +82,24 @@
 // node_modules/phaser/src/gameobjects/graphics/Graphics.js) and this project
 // boots with `type: Phaser.AUTO` (main.ts), which may fall back to the Canvas
 // renderer on a device without WebGL — a gradient sky would silently vanish
-// there. The sky is instead drawn as two flat, stacked, camera-fixed bands
-// (top color / bottom color), which is explicitly a sanctioned placeholder
-// technique ("Graphics rectangles / silhouette bands") and renderer-safe on
-// both backends. PLAN-10 can revisit with real art (a pre-baked gradient
-// texture, unaffected by this Graphics-specific limitation).
+// there. ST-5 therefore draws the sky as a STEPPED gradient: K flat, stacked,
+// camera-fixed, oversized bands whose colors interpolate (integer RGB lerp)
+// from sky.top to sky.bottom (backdropArt.drawSteppedSky). Flat fills are
+// renderer-safe on BOTH backends; enough bands read as a smooth gradient. A
+// theme wanting a flat sky just sets top === bottom.
 import type Phaser from 'phaser';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, DEPTHS, CAMERA, PALETTE } from './constants';
 import type { ThemeId } from '../levels/types';
+import type { MotifKind, CelestialSpec, CloudSpec } from './backdropArt';
+import {
+  MOTIF_DRAWERS,
+  drawSteppedSky,
+  drawCelestial,
+  drawCloud,
+  hash01,
+  lerpColor,
+  wrapX,
+} from './backdropArt';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -102,17 +117,21 @@ export interface ParallaxLayerDef {
    * tests/themes.test.ts). Vertical scroll is ALWAYS pinned to the camera
    * regardless of this value. */
   scrollFactor: number;
-  /** Placeholder silhouette fill color — flat, not textured. Real pixel art
-   * (buildings/hills/props sprites) replaces this in PLAN-10. */
+  /** The layer's base fill color (the theme's chosen tone for this band). The
+   * motif drawer derives its shades/highlights from this (see backdropArt). */
   color: number;
   /** Top of this layer's nominal band, DESIGN-space px. Screen-relative (not
    * world-relative), since the layer is vertically camera-pinned — see the
    * module doc comment. */
   y: number;
-  /** Height of the band, design px. The drawn silhouette wobbles within this
-   * band (see buildSilhouettePoints) rather than filling it as a flat
-   * rectangle, so it reads as a skyline/hills shape, not a stripe. */
+  /** Height of the band, design px. The motif is drawn within [y, y + height]
+   * (rising from the baseline y + height), so it reads as a skyline/hills/etc.
+   * shape, not a flat stripe. */
   height: number;
+  /** Which pixel-art motif this layer renders as (backdropArt.MOTIF_DRAWERS
+   * dispatches on it). Layers are far -> near, so a theme typically pairs a
+   * distant motif (hills/buildings) with a nearer one (houses/water/party). */
+  motif: MotifKind;
 }
 
 /** One of the 15 city-arc backdrop themes (NORTH_STAR §5). Placeholder art,
@@ -125,18 +144,24 @@ export interface ThemeDef {
    * always specifies both — which is still structurally assignable to
    * TerrainColors's optional fields.) */
   ground: { fill: number; edge: number };
-  /** Sky: a top color and a bottom color, rendered as two flat stacked bands
-   * (see module doc comment for why not a true gradient). A theme that wants
-   * a flat sky can simply set top === bottom. */
+  /** Sky: a top color and a bottom color, rendered as a stepped multi-band
+   * gradient (see module doc comment for why not a true WebGL gradient). A
+   * theme that wants a flat sky can simply set top === bottom. */
   sky: { top: number; bottom: number };
   /** 2-3 parallax layers, ordered far -> near. */
   layers: ParallaxLayerDef[];
-  /** Minimal placeholder prop accent for this theme (e.g. little
-   * bushes/signs/lamppost blobs scattered along the nearest layer) — real
-   * prop sprites are PLAN-10. Deliberately just one color (YAGNI): enough to
-   * give the near layer a bit of variety without inventing a whole prop
-   * catalog this task doesn't need yet. */
+  /** The theme's accent color. Used two ways: decorations.ts tints its
+   * signs/billboards/balloons/streamers with it, AND the backdrop motifs use
+   * it as their warm accent (lit windows glowing against dusk, house windows,
+   * crane hooks, party pennants). Deliberately just one color (YAGNI). */
   props: { accent: number };
+  /** Optional camera-fixed celestial disc (a warm sun for dawn themes, a low
+   * sun for sunset, a pale moon for the final dusk). Omitted on overcast/urban
+   * themes. */
+  celestial?: CelestialSpec;
+  /** Optional drifting clouds (open-sky themes only). Omitted on
+   * overcast/urban/night themes where clouds don't belong. */
+  clouds?: CloudSpec;
 }
 
 /** The handle GameScene (ST-4) holds for a level's backdrop. Its
@@ -144,16 +169,15 @@ export interface ThemeDef {
  * terrain.ts's TerrainHandle; update() is an ADDITION here — TerrainHandle
  * has no such method — see its own doc for what it is (and isn't) for. */
 export interface BackdropHandle {
-  /** Per-frame hook GameScene calls every render frame. Currently a
-   * deliberate NO-OP: horizontal parallax is handled entirely by Phaser's
-   * own setScrollFactor, which Phaser reprojects every frame from the live
-   * camera scroll (see the module doc comment), so this module has no extra
-   * per-frame work to do. It exists NOT because terrain.ts has such a method
-   * (TerrainHandle does not) but as (a) a uniform call point so GameScene can
-   * drive the backdrop without caring which parallax technique this file uses
-   * internally, and (b) the natural home for any future animated-backdrop
-   * work — e.g. the currently-deferred genuine vertical parallax — without
-   * changing the handle's shape. */
+  /** Per-frame hook GameScene calls every render frame. Horizontal PARALLAX
+   * still needs no work here — Phaser reprojects each scrollFactor layer from
+   * the live camera scroll every frame (see the module doc comment). ST-5 put
+   * this hook to its long-anticipated use: it drives the autonomous CLOUD
+   * DRIFT (open-sky themes) — reading elapsed time from the scene clock
+   * (scene.time.now, NOT Date.now) and sliding each pooled cloud's x, wrapping
+   * it so clouds recycle. ALLOCATION-FREE: it never creates an object per
+   * frame, it just moves the existing clouds; themes with no clouds do nothing
+   * here. */
   update(): void;
   /** Destroys every GameObject createBackdrop created. Call on level
    * teardown/restart — same lifecycle as TerrainHandle.destroy. */
@@ -166,222 +190,236 @@ export interface BackdropHandle {
 // knobs with no gameplay effect, so — like terrain.ts's OCTAVE_DETUNE_* —
 // they stay local, documented constants rather than a new constants.ts block.
 // Theme COLORS are the one thing explicitly promoted to PALETTE, since
-// they're shared/reusable; everything below is purely "how the placeholder
-// shapes are drawn").
+// they're shared/reusable. The per-MOTIF shape knobs live next to their
+// drawers in backdropArt.ts; what stays here is the parallax rates + the
+// sky/cloud orchestration this file owns.
 // ---------------------------------------------------------------------------
 
 /** Horizontal parallax rate for every theme's FAR (skyline/hills) layer. */
 const FAR_SCROLL_FACTOR = 0.2;
-/** Horizontal parallax rate for every theme's NEAR (props) layer — faster
- * than far, still well under 1 (the world/terrain's own rate), so "near
- * drifts faster than far" always genuinely holds. */
+/** Horizontal parallax rate for every theme's NEAR layer — faster than far,
+ * still well under 1 (the world/terrain's own rate), so "near drifts faster
+ * than far" always genuinely holds. */
 const NEAR_SCROLL_FACTOR = 0.45;
 
-/** Horizontal spacing (world/local px) between silhouette polyline vertices —
- * a smooth-enough curve at a cheap point count even across the padded range
- * of the longest level (see backdropContentRangePx). Mirrors terrain.ts's
- * sampleSpacingPx idea, just for a cosmetic (non-physics) polygon. */
-const SILHOUETTE_STEP_PX = 60;
-/** How far above a layer's baseline (the bottom of its nominal band) the
- * silhouette's AVERAGE height sits, as a fraction of the band's own
- * `height`. */
-const SILHOUETTE_BASE_HEIGHT_FRACTION = 0.6;
-/** How much the silhouette wobbles above/below its average height, as a
- * fraction of `height`. Kept below SILHOUETTE_BASE_HEIGHT_FRACTION so the
- * silhouette's lowest dip never reaches down to (or past) its own baseline. */
-const SILHOUETTE_VARIANCE_FRACTION = 0.35;
-/** The wobble's horizontal wavelength, as a multiple of the layer's own
- * `height` — a taller band (e.g. downtown's skyscraper-tall far layer) gets a
- * proportionally broader silhouette shape; a short/low band (e.g. highway's
- * open-sky far layer) gets a tighter, gentler one. Deliberately derived from
- * each layer's own height (not a separate parallel table indexed alongside
- * `theme.layers`) so there is nothing that could drift out of sync if a
- * theme's layer count or order ever changes. */
-const SILHOUETTE_WAVELENGTH_HEIGHT_MULTIPLIER = 5;
+/** How many stepped bands compose the gradient sky. Enough that the flat
+ * bands read as a smooth top->bottom gradient (see backdropArt.steppedBands);
+ * cheap (a handful of camera-fixed rectangles). */
+const SKY_BAND_COUNT = 8;
 
-/** Center-to-center spacing (world/local px) between "props" accent blocks
- * scattered along the nearest layer's baseline. */
-const PROP_SPACING_PX = 420;
-/** Accent block size, design px (a small, abstract bush/sign/lamppost
- * placeholder — real prop sprites are PLAN-10). */
-const PROP_WIDTH_PX = 28;
-const PROP_HEIGHT_PX = 34;
+// --- Drifting clouds (camera-fixed, autonomous horizontal drift in update).
+/** Default cloud count when a theme's clouds config omits `count`. */
+const DEFAULT_CLOUD_COUNT = 6;
+/** Cloud sprite scale range (deterministic per-cloud via hash01). */
+const CLOUD_MIN_SCALE = 0.7;
+const CLOUD_MAX_SCALE = 1.5;
+/** Cloud vertical placement range, design px (upper sky). Camera-pinned. */
+const CLOUD_MIN_Y_PX = 62;
+const CLOUD_MAX_Y_PX = 210;
+/** Autonomous drift speed range, px per MILLISECOND (slow — ~5-11 px/s).
+ * Read against scene.time.now so it's refresh-rate independent. */
+const CLOUD_MIN_SPEED = 0.005;
+const CLOUD_MAX_SPEED = 0.011;
+/** Extra margin (px) added to each side of the oversized camera-fixed band
+ * that clouds wrap within, so a cloud recycles (wraps L<->R) OFF-screen — even
+ * at CAMERA.zoomMin, where the visible region is widest — never popping in
+ * view. Sized past one cloud half-width. */
+const CLOUD_WRAP_MARGIN_PX = 180;
 
 // ---------------------------------------------------------------------------
 // THEMES — the 15 city-arc backdrop themes (NORTH_STAR §5), keyed by EVERY
 // ThemeId so a missing theme is a compile error (Record<ThemeId, ThemeDef>).
 // Both parallax layers on every theme use the SAME two scrollFactors
 // (FAR_SCROLL_FACTOR / NEAR_SCROLL_FACTOR) — the "how fast layers drift" rate
-// is plumbing, not a per-theme creative choice; only color and band
-// placement vary per theme below, which is what actually differentiates
-// them. See DECISIONS.md for the palette-direction reasoning per theme.
+// is plumbing, not a per-theme creative choice. What differentiates the themes
+// is the palette (sky/ground/layer colors) PLUS the per-layer MOTIF (the
+// pixel-art shape each layer draws as — see backdropArt.ts) and the optional
+// celestial disc / drifting clouds. See DECISIONS.md for the per-theme
+// palette + motif reasoning.
 // ---------------------------------------------------------------------------
 
 export const THEMES: Record<ThemeId, ThemeDef> = {
-  // 1 — Gabby's street at sunrise / suburbs: bright, warm dawn tint, green.
+  // 1 — Gabby's street at sunrise / suburbs: warm dawn sun, green hills behind
+  // a row of little houses, soft clouds.
   suburbs: {
     ground: { fill: PALETTE.grass, edge: PALETTE.outline },
     sky: { top: PALETTE.coral, bottom: PALETTE.sky },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 310, height: 100 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 380, height: 150 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 310, height: 100, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 380, height: 150, motif: 'houses' },
     ],
     props: { accent: PALETTE.sunshine },
+    celestial: { x: 1010, y: 150, radius: 52, color: PALETTE.sunshine, halo: PALETTE.coral },
+    clouds: {},
   },
 
-  // 2 — Park, tulip-field backdrop: greener, leafier.
+  // 2 — Park, tulip-field backdrop: rolling hills behind a leafy tree-line.
   park: {
     ground: { fill: PALETTE.grass, edge: PALETTE.outline },
     sky: { top: PALETTE.sky, bottom: PALETTE.mint },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 290, height: 120 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 370, height: 170 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 290, height: 120, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 370, height: 170, motif: 'trees' },
     ],
     props: { accent: PALETTE.bgPink },
+    clouds: {},
   },
 
-  // 3 — Small-town main street: warm neutral.
+  // 3 — Small-town main street: warm neutral, a low sun, house rooflines.
   smallTown: {
     ground: { fill: PALETTE.sunshine, edge: PALETTE.outline },
     sky: { top: PALETTE.cream, bottom: PALETTE.sky },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.cream, y: 280, height: 130 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.sunshine, y: 360, height: 170 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.cream, y: 280, height: 130, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.sunshine, y: 360, height: 170, motif: 'houses' },
     ],
     props: { accent: PALETTE.coral },
+    celestial: { x: 300, y: 140, radius: 46, color: PALETTE.sunshine, halo: PALETTE.coral },
+    clouds: {},
   },
 
-  // 4 — Downtown: greyer sky, grey buildings (tallest bands so far).
+  // 4 — Downtown: greyer overcast sky, a tall grey skyline with lit windows.
   downtown: {
     ground: { fill: PALETTE.slate, edge: PALETTE.outline },
     sky: { top: PALETTE.overcast, bottom: PALETTE.sky },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 240, height: 170 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 340, height: 200 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 240, height: 170, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 340, height: 200, motif: 'buildings' },
     ],
     props: { accent: PALETTE.sunshine },
   },
 
-  // 5 — Construction zone: dusty tan/orange-grey.
+  // 5 — Construction zone: dusty tan/grey, a hazy skyline behind tower cranes.
   construction: {
     ground: { fill: PALETTE.dustyTan, edge: PALETTE.outline },
     sky: { top: PALETTE.overcast, bottom: PALETTE.sunshine },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 300, height: 110 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.dustyTan, y: 380, height: 160 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 300, height: 110, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.dustyTan, y: 380, height: 160, motif: 'cranes' },
     ],
     props: { accent: PALETTE.sunshine },
   },
 
-  // 6 — Overpass/highway: open sky, grey concrete, low/minimal bands.
+  // 6 — Overpass/highway: open sky + clouds, distant haze hills, low concrete.
   highway: {
     ground: { fill: PALETTE.slate, edge: PALETTE.outline },
     sky: { top: PALETTE.sky, bottom: PALETTE.white },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.sky, y: 340, height: 70 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 420, height: 110 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.sky, y: 340, height: 70, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 420, height: 110, motif: 'buildings' },
     ],
     props: { accent: PALETTE.overcast },
+    clouds: { count: 7 },
   },
 
-  // 7 — Riverside road: blue-green, watery.
+  // 7 — Riverside road: far bank hills over a shimmering river band.
   riverside: {
     ground: { fill: PALETTE.riverTeal, edge: PALETTE.outline },
     sky: { top: PALETTE.sky, bottom: PALETTE.riverTeal },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.sky, y: 310, height: 100 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.riverTeal, y: 390, height: 150 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 310, height: 100, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.riverTeal, y: 390, height: 150, motif: 'water' },
     ],
     props: { accent: PALETTE.mint },
+    clouds: {},
   },
 
-  // 8 — River bridge: blue, structural.
+  // 8 — River bridge: distant hills behind a steel truss bridge.
   bridge: {
     ground: { fill: PALETTE.slate, edge: PALETTE.outline },
     sky: { top: PALETTE.sky, bottom: PALETTE.steelBlue },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.sky, y: 260, height: 150 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.steelBlue, y: 360, height: 190 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 260, height: 150, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.steelBlue, y: 360, height: 190, motif: 'bridge' },
     ],
     props: { accent: PALETTE.white },
+    clouds: {},
   },
 
-  // 9 — City boulevard: warmer urban.
+  // 9 — City boulevard: warmer urban, lavender + coral skyline with lit windows.
   boulevard: {
     ground: { fill: PALETTE.slate, edge: PALETTE.outline },
     sky: { top: PALETTE.lavender, bottom: PALETTE.coral },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 270, height: 140 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.coral, y: 360, height: 180 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 270, height: 140, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.coral, y: 360, height: 180, motif: 'buildings' },
     ],
     props: { accent: PALETTE.sunshine },
   },
 
-  // 10 — Old town: warm brick tones.
+  // 10 — Old town: warm brick, two rows of cozy pitched rooftops.
   oldTown: {
     ground: { fill: PALETTE.brickRed, edge: PALETTE.outline },
     sky: { top: PALETTE.cream, bottom: PALETTE.sunshine },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.cream, y: 300, height: 110 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.brickRed, y: 380, height: 160 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.cream, y: 300, height: 110, motif: 'houses' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.brickRed, y: 380, height: 160, motif: 'houses' },
     ],
     props: { accent: PALETTE.dustyTan },
+    clouds: {},
   },
 
-  // 11 — Hilly district: rolling green, big open sky.
+  // 11 — Hilly district: rolling green ridges, big open cloudy sky.
   hilly: {
     ground: { fill: PALETTE.grass, edge: PALETTE.outline },
     sky: { top: PALETTE.sky, bottom: PALETTE.white },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 350, height: 80 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 420, height: 120 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.mint, y: 350, height: 80, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.grass, y: 420, height: 120, motif: 'hills' },
     ],
     props: { accent: PALETTE.bgPink },
+    clouds: { count: 7 },
   },
 
-  // 12 — Billboard row: urban with colorful sign accents.
+  // 12 — Billboard row: urban skyline (the level-18 egg + decoy billboards
+  // ride the decorations layer in front of this).
   billboardRow: {
     ground: { fill: PALETTE.slate, edge: PALETTE.outline },
     sky: { top: PALETTE.overcast, bottom: PALETTE.lavender },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 260, height: 150 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 360, height: 190 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.overcast, y: 260, height: 150, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.slate, y: 360, height: 190, motif: 'buildings' },
     ],
     props: { accent: PALETTE.coral },
   },
 
-  // 13 — Sunset streets: orange/pink evening sky.
+  // 13 — Sunset streets: a big low sun, hazy hills, a warm city silhouette.
   sunset: {
     ground: { fill: PALETTE.coral, edge: PALETTE.outline },
     sky: { top: PALETTE.lavender, bottom: PALETTE.sunsetGlow },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 290, height: 120 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.sunsetGlow, y: 370, height: 170 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 290, height: 120, motif: 'hills' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.sunsetGlow, y: 370, height: 170, motif: 'buildings' },
     ],
     props: { accent: PALETTE.bgPink },
+    celestial: { x: 360, y: 300, radius: 84, color: PALETTE.sunsetGlow, halo: PALETTE.coral },
+    clouds: { color: PALETTE.coral, count: 5 },
   },
 
-  // 14 — Party district outskirts: festive, brighter/pinker (balloons start
-  // appearing here — actual balloon decorations are a later PLAN-05 task).
+  // 14 — Party district outskirts: festive — a skyline behind bunting, tents
+  // and distant balloons (the real balloon decorations sit in front of this).
   partyDistrict: {
     ground: { fill: PALETTE.bgPink, edge: PALETTE.outline },
     sky: { top: PALETTE.bgPink, bottom: PALETTE.lavender },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 300, height: 120 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.bgPink, y: 380, height: 160 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.lavender, y: 300, height: 120, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.bgPink, y: 380, height: 160, motif: 'party' },
     ],
     props: { accent: PALETTE.sunshine },
+    clouds: {},
   },
 
-  // 15 — Final stretch, dusk: deep purple/indigo, arrival at night.
+  // 15 — Final stretch, dusk: a pale moon, a warm-lit-window skyline glowing
+  // against the indigo dusk, and party trimmings at the venue.
   finalDusk: {
     ground: { fill: PALETTE.plum, edge: PALETTE.outline },
     sky: { top: PALETTE.duskIndigo, bottom: PALETTE.plum },
     layers: [
-      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.duskIndigo, y: 280, height: 140 },
-      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.plum, y: 370, height: 180 },
+      { scrollFactor: FAR_SCROLL_FACTOR, color: PALETTE.duskIndigo, y: 280, height: 140, motif: 'buildings' },
+      { scrollFactor: NEAR_SCROLL_FACTOR, color: PALETTE.plum, y: 370, height: 180, motif: 'party' },
     ],
     props: { accent: PALETTE.sunshine }, // warm lit-window glow against the dusk
+    celestial: { x: 1000, y: 120, radius: 44, color: PALETTE.cream, halo: PALETTE.lavender },
   },
 };
 
@@ -495,10 +533,11 @@ export function buildSilhouettePoints(opts: SilhouetteOptions): SilhouettePoint[
 
 /**
  * Evenly-spaced x positions covering [minX, maxX], `spacing` apart, starting
- * exactly at minX — used to place the sparse "props" accent blocks along a
- * layer's baseline. Returns [] for a degenerate (minX > maxX) range; guards a
- * degenerate (zero/negative) spacing by flooring it to 1 so it can never
- * loop forever.
+ * exactly at minX — used by backdropArt's motifs to place regularly-spaced
+ * elements across a layer's range (bridge piers, water-shimmer dashes, party
+ * tents / balloons / bunting). Returns [] for a degenerate (minX > maxX)
+ * range; guards a degenerate (zero/negative) spacing by flooring it to 1 so it
+ * can never loop forever.
  */
 export function evenlySpacedX(minX: number, maxX: number, spacing: number): number[] {
   const safeSpacing = spacing > 0 ? spacing : 1;
@@ -509,84 +548,34 @@ export function evenlySpacedX(minX: number, maxX: number, spacing: number): numb
 
 // ---------------------------------------------------------------------------
 // Public API: Phaser construction (never imports Phaser at runtime — see
-// module doc comment).
+// module doc comment). The actual per-motif / sky / cloud DRAWING lives in
+// backdropArt.ts; this function just assembles a theme's pieces in the right
+// order and owns the cloud-drift + teardown lifecycle.
 // ---------------------------------------------------------------------------
 
-/** Draws one parallax layer as a single filled Graphics polygon (silhouette
- * top edge from buildSilhouettePoints, closed along the layer's baseline) —
- * mirrors terrain.ts's drawGround structure. scrollFactor is (layer's own
- * rate, 0): horizontal genuinely parallaxes, vertical is camera-pinned (see
- * module doc comment). */
-function drawSilhouetteLayer(
-  scene: Phaser.Scene,
-  layer: ParallaxLayerDef,
-  range: { minX: number; maxX: number }
-): Phaser.GameObjects.Graphics {
-  const baselineY = layer.y + layer.height;
-  const points = buildSilhouettePoints({
-    minX: range.minX,
-    maxX: range.maxX,
-    stepPx: SILHOUETTE_STEP_PX,
-    baselineY,
-    baseHeightPx: layer.height * SILHOUETTE_BASE_HEIGHT_FRACTION,
-    variancePx: layer.height * SILHOUETTE_VARIANCE_FRACTION,
-    wavelengthPx: layer.height * SILHOUETTE_WAVELENGTH_HEIGHT_MULTIPLIER,
-  });
-
-  const graphics = scene.add.graphics();
-  graphics.fillStyle(layer.color, 1);
-  graphics.beginPath();
-  graphics.moveTo(points[0].x, baselineY);
-  for (const p of points) graphics.lineTo(p.x, p.y);
-  graphics.lineTo(points[points.length - 1].x, baselineY);
-  graphics.closePath();
-  graphics.fillPath();
-
-  graphics.setScrollFactor(layer.scrollFactor, 0);
-  graphics.setDepth(DEPTHS.background);
-  return graphics;
-}
-
-/** Scatters small accent-colored blocks along `layer`'s baseline (the
- * "props" placeholder) — same scrollFactor as the layer they ride on, so
- * they parallax attached to it. */
-function drawPropAccents(
-  scene: Phaser.Scene,
-  layer: ParallaxLayerDef,
-  accentColor: number,
-  range: { minX: number; maxX: number }
-): Phaser.GameObjects.Rectangle[] {
-  const baselineY = layer.y + layer.height;
-  const xs = evenlySpacedX(range.minX, range.maxX, PROP_SPACING_PX);
-  return xs.map((x) => {
-    const rect = scene.add.rectangle(
-      x,
-      baselineY - PROP_HEIGHT_PX / 2,
-      PROP_WIDTH_PX,
-      PROP_HEIGHT_PX,
-      accentColor
-    );
-    rect.setScrollFactor(layer.scrollFactor, 0);
-    rect.setDepth(DEPTHS.background);
-    return rect;
-  });
+/** One drifting cloud's live handle: the (movable) Graphics plus the pure
+ * inputs update() needs to reposition it — its home x and its drift speed. */
+interface DriftingCloud {
+  g: Phaser.GameObjects.Graphics;
+  baseX: number;
+  /** px per millisecond (see CLOUD_MIN/MAX_SPEED). */
+  speed: number;
 }
 
 /**
- * Builds a level's parallax backdrop for `themeId`: a camera-fixed, oversized
- * two-band sky, then 2-3 horizontally-parallaxing silhouette layers (far ->
- * near, each a single Graphics polygon), then sparse accent props riding the
- * nearest layer. Every piece sits at DEPTHS.background; creation order is
- * far-to-near so Phaser's (stable) same-depth render order stacks them
- * correctly without needing distinct depth values.
+ * Builds a level's parallax backdrop for `themeId`, in strict far->near
+ * creation order (Phaser's stable same-depth ordering stacks them at the
+ * shared DEPTHS.background):
+ *   1. a stepped-gradient sky (camera-fixed, OVERSIZED so zoom-out never gaps),
+ *   2. an optional celestial disc (camera-fixed),
+ *   3. optional drifting clouds (camera-fixed; animated in update()),
+ *   4. the far->near parallax MOTIF layers (each spanning the full padded
+ *      backdropContentRangePx so it can never run out of content at any
+ *      scroll/zoom — see the module doc comment).
  *
- * `scene` is used purely as a runtime handle to Phaser's GameObject
- * factories (same contract as createTerrain/createBike/createPedals) — this
- * function never imports Phaser itself (see module doc comment).
- *
- * update() is an intentional no-op — see BackdropHandle.update's doc comment
- * for why: every object here uses Phaser's native scrollFactor, which Phaser
- * itself reprojects every render frame with no help needed from this module.
+ * `scene` is used purely as a runtime handle to Phaser's GameObject factories
+ * (same contract as createTerrain/createBike) — this function never imports
+ * Phaser itself. ZERO Matter bodies are created (backdrops are pure visuals).
  */
 export function createBackdrop(
   scene: Phaser.Scene,
@@ -596,47 +585,78 @@ export function createBackdrop(
   const theme = THEMES[themeId];
   const objects: Phaser.GameObjects.GameObject[] = [];
 
-  // ---- sky: two flat, stacked, camera-fixed, oversized bands ----
   const oversize = cameraFixedOversizePx(CAMERA.zoomMin);
   const pivotX = DESIGN_WIDTH / 2;
   const pivotY = DESIGN_HEIGHT / 2;
-  const skyTop = scene.add.rectangle(
-    pivotX,
-    pivotY - oversize.height / 4,
-    oversize.width,
-    oversize.height / 2,
-    theme.sky.top
+
+  // ---- 1. sky: a stepped multi-band gradient, camera-fixed + oversized ----
+  objects.push(
+    ...drawSteppedSky(
+      scene,
+      theme.sky.top,
+      theme.sky.bottom,
+      SKY_BAND_COUNT,
+      pivotX,
+      pivotY,
+      oversize.width,
+      oversize.height
+    )
   );
-  const skyBottom = scene.add.rectangle(
-    pivotX,
-    pivotY + oversize.height / 4,
-    oversize.width,
-    oversize.height / 2,
-    theme.sky.bottom
-  );
-  for (const sky of [skyTop, skyBottom]) {
-    sky.setScrollFactor(0);
-    sky.setDepth(DEPTHS.background);
-    objects.push(sky);
+
+  // ---- 2. celestial disc (camera-fixed), in front of the sky ----
+  if (theme.celestial) {
+    objects.push(...drawCelestial(scene, theme.celestial));
   }
 
-  // ---- far -> near parallax silhouette layers ----
+  // ---- 3. drifting clouds (camera-fixed), in front of the sun ----
+  // Clouds wrap within an oversized band (margin past the min-zoom viewport)
+  // so their recycle wrap always happens OFF-screen. Vertical is camera-pinned
+  // (scrollFactor 0) like everything camera-fixed here.
+  const clouds: DriftingCloud[] = [];
+  const cloudBandMinX = pivotX - oversize.width / 2 - CLOUD_WRAP_MARGIN_PX;
+  const cloudBandWidth = oversize.width + CLOUD_WRAP_MARGIN_PX * 2;
+  if (theme.clouds) {
+    const cloudColor = theme.clouds.color ?? PALETTE.white;
+    const shadowColor = lerpColor(cloudColor, PALETTE.slate, 0.35);
+    const count = theme.clouds.count ?? DEFAULT_CLOUD_COUNT;
+    for (let i = 0; i < count; i++) {
+      const scale = CLOUD_MIN_SCALE + hash01(i * 3 + 1) * (CLOUD_MAX_SCALE - CLOUD_MIN_SCALE);
+      const g = drawCloud(scene, scale, cloudColor, shadowColor);
+      g.x = cloudBandMinX + hash01(i * 3 + 2) * cloudBandWidth;
+      g.y = CLOUD_MIN_Y_PX + hash01(i * 3 + 3) * (CLOUD_MAX_Y_PX - CLOUD_MIN_Y_PX);
+      g.setScrollFactor(0);
+      g.setDepth(DEPTHS.background);
+      clouds.push({
+        g,
+        baseX: g.x,
+        speed: CLOUD_MIN_SPEED + hash01(i * 7 + 5) * (CLOUD_MAX_SPEED - CLOUD_MIN_SPEED),
+      });
+      objects.push(g);
+    }
+  }
+
+  // ---- 4. far -> near parallax motif layers ----
   const range = backdropContentRangePx(worldLength, CAMERA.zoomMin);
   for (const layer of theme.layers) {
-    objects.push(drawSilhouetteLayer(scene, layer, range));
+    objects.push(...MOTIF_DRAWERS[layer.motif](scene, layer, range, theme.props.accent));
   }
-
-  // ---- sparse prop accents, riding the NEAREST (last) layer ----
-  const nearestLayer = theme.layers[theme.layers.length - 1];
-  objects.push(...drawPropAccents(scene, nearestLayer, theme.props.accent, range));
 
   return {
     update(): void {
-      // Intentional no-op — see this function's doc comment.
+      // Autonomous cloud drift: slide each cloud by elapsed scene time (NOT
+      // Date.now), wrapping so it recycles off-screen. ALLOCATION-FREE — no
+      // per-frame objects, just moving the existing clouds. No clouds -> the
+      // loop body never runs.
+      if (clouds.length === 0) return;
+      const now = scene.time ? scene.time.now : 0;
+      for (const c of clouds) {
+        c.g.x = wrapX(c.baseX + now * c.speed, cloudBandMinX, cloudBandWidth);
+      }
     },
     destroy(): void {
       for (const obj of objects) obj.destroy();
       objects.length = 0;
+      clouds.length = 0;
     },
   };
 }

@@ -6,6 +6,7 @@ import {
   buildSilhouettePoints,
   evenlySpacedX,
 } from '../src/systems/themes';
+import { MOTIF_DRAWERS } from '../src/systems/backdropArt';
 import { THEME_IDS } from '../src/levels/types';
 import { CAMERA, DESIGN_WIDTH, DESIGN_HEIGHT, LEVEL } from '../src/systems/constants';
 
@@ -71,6 +72,45 @@ describe('THEMES — well-formedness', () => {
 
     // props — a minimal accent color.
     expect(isColor(theme.props.accent)).toBe(true);
+  });
+});
+
+describe('THEMES — ST-5 backdrop-art fields (motif / celestial / clouds)', () => {
+  const isColor = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 0xffffff;
+
+  it.each([...THEME_IDS])('%s: every layer names a real motif drawer', (id) => {
+    for (const layer of THEMES[id].layers) {
+      // The motif must dispatch to an actual drawer (Record<MotifKind,...>).
+      expect(typeof MOTIF_DRAWERS[layer.motif]).toBe('function');
+    }
+  });
+
+  it.each([...THEME_IDS])('%s: celestial (if present) is well-formed', (id) => {
+    const c = THEMES[id].celestial;
+    if (c === undefined) return;
+    expect(Number.isFinite(c.x)).toBe(true);
+    expect(Number.isFinite(c.y)).toBe(true);
+    expect(c.radius).toBeGreaterThan(0);
+    expect(isColor(c.color)).toBe(true);
+    if (c.halo !== undefined) expect(isColor(c.halo)).toBe(true);
+  });
+
+  it.each([...THEME_IDS])('%s: clouds (if present) is well-formed', (id) => {
+    const cl = THEMES[id].clouds;
+    if (cl === undefined) return;
+    if (cl.color !== undefined) expect(isColor(cl.color)).toBe(true);
+    if (cl.count !== undefined) {
+      expect(Number.isInteger(cl.count)).toBe(true);
+      expect(cl.count).toBeGreaterThan(0);
+    }
+  });
+
+  it('the whole city arc uses a spread of distinct motifs (not one repeated)', () => {
+    const motifs = new Set<string>();
+    for (const id of THEME_IDS) for (const l of THEMES[id].layers) motifs.add(l.motif);
+    // Lean into the palette+motif variety the arc is supposed to have.
+    expect(motifs.size).toBeGreaterThanOrEqual(6);
   });
 });
 
