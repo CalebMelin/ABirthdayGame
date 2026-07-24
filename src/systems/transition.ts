@@ -8,14 +8,23 @@
 // WHY IT IS SAFE ACROSS THE FLOW:
 //  - fadeInScene() is PURELY ADDITIVE: a camera overlay effect that never
 //    blocks input, never delays the scene, and cannot create a dead-end or a
-//    double-start. It is therefore applied to EVERY target scene, including the
-//    finale/never-fail ones whose OUT transition deliberately stays a hard cut.
+//    double-start. It is applied at the end of create() on every PLAIN scene
+//    (Title / Character Creation / Level Select / Level Complete / GameScene) so
+//    an incoming scene fades UP from the pastel chrome. The two FINALE scenes —
+//    PartyScene and CreditsScene — DELIBERATELY do NOT call it: their dusk
+//    backdrop would show a pink FLASH on a fade-up-from-pink, so a transition
+//    INTO the party (LevelComplete->Party, Title->Party) fades OUT to pink and
+//    then HARD-CUTS to the finale — fade-out-then-cut, no fade-in, by design.
+//    (Do NOT wire fadeInScene into Party/Credits; the missing fade-in is the
+//    point, not an omission.)
 //  - transitionTo() replaces a hard-cut `scene.start` with a fade-out THEN the
-//    same start. It is used only on the plain menu scenes (Title / Character
-//    Creation / Level Select / Level Complete) — NEVER on GameScene's
+//    same start. Its CALLERS are only the plain menu scenes (Title / Character
+//    Creation / Level Select / Level Complete) — NEVER GameScene's
 //    finish/fail/arrival hand-offs, the finale Party->Credits, or the
 //    `leaving`-latched Credits transitions, which keep their exact navigation
-//    semantics (hard cut) and only gain a fade-IN on the incoming scene.
+//    semantics (hard cut). Those incoming scenes gain a fade-IN only when they
+//    are a plain scene that calls fadeInScene (LevelComplete on finish, GameScene
+//    on a fail-restart); the finale scenes intentionally do not.
 //  - transitionTo() carries its OWN re-entry latch (`__juiceLeaving`), so a
 //    rapid double-press / two-finger tap can't queue two `scene.start`s — it
 //    actually TIGHTENS the pre-existing project-wide double-start on menu
@@ -35,6 +44,16 @@ const FADE_B = PALETTE.bgPink & 0xff;
 
 /** Phaser's Cameras.Scene2D.Events.FADE_OUT_COMPLETE string value (stable). */
 const FADE_OUT_COMPLETE = 'camerafadeoutcomplete';
+
+/**
+ * The re-entry latch decision, isolated so it is unit-testable without a scene:
+ * a transitionTo() call may START a fade-out only when one is not already in
+ * flight (`__juiceLeaving` unset/false). This is what makes a rapid double-press
+ * a single start — the SECOND call, seeing the latch set, is a no-op. Pure.
+ */
+export function shouldStartTransition(alreadyLeaving: boolean | undefined): boolean {
+  return !alreadyLeaving;
+}
 
 /**
  * Fade the incoming scene in from the pastel chrome color. Call once at the end
@@ -60,7 +79,7 @@ export function transitionTo(
   durationMs = JUICE.transitionFadeMs
 ): void {
   const latch = scene as unknown as { __juiceLeaving?: boolean };
-  if (latch.__juiceLeaving) return;
+  if (!shouldStartTransition(latch.__juiceLeaving)) return;
   latch.__juiceLeaving = true;
   const cam = scene.cameras.main;
   cam.once(FADE_OUT_COMPLETE, () => scene.scene.start(key, data));

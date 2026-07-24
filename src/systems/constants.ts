@@ -1447,9 +1447,13 @@ export const JUICE = {
   /** |airborneRotation change per render frame| (rad) above which the flip is
    * spinning fast enough to throw sparks. */
   sparkFlipRateThreshRad: 0.11,
-  /** Upper sanity bound (rad/frame) on that rate: the airborne-rotation reset
-   * at takeoff shows as a ~2*PI jump for one frame — reject it so takeoff
-   * never sparks. A real fast flip is well under this. */
+  /** Upper sanity bound (rad/frame) on that rate, purely DEFENSIVE. The takeoff
+   * airborne-rotation reset (which showed as a ~2*PI jump for one frame, and
+   * even a partial prior rotation as a smaller spurious spike) is now zeroed at
+   * the source — GameScene's flipRateForFrame forces the rate to 0 on the
+   * takeoff frame — so nothing should ever reach this bound; it stays as a belt
+   * for any future rotation source that could spike the rate. A real fast flip
+   * is well under this. */
   sparkFlipRateSanityRad: 1.5,
   /** Spark launch speed range, px/sec (a small outward pop). */
   sparkSpeedMinPxPerSec: 60,

@@ -54,7 +54,7 @@ import type { TricksHandle } from '../systems/tricks';
 import { dispatchLevelEvents } from '../levels/events';
 import type { EventContext, LevelEventHandle } from '../levels/events';
 import { getAudio, DRIVE_SFX } from '../systems/audio';
-import { createDriveJuice } from '../systems/juice';
+import { createDriveJuice, flipRateForFrame } from '../systems/juice';
 import type { DriveJuiceHandle } from '../systems/juice';
 import { fadeInScene } from '../systems/transition';
 import { normalizeLevel } from './types';
@@ -182,6 +182,11 @@ export class GameScene extends Phaser.Scene {
   /** Last frame's bike.airborneRotation (rad), for the per-frame flip rate that
    * drives wheelie sparks. Reset in create(). */
   private prevAirborneRotation = 0;
+  /** Last frame's DEBOUNCED air phase (bike.trickAirborne), for the flip-rate
+   * rising-edge guard: airborneRotation resets to 0 at takeoff, so the FIRST
+   * airborne frame must not read that reset as a huge one-frame flip and spark
+   * spuriously (see flipRateForFrame). Reset in create(). */
+  private prevTrickAir = false;
   /** Latched once the run is over (crashed, fell, or finished) so the fail
    * overlay/transition can only fire once per run. */
   private ended = false;
@@ -228,6 +233,7 @@ export class GameScene extends Phaser.Scene {
     this.cameraDipPx = 0;
     this.airborneMs = 0;
     this.prevAirborneRotation = 0;
+    this.prevTrickAir = false;
     this.inputOverride = null;
     this.audioWasAirborne = false;
     this.audioJumpActive = false;
@@ -605,10 +611,16 @@ export class GameScene extends Phaser.Scene {
     // wheelie sparks (spinning fast airborne), and screen-space speed lines
     // (top speed). `emit: !ended` suppresses NEW particles once the run ends so
     // a crash tumble never throws dust/sparks; live pieces still settle.
-    // flipRateAbs = |airborneRotation change this frame| (the flip spin rate).
+    // flipRateAbs = |airborneRotation change this frame| (the flip spin rate),
+    // FORCED to 0 on the takeoff frame (rising edge of the debounced air phase):
+    // airborneRotation resets to 0 at takeoff while prevAirborneRotation still
+    // holds the prior air phase's frozen total, so a naive diff would read that
+    // whole total as a one-frame flip and spark spuriously — even after a partial
+    // wheelie/hop the old sanity bound alone let slip. flipRateForFrame guards it.
     const airRot = this.bike.airborneRotation;
-    const flipRateAbs = Math.abs(airRot - this.prevAirborneRotation);
+    const flipRateAbs = flipRateForFrame(this.prevTrickAir, airRot, this.prevAirborneRotation);
     this.prevAirborneRotation = airRot;
+    this.prevTrickAir = trickAir;
     this.juice?.update(delta, {
       bikeX: this.bike.x,
       bikeY: this.bike.y,
