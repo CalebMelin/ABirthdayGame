@@ -11,7 +11,7 @@ import {
   resolveHair,
   resolveOutfit,
 } from '../src/data/characters';
-import { PROP_SIZES, readCommittedAsset, SPRITE_SIZES } from './committedArt.mjs';
+import { PROP_SIZES, readCommittedAsset, SPRITE_SIZES, VEHICLE_SIZES } from './committedArt.mjs';
 import { ASSETS_TO_BUILD, renderAssetBytes } from '../src/art/assets.mjs';
 
 // -----------------------------------------------------------------------------
@@ -210,6 +210,8 @@ describe('committed art PNGs', () => {
     { file: 'sprites/wheelie-rider.png', size: SPRITE_SIZES.wheelieRider },
     { file: 'sprites/wheel.png', size: SPRITE_SIZES.wheel },
     { file: 'props/flag.png', size: PROP_SIZES.flag },
+    { file: 'vehicles/car.png', size: VEHICLE_SIZES.car },
+    { file: 'vehicles/police-car.png', size: VEHICLE_SIZES.policeCar },
   ];
 
   it.each(CASES)('$file is committed at its generator size', ({ file, size }) => {

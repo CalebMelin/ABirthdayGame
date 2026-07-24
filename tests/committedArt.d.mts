@@ -25,4 +25,11 @@ export declare const PROP_SIZES: {
   readonly flag: PixelSize;
 };
 
+/** Re-exported from src/art/vehicles.mjs — the sizes the committed vehicle PNGs
+ * (traffic car + police car, both 110x40) must match. */
+export declare const VEHICLE_SIZES: {
+  readonly car: PixelSize;
+  readonly policeCar: PixelSize;
+};
+
 export declare function readCommittedAsset(relPath: string): Uint8Array;

@@ -13,6 +13,7 @@ import { encodePng } from './lib/png.mjs';
 import { MARKERS, PALETTE } from './palette.mjs';
 import { drawBike, drawCaleb, drawRider, drawWheel, drawWheelieRider, SPRITE_SIZES } from './sprites.mjs';
 import { drawFlag, PROP_SIZES } from './props.mjs';
+import { drawCar, drawPoliceCar, VEHICLE_SIZES } from './vehicles.mjs';
 
 /** Every committed asset: { file (path relative to public/assets), width, height, draw }. */
 export const ASSETS_TO_BUILD = [
@@ -55,6 +56,10 @@ export const ASSETS_TO_BUILD = [
   // Never-recolored.
   { file: 'sprites/wheel.png', ...SPRITE_SIZES.wheel, draw: (fb) => drawWheel(fb) },
   { file: 'props/flag.png', ...PROP_SIZES.flag, draw: (fb) => drawFlag(fb) },
+  // Vehicles (ST-3): the traffic car (tinted at runtime — painted near-white so
+  // TRAFFIC.tints read as 5 pastel variants) and the friendly police car.
+  { file: 'vehicles/car.png', ...VEHICLE_SIZES.car, draw: (fb) => drawCar(fb) },
+  { file: 'vehicles/police-car.png', ...VEHICLE_SIZES.policeCar, draw: (fb) => drawPoliceCar(fb) },
 ];
 
 /**

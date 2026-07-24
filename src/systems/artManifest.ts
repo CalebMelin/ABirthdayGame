@@ -21,8 +21,10 @@ export type TextureName = keyof typeof TEXTURE_KEYS;
  * ST-1 (foundation + proof): the recolorable rider/bike bases, their raw
  * default-colored fallbacks, the wheel, and the finish flag.
  * ST-2 (characters): Caleb (brown-haired, fixed color) and the level-11
- * all-black wheelie-rider easter egg. Everything else (car, policeCar, tulip,
- * balloon) still falls through to BootScene's placeholder generation.
+ * all-black wheelie-rider easter egg.
+ * ST-3 (vehicles): the traffic car (tinted at runtime by traffic.ts) and the
+ * police car. Everything else (tulip, balloon) still falls through to
+ * BootScene's placeholder generation.
  */
 export const ART_MANIFEST: Partial<Record<TextureName, string>> = {
   gabbyBase: 'assets/sprites/gabby-base.png',
@@ -33,4 +35,6 @@ export const ART_MANIFEST: Partial<Record<TextureName, string>> = {
   caleb: 'assets/sprites/caleb.png',
   wheelieRider: 'assets/sprites/wheelie-rider.png',
   flag: 'assets/props/flag.png',
+  car: 'assets/vehicles/car.png',
+  policeCar: 'assets/vehicles/police-car.png',
 };

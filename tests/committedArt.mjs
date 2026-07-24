@@ -12,8 +12,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SPRITE_SIZES } from '../src/art/sprites.mjs';
 import { PROP_SIZES } from '../src/art/props.mjs';
+import { VEHICLE_SIZES } from '../src/art/vehicles.mjs';
 
-export { SPRITE_SIZES, PROP_SIZES };
+export { SPRITE_SIZES, PROP_SIZES, VEHICLE_SIZES };
 
 const ASSETS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'assets');
 
