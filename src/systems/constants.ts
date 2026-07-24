@@ -564,11 +564,11 @@ export const DEBUG_OVERLAY = {
  * devices (see device.ts isTouchDevice — maxTouchPoints AND a coarse
  * pointer); a pure-desktop build creates none.
  *
- * ART NOTE: the faces here are PLACEHOLDER primitives in the repo's chunky
- * pixel style (cream face + dark outline + drop shadow, exactly like ui.ts's
- * buttons) with a directional glyph — a right-pointing triangle for GAS
- * (forward) and a solid square "stop" for BRAKE. Real pixel-art pedals land
- * in PLAN-10; swap the drawing in pedals.ts, not these layout knobs.
+ * ART NOTE: the faces here are chunky-pixel primitives in the repo's style
+ * (cream face + dark outline + drop shadow, exactly like ui.ts's buttons)
+ * carrying a directional glyph — a forward double-chevron ">>" for GAS and a
+ * stop-sign octagon for BRAKE (the real pixel-art glyphs, PLAN-10 ST-4b);
+ * swap the drawing in pedals.ts, not these layout knobs.
  *
  * All lengths are px at the 1280x720 DESIGN scale AND are the FIXED
  * on-screen geometry: because the play camera ZOOMS (CAMERA.zoomMin..zoomMax)
@@ -601,9 +601,6 @@ export const PEDALS = {
   shadowOffsetPx: 6,
   /** Face outline stroke width, px (matches the chunky ui.ts look). */
   outlineWidthPx: 4,
-  /** Directional glyph bounding-box size, px (triangle for gas / square for
-   * brake), drawn centered on the face. */
-  glyphSizePx: 72,
 } as const;
 
 /** Z-depth layers for rendering order. */

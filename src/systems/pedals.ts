@@ -138,12 +138,42 @@ interface Pedal {
   destroy(): void;
 }
 
+/**
+ * Hand-tuned geometry for the two procedurally-drawn pedal glyphs, in px in the
+ * glyph's own local space (centered on 0,0 — see drawGlyph). These are pixel-art
+ * dimensions eyeball-tuned for how each icon READS, not derived from a single
+ * size scalar, so — like the local shape consts in src/art/*.mjs — they live
+ * here as named consts rather than among constants.ts's PEDALS layout knobs.
+ * Both glyphs happen to fit within roughly a 72px box on the 144px face.
+ */
+const GAS_GLYPH = {
+  /** Vertical half-height of each chevron band. */
+  halfHeight: 26,
+  /** Horizontal reach of each chevron arm from its center. */
+  armReach: 15,
+  /** Horizontal stroke thickness of the chevron band. */
+  strokeWidth: 14,
+  /** X-centers of the two chevrons; nudged left of 0 so the double ">>" reads
+   * visually centered (a ">" carries its weight toward its open back). */
+  centers: [-13, 9],
+} as const;
+
+const BRAKE_GLYPH = {
+  /** Octagon outer radius — the plum sign body. */
+  outerRadius: 34,
+  /** Cream border-ring radius (the classic stop-sign white border). */
+  ringRadius: 30,
+  /** Inner radius — the plum sign center inside the ring. */
+  centerRadius: 25,
+} as const;
+
 /** Draws the directional glyph centered on (0,0) in its own Graphics so the
  * pressed-state shift just nudges its y. Real pixel-art icons (PLAN-10 ST-4b),
  * still drawn procedurally so they stay crisp at the pedal's zoom-compensated
  * scale and need no committed PNG: GAS is a chunky forward double-chevron (>>)
  * that reads instantly as "go/speed"; BRAKE is a bold stop-sign octagon. Both
- * live inside the PEDALS.glyphSizePx box in PALETTE.plum on the cream face.
+ * are drawn in PALETTE.plum on the cream face from the hand-tuned GAS_GLYPH /
+ * BRAKE_GLYPH dimensions above.
  * NOTE (like the rest of this module) NO Phaser namespace is touched — fillPoints
  * takes plain {x,y} points, never `new Phaser.Geom.Point`, so pedals.ts stays
  * runtime-Phaser-free (see module header). */
@@ -154,9 +184,7 @@ function drawGlyph(scene: Phaser.Scene, glyph: PedalGlyph): Phaser.GameObjects.G
     // GAS = double chevron ">>", pointing the way the bike travels. Each chevron
     // is one 6-point band (a thick ">"): outer top-left -> tip -> outer
     // bottom-left, then the inset return path gives it its stroke thickness.
-    const a = 26; // vertical half-height of each chevron
-    const armW = 15; // horizontal reach of each arm
-    const t = 14; // horizontal stroke thickness
+    const { halfHeight: a, armReach: armW, strokeWidth: t, centers } = GAS_GLYPH;
     const chevron = (cx: number): void => {
       g.fillPoints(
         [
@@ -170,8 +198,7 @@ function drawGlyph(scene: Phaser.Scene, glyph: PedalGlyph): Phaser.GameObjects.G
         true
       );
     };
-    chevron(-13);
-    chevron(9);
+    for (const cx of centers) chevron(cx);
   } else {
     // BRAKE = a bold stop-sign octagon with a cream inner ring (the classic
     // sign border), so it reads as STOP however the face is tinted on press.
@@ -184,9 +211,9 @@ function drawGlyph(scene: Phaser.Scene, glyph: PedalGlyph): Phaser.GameObjects.G
       }
       g.fillPoints(pts, true);
     };
-    octagon(34, PALETTE.plum); // sign body
-    octagon(30, PALETTE.cream); // border ring
-    octagon(25, PALETTE.plum); // sign centre
+    octagon(BRAKE_GLYPH.outerRadius, PALETTE.plum); // sign body
+    octagon(BRAKE_GLYPH.ringRadius, PALETTE.cream); // border ring
+    octagon(BRAKE_GLYPH.centerRadius, PALETTE.plum); // sign centre
   }
   return g;
 }
