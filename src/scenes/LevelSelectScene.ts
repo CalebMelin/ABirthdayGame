@@ -3,6 +3,7 @@ import { DESIGN_WIDTH, PASTEL_BG_COLOR, PALETTE, DEPTHS, SCENE_KEYS, TEXTURE_KEY
 import { createPixelText, createPixelButton } from '../systems/ui';
 import { getSave } from '../systems/save';
 import { getAudio } from '../systems/audio';
+import { fadeInScene, transitionTo } from '../systems/transition';
 
 /** Grid layout constants — 6 columns x 4 rows (22 cells, last row has 4). */
 const GRID_COLS = 6;
@@ -21,6 +22,8 @@ export class LevelSelectScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+    // Fade in from the pastel chrome (PLAN-10 ST-8 #7).
+    fadeInScene(this);
 
     // Shared menu theme (PLAN-10 ST-7b): the title loop, so the whole shell
     // (Title / Character Creation / Level Select / Level Complete) sounds
@@ -48,7 +51,7 @@ export class LevelSelectScene extends Phaser.Scene {
         label: String(n),
         minWidth: 96,
         onClick: () => {
-          this.scene.start(SCENE_KEYS.game, { level: n });
+          transitionTo(this, SCENE_KEYS.game, { level: n });
         },
         disabled: locked,
       });
@@ -68,7 +71,7 @@ export class LevelSelectScene extends Phaser.Scene {
       y: 656,
       label: '← back',
       onClick: () => {
-        this.scene.start(SCENE_KEYS.title);
+        transitionTo(this, SCENE_KEYS.title);
       },
     });
   }

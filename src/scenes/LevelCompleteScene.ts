@@ -34,6 +34,7 @@ import {
   LEVEL_COMPLETE,
 } from '../systems/constants';
 import { createPixelText, createPixelButton, createPixelPanel } from '../systems/ui';
+import { fadeInScene, transitionTo } from '../systems/transition';
 import { createConfettiBurst } from '../systems/confetti';
 import type { ConfettiBurstHandle } from '../systems/confetti';
 import { getSave } from '../systems/save';
@@ -122,6 +123,10 @@ export class LevelCompleteScene extends Phaser.Scene {
     this.bodyText = undefined;
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+    // Fade in from the pastel chrome (PLAN-10 ST-8 #7) — pairs with GameScene's
+    // hard-cut finish hand-off so arriving at the complete screen still reads as
+    // a transition (materialize from pink).
+    fadeInScene(this);
     const cx = DESIGN_WIDTH / 2;
 
     // A happy level-complete jingle over the shared menu loop (PLAN-10 ST-7b):
@@ -198,7 +203,7 @@ export class LevelCompleteScene extends Phaser.Scene {
       y: replayButtonPos.y,
       label: 'Replay',
       minWidth: LEVEL_COMPLETE.secondaryButtonMinWidthPx,
-      onClick: () => this.scene.start(SCENE_KEYS.game, { level: this.level }),
+      onClick: () => transitionTo(this, SCENE_KEYS.game, { level: this.level }),
     });
 
     const levelSelectButtonPos = {
@@ -210,7 +215,7 @@ export class LevelCompleteScene extends Phaser.Scene {
       y: levelSelectButtonPos.y,
       label: 'Level select',
       minWidth: LEVEL_COMPLETE.secondaryButtonMinWidthPx,
-      onClick: () => this.scene.start(SCENE_KEYS.levelSelect),
+      onClick: () => transitionTo(this, SCENE_KEYS.levelSelect),
     });
 
     // Tap/click ANYWHERE instantly reveals the full note (impatient players
@@ -263,9 +268,9 @@ export class LevelCompleteScene extends Phaser.Scene {
    * Deliberately does NOT pass tulipsAtStart — that's a GameScene->LC value. */
   private goNext(): void {
     if (this.level >= TOTAL_LEVELS) {
-      this.scene.start(SCENE_KEYS.party);
+      transitionTo(this, SCENE_KEYS.party);
     } else {
-      this.scene.start(SCENE_KEYS.game, { level: this.level + 1 });
+      transitionTo(this, SCENE_KEYS.game, { level: this.level + 1 });
     }
   }
 

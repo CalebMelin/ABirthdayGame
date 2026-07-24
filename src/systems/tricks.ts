@@ -69,6 +69,7 @@ import {
   DESIGN_HEIGHT,
   FONT_STACK_PIXEL,
   TEXT_COLOR,
+  JUICE,
   snapFontSize,
 } from './constants';
 import { zoomCompensatedPosition, zoomCompensatedScale } from './pedals';
@@ -76,6 +77,8 @@ import type { Vec2 } from './pedals';
 import type { BikeHandle } from './bike';
 import type { SaveSystem } from './save';
 import { getAudio } from './audio';
+import { createConfettiBurst } from './confetti';
+import type { ConfettiBurstHandle } from './confetti';
 
 /** VERBATIM copy from PLAN-07 task 1 (CLAUDE.md Rule 4 — never paraphrase or
  * restyle). Shown when a landed flip's accumulated rotation is NEGATIVE — the
@@ -346,6 +349,29 @@ export function createTricks(
   // --- the screen-space root (see the module doc's zoom derivation) ---
   const root = scene.add.container(ROOT_ORIGIN.x, ROOT_ORIGIN.y).setScrollFactor(0).setDepth(DEPTHS.hud);
 
+  // Award confetti (PLAN-10 ST-8 #6): a small celebratory pop at the bike on a
+  // tulip award, REUSING the shared confetti burst pool (systems/confetti.ts) —
+  // NOT forked. World-space plain Rectangles at DEPTHS.fx (ZERO Matter bodies),
+  // so it pops off the landing where the flip happened. Stepped in layout()
+  // (every frame) and destroyed in destroy(). concurrentBursts 2 covers rapid
+  // back-to-back landings landing inside one burst lifetime.
+  const awardConfetti: ConfettiBurstHandle = createConfettiBurst(scene, {
+    count: JUICE.awardConfettiCount,
+    originSpreadXPx: JUICE.awardConfettiOriginSpreadXPx,
+    speedMinPxPerSec: JUICE.awardConfettiSpeedMinPxPerSec,
+    speedMaxPxPerSec: JUICE.awardConfettiSpeedMaxPxPerSec,
+    launchSpreadRad: Math.PI / 4,
+    gravityPxPerSec2: JUICE.awardConfettiGravityPxPerSec2,
+    spinMaxRadPerSec: JUICE.awardConfettiSpinMaxRadPerSec,
+    lifetimeMinMs: JUICE.awardConfettiLifeMinMs,
+    lifetimeMaxMs: JUICE.awardConfettiLifeMaxMs,
+    sizeMinPx: JUICE.awardConfettiSizeMinPx,
+    sizeMaxPx: JUICE.awardConfettiSizeMaxPx,
+    fadeStartFrac: JUICE.awardConfettiFadeStartFrac,
+    depth: DEPTHS.fx,
+    concurrentBursts: 2,
+  });
+
   // Every tween-targeted GameObject is tracked so destroy() can kill their
   // tweens BEFORE the root (which owns them all as children) is destroyed —
   // an abnormal shutdown mid-arc/toast/pop can't leave a tween running
@@ -418,6 +444,18 @@ export function createTricks(
   }
   refreshHud(false); // initial render straight from the persisted count
 
+  // Bouquet HUD fade-in on level start (ST-8 #8): ALPHA ONLY, so it never
+  // touches the zoom-compensated POSITION the tulip harness pins (layout() sets
+  // position/scale, never alpha, so this tween is never fought). Killed in
+  // destroy() so a fast restart mid-fade can't tween a destroyed root.
+  root.setAlpha(0);
+  scene.tweens.add({
+    targets: root,
+    alpha: 1,
+    duration: JUICE.bouquetFadeMs,
+    ease: 'Quad.easeOut',
+  });
+
   /** Show the direction toast (replacing any still-fading previous one, so
    * back-to-back flips never overlap text). Same hold-then-fade shape as the
    * pickup/police toasts. */
@@ -470,6 +508,9 @@ export function createTricks(
     // A little sparkle (PLAN-10 ST-7b), beside the toast + arc. Guarded no-op
     // when muted / audio unavailable.
     getAudio().playSfx('tulip');
+    // A small celebratory confetti pop at the bike (ST-8 #6), where the flip
+    // landed — reuses the shared confetti pool (see awardConfetti).
+    awardConfetti.burst(bike.x, bike.y - JUICE.awardConfettiYOffsetPx);
     showToast(flipToastMessage(rotationDeg));
     inFlight += flips;
     for (let i = 0; i < flips; i++) launchArc(i);
@@ -525,6 +566,10 @@ export function createTricks(
     const p = zoomCompensatedPosition(ROOT_ORIGIN, PIVOT, zoom);
     root.setPosition(p.x, p.y);
     root.setScale(zoomCompensatedScale(zoom));
+    // Step the award confetti here (ST-8 #6): layout() is GameScene's per-frame
+    // hook for this system, and scene.game.loop.delta is the render-frame delta.
+    // Runs even while ended so a flip popped during a finish-finale hold settles.
+    awardConfetti.update(scene.game.loop.delta);
   }
   // Place once at native zoom (the camera starts at CAMERA.zoomMax = 1) so
   // the HUD renders in the right spot on the very first frame — same as the
@@ -543,8 +588,14 @@ export function createTricks(
     // destroying their targets. Idempotent: a second destroy() sees an empty
     // list and killTweensOf([]) is a harmless no-op.
     scene.tweens.killTweensOf(tweened);
+    // Also kill the bouquet fade-in tween (ST-8) so a fast restart mid-fade
+    // can't leave a tween running against the destroyed root.
+    scene.tweens.killTweensOf(root);
     tweened.length = 0;
     activeToast = null;
+    // The award confetti burst pool (ST-8 #6) is world-space, not a root child,
+    // so destroy it explicitly (idempotent; safe after a stray step).
+    awardConfetti.destroy();
     // The root owns every visual as a child — one destroy sweeps them all.
     root.destroy();
     if (import.meta.env.DEV) delete devScene.__tricks;

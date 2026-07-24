@@ -3,6 +3,7 @@ import { DESIGN_WIDTH, PASTEL_BG_COLOR, PALETTE, SCENE_KEYS, hexToCss } from '..
 import { createPixelText, createPixelButton } from '../systems/ui';
 import { getSave, hasBeatenGame } from '../systems/save';
 import { getAudio } from '../systems/audio';
+import { fadeInScene, transitionTo } from '../systems/transition';
 
 /** Shared min-width for the stacked Play / Edit Character / Party buttons so
  * they align. */
@@ -20,6 +21,10 @@ export class TitleScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+    // Fade in from the pastel chrome (PLAN-10 ST-8 #7) — pairs with an outgoing
+    // scene's fade-out for a seamless cross-fade, and re-arms transitionTo's
+    // re-entry latch on this reused scene instance.
+    fadeInScene(this);
 
     // Gentle title-music loop (PLAN-10 ST-7a proof). It is scheduled now but
     // stays silent until the first user gesture unlocks the AudioContext (mobile
@@ -55,7 +60,7 @@ export class TitleScene extends Phaser.Scene {
         // of save state.
         const destination =
           getSave().loadCharacter() === null ? SCENE_KEYS.characterCreation : SCENE_KEYS.levelSelect;
-        this.scene.start(destination);
+        transitionTo(this, destination);
       },
     });
 
@@ -65,7 +70,7 @@ export class TitleScene extends Phaser.Scene {
       label: 'Edit Character',
       minWidth: MENU_BUTTON_MIN_WIDTH,
       onClick: () => {
-        this.scene.start(SCENE_KEYS.characterCreation);
+        transitionTo(this, SCENE_KEYS.characterCreation);
       },
     });
 
@@ -84,7 +89,7 @@ export class TitleScene extends Phaser.Scene {
         label: 'Party \u{1F388}',
         minWidth: MENU_BUTTON_MIN_WIDTH,
         onClick: () => {
-          this.scene.start(SCENE_KEYS.party);
+          transitionTo(this, SCENE_KEYS.party);
         },
       });
     }

@@ -26,6 +26,7 @@ import {
   LEVEL_INTRO,
   DEBUG_OVERLAY,
   PAUSE,
+  JUICE,
 } from '../systems/constants';
 import { createPixelText, createPixelPanel, createPixelButton } from '../systems/ui';
 import { createTerrain } from '../systems/terrain';
@@ -53,6 +54,9 @@ import type { TricksHandle } from '../systems/tricks';
 import { dispatchLevelEvents } from '../levels/events';
 import type { EventContext, LevelEventHandle } from '../levels/events';
 import { getAudio, DRIVE_SFX } from '../systems/audio';
+import { createDriveJuice } from '../systems/juice';
+import type { DriveJuiceHandle } from '../systems/juice';
+import { fadeInScene } from '../systems/transition';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -164,13 +168,29 @@ export class GameScene extends Phaser.Scene {
   private finishX = 0;
   /** Current smoothed camera lookahead offset, px (see updateCamera). */
   private lookaheadPx = 0;
+  /** Drive juice (PLAN-10 ST-8): pooled, body-free dust/sparks/speed-lines +
+   * the landing impact puff. ZERO Matter bodies; created every create() and
+   * destroyed in SHUTDOWN outside the matter-world guard (same lifecycle as
+   * pedals/tricks). */
+  private juice: DriveJuiceHandle | undefined;
+  /** Current camera landing-dip offset, px (see updateCamera). Set on a real
+   * landing (scaled by airtime), eased back to 0 each frame. Reset in create(). */
+  private cameraDipPx = 0;
+  /** Wall-clock ms the bike has been in the DEBOUNCED air phase (bike.trickAirborne),
+   * reset to 0 on the ground. Scales the landing thump. Reset in create(). */
+  private airborneMs = 0;
+  /** Last frame's bike.airborneRotation (rad), for the per-frame flip rate that
+   * drives wheelie sparks. Reset in create(). */
+  private prevAirborneRotation = 0;
   /** Latched once the run is over (crashed, fell, or finished) so the fail
    * overlay/transition can only fire once per run. */
   private ended = false;
-  /** Audio state (PLAN-10 ST-7b), reset every create(): last frame's airborne
-   * flag + whether a jump SFX is pending its paired land (so land only sounds
-   * after a real, speed-gated jump), and last frame's brake flag (so the brake
-   * chirp fires once on the rising edge, not every held frame). */
+  /** Audio state (PLAN-10 ST-7b), reset every create(): last frame's DEBOUNCED
+   * air phase (bike.trickAirborne — repurposed from the raw flag in ST-8 so the
+   * jump/land edge + landing juice fire once per real jump/land, not on ramp-
+   * crest chatter) + whether a jump SFX is pending its paired land (so land only
+   * sounds after a real, speed-gated jump), and last frame's brake flag (so the
+   * brake chirp fires once on the rising edge, not every held frame). */
   private audioWasAirborne = false;
   private audioJumpActive = false;
   private audioBrakeWasHeld = false;
@@ -205,6 +225,9 @@ export class GameScene extends Phaser.Scene {
     // per-run state resets here.
     this.ended = false;
     this.lookaheadPx = 0;
+    this.cameraDipPx = 0;
+    this.airborneMs = 0;
+    this.prevAirborneRotation = 0;
     this.inputOverride = null;
     this.audioWasAirborne = false;
     this.audioJumpActive = false;
@@ -348,6 +371,12 @@ export class GameScene extends Phaser.Scene {
     // it watches the bike handle directly.
     this.tricks = createTricks(this, this.bike, getSave());
 
+    // Drive juice (PLAN-10 ST-8): pooled dust/sparks/speed-lines + the landing
+    // impact puff, all body-free plain GameObjects (ZERO Matter bodies). Driven
+    // each update() with the bike's live signals; laid out (speed lines) with
+    // the same zoom-compensation as the pedals/HUD; destroyed in SHUTDOWN.
+    this.juice = createDriveJuice(this);
+
     // Esc / P both pause on desktop. JustDown-polled in update(). No conflict
     // with gameplay keys (arrows/WASD via gameInput) or the dev debug toggle
     // (backtick). Cleared on shutdown by Phaser's KeyboardPlugin (like debugKey).
@@ -384,6 +413,12 @@ export class GameScene extends Phaser.Scene {
     // fail-restart (fromFail) so a crash doesn't re-show it every attempt; a
     // fresh entry from LevelSelect/LevelComplete carries no fromFail, so it shows.
     if (!this.fromFail) {
+      // Fade in from the pastel chrome (PLAN-10 ST-8 #7) — pairs with the
+      // outgoing menu/complete scene's fade-out for a seamless cross-fade. ONLY
+      // on a FRESH entry: a fail-restart stays a hard cut so the "go again" loop
+      // keeps its snappy feel (and never touches PLAN-02's < 500ms button-restart
+      // budget). The banner also slides in (#8) rather than popping.
+      fadeInScene(this);
       this.showIntroBanner(config);
     }
 
@@ -470,6 +505,11 @@ export class GameScene extends Phaser.Scene {
       // were saved the instant each flip landed.
       this.tricks?.destroy();
       this.tricks = undefined;
+      // Drive juice: pooled plain GameObjects (dust/sparks/speed-lines), NO
+      // Matter bodies — torn down OUTSIDE the matter-world guard on EVERY
+      // shutdown like the other non-Matter handles.
+      this.juice?.destroy();
+      this.juice = undefined;
       // Remove the RESUME listener registered in create() (see above). The
       // Scene instance persists across scene.restart() and create() re-adds it,
       // so without this off() the RESUME handlers would stack across restarts.
@@ -477,7 +517,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     if (!this.bike || !this.terrain) return;
 
     // Esc / P → pause (desktop). JustDown fires once per physical press.
@@ -513,35 +553,45 @@ export class GameScene extends Phaser.Scene {
     // crash tumble (cosmetic, so it follows Gabby regardless of run state).
     this.passenger?.update();
 
-    // --- drive audio (PLAN-10 ST-7b) -------------------------------------
+    // --- drive audio + juice (PLAN-10 ST-7b + ST-8) ----------------------
     // All fully-guarded no-ops when audio is unavailable / muted. Read the
     // bike's live signals; SFX are edge-triggered so nothing machine-guns.
     const audio = getAudio();
-    const grounded = !this.bike.airborne;
+    const grounded = !this.bike.airborne; // RAW — brake chirp + engine gate only
     // Brake chirp on the rising edge, only while grounded + live.
     if (!this.ended && brake && !this.audioBrakeWasHeld && grounded) {
       audio.playSfx('brake');
     }
     this.audioBrakeWasHeld = brake;
-    // Jump / land on REAL airborne transitions. Gating the jump on takeoff speed
-    // filters the near-zero-speed spawn-settle hop and ramp-crest chatter, and
-    // `audioJumpActive` pairs each land with the jump that preceded it so a land
-    // never sounds without a real jump first.
-    const airborneNow = this.bike.airborne;
+    // Jump / land + the landing thump on the DEBOUNCED air phase (ST-8): the raw
+    // `airborne` flag chatters on ramp crests (spurious boing/thud); the
+    // debounced `bike.trickAirborne` fires ONCE per real jump/land. The takeoff-
+    // speed gate still filters the near-zero-speed spawn-settle hop, and
+    // `audioJumpActive` pairs each land SFX with a real jump. `audioWasAirborne`
+    // now holds LAST frame's DEBOUNCED phase (same field, repurposed for the edge).
+    const trickAir = this.bike.trickAirborne;
     if (!this.ended) {
-      if (
-        airborneNow &&
-        !this.audioWasAirborne &&
-        this.bike.speed > DRIVE_SFX.jumpMinSpeedPxPerStep
-      ) {
+      if (trickAir && !this.audioWasAirborne && this.bike.speed > DRIVE_SFX.jumpMinSpeedPxPerStep) {
         audio.playSfx('jump');
         this.audioJumpActive = true;
-      } else if (!airborneNow && this.audioWasAirborne && this.audioJumpActive) {
-        audio.playSfx('land');
-        this.audioJumpActive = false;
+      } else if (!trickAir && this.audioWasAirborne) {
+        // Landing edge (grounded this frame, airborne last). The SFX still needs a
+        // preceding real jump; the JUICE (camera dip + impact puff at the wheels)
+        // fires on any landing past a minimum airtime, scaled by airtime.
+        if (this.audioJumpActive) {
+          audio.playSfx('land');
+          this.audioJumpActive = false;
+        }
+        if (this.airborneMs >= JUICE.landingMinAirMs) {
+          const strength = Phaser.Math.Clamp(this.airborneMs / JUICE.landingDipFullAirMs, 0, 1);
+          this.cameraDipPx = strength * JUICE.landingDipMaxPx;
+          this.juice?.landingPuff(this.bike.x, this.terrain.heightAt(this.bike.x), strength);
+        }
       }
     }
-    this.audioWasAirborne = airborneNow;
+    // Airtime accumulates over the debounced air phase, reset on the ground.
+    this.airborneMs = trickAir ? this.airborneMs + delta : 0;
+    this.audioWasAirborne = trickAir;
     // Continuous engine hum: pitch tracks speed; audible while driving on the
     // ground (gassing OR coasting with speed), silent airborne / stopped / ended.
     audio.updateEngine(
@@ -550,6 +600,27 @@ export class GameScene extends Phaser.Scene {
         grounded &&
         (gas || this.bike.speed > DRIVE_SFX.engineMinSpeedPxPerStep)
     );
+
+    // Drive juice (ST-8): pooled rear-wheel dust (grounded + gas + moving),
+    // wheelie sparks (spinning fast airborne), and screen-space speed lines
+    // (top speed). `emit: !ended` suppresses NEW particles once the run ends so
+    // a crash tumble never throws dust/sparks; live pieces still settle.
+    // flipRateAbs = |airborneRotation change this frame| (the flip spin rate).
+    const airRot = this.bike.airborneRotation;
+    const flipRateAbs = Math.abs(airRot - this.prevAirborneRotation);
+    this.prevAirborneRotation = airRot;
+    this.juice?.update(delta, {
+      bikeX: this.bike.x,
+      bikeY: this.bike.y,
+      groundY: this.terrain.heightAt(this.bike.x),
+      grounded: !trickAir,
+      gas,
+      speedPxPerStep: this.bike.speed,
+      speedRatio: Phaser.Math.Clamp(this.bike.speed / CAMERA.fullSpeedPxPerStep, 0, 1),
+      flipRateAbs,
+      airborne: trickAir,
+      emit: !this.ended,
+    });
 
     if (!this.ended && this.bike.y > this.worldBottomY) {
       this.failLevel();
@@ -634,6 +705,10 @@ export class GameScene extends Phaser.Scene {
     // corner through finish finales/fail overlays.
     this.tricks?.layout(this.cameras.main.zoom);
 
+    // Keep the screen-space speed lines fixed under the camera's speed-zoom the
+    // same way (ST-8). Runs even while ended so they fade out cleanly on a finish.
+    this.juice?.layout(this.cameras.main.zoom);
+
     // Dev-only debug overlay (PLAN-02 task 5). Inlined here (rather than
     // delegated to a private method) on purpose: `import.meta.env.DEV` is
     // statically false in production, and Vite's minifier only proves an
@@ -711,10 +786,15 @@ export class GameScene extends Phaser.Scene {
 
     const targetX = this.bike.x + this.lookaheadPx;
     const targetY = this.bike.y + CAMERA.verticalOffsetPx;
+    // A landing thump (ST-8): cameraDipPx is set on a real landing (scaled by
+    // airtime) and added on top of the smooth follow as a brief downward nudge,
+    // then eased back to 0 — a subtle compression on touchdown. Additive to the
+    // existing follow; zero when not landing, so normal driving is unchanged.
     cam.centerOn(
       Phaser.Math.Linear(cam.midPoint.x, targetX, CAMERA.followLerpX),
-      Phaser.Math.Linear(cam.midPoint.y, targetY, CAMERA.followLerpY)
+      Phaser.Math.Linear(cam.midPoint.y, targetY, CAMERA.followLerpY) + this.cameraDipPx
     );
+    this.cameraDipPx = Phaser.Math.Linear(this.cameraDipPx, 0, JUICE.landingDipRecoverLerp);
 
     const speedRatio = Phaser.Math.Clamp(this.bike.speed / CAMERA.fullSpeedPxPerStep, 0, 1);
     const zoomTarget = CAMERA.zoomMax - (CAMERA.zoomMax - CAMERA.zoomMin) * speedRatio;
@@ -875,7 +955,22 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(DEPTHS.overlay - 1);
 
-    const targets: Phaser.GameObjects.GameObject[] = [panel, ...texts];
+    const targets = [panel, ...texts];
+    // Slide-in (ST-8 #8): start each piece nudged UP and transparent, then ease
+    // it down into place — a gentle entrance instead of an instant pop. Non-
+    // blocking; the hold+fade below runs long after it settles (introSlideMs <<
+    // holdMs), so the two tweens never overlap.
+    for (const piece of targets) {
+      piece.y -= JUICE.introSlideOffsetPx;
+      piece.setAlpha(0);
+    }
+    this.tweens.add({
+      targets,
+      y: `+=${JUICE.introSlideOffsetPx}`,
+      alpha: 1,
+      duration: JUICE.introSlideMs,
+      ease: 'Quad.easeOut',
+    });
     this.tweens.add({
       targets,
       alpha: 0,

@@ -1373,6 +1373,152 @@ export const LEVEL_INTRO = {
   paddingYPx: 28,
 } as const;
 
+/** JUICE pass tuning (PLAN-10 ST-8 — the final "functional -> gift-quality
+ * delightful" polish). One documented home for every juice knob (CLAUDE.md:
+ * no magic numbers buried in scene code) covering GameScene's drive juice
+ * (src/systems/juice.ts — pooled dust/sparks/speed-lines, all body-free
+ * plain GameObjects, ZERO Matter bodies — NORTH_STAR §8), the landing thump
+ * (camera dip + impact puff), the tulip-award confetti burst (tricks.ts,
+ * reusing the shared confetti pool), the scene pixel-fade transitions
+ * (src/systems/transition.ts) and the HUD slide-in.
+ *
+ * EVERYTHING here is deliberately SUBTLE — small, brief, low-alpha. This is a
+ * gift, not a rave (the ST-8 mandate: cute, not seizure-y). Distances are px
+ * at the 1280x720 DESIGN scale; per-particle speeds are px/SEC (juice.ts
+ * integrates in wall-clock seconds, frame-rate independent); times are ms;
+ * bike speeds are px per fixed 60 Hz physics STEP (BikeHandle.speed units). */
+export const JUICE = {
+  // ------------------------------------------------ landing thump (camera dip)
+  /** Peak downward camera nudge (px) at the hardest landing, eased back to 0 —
+   * a brief compression on touchdown. Small: the camera must never lurch. */
+  landingDipMaxPx: 22,
+  /** Minimum debounced airtime (ms) before a landing spawns any dip/impact
+   * puff — filters the spawn-settle drop and tiny bump-hops. */
+  landingMinAirMs: 130,
+  /** Airtime (ms) at/above which the landing dip + puff are at full strength;
+   * shorter airtime scales both down linearly. */
+  landingDipFullAirMs: 720,
+  /** Per-render-frame lerp (0..1) the camera dip eases back to 0 with. */
+  landingDipRecoverLerp: 0.14,
+
+  // ---------------------------------------------------- pooled dust/spark pools
+  /** Dust-puff pool size (rear-wheel accel dust + landing impact puffs share
+   * it). Comfortably above the worst-case simultaneously-live count. */
+  dustPoolSize: 30,
+  /** Wheelie/flip spark pool size. */
+  sparkPoolSize: 24,
+
+  // ------------------------------------------- rear-wheel acceleration dust (#3)
+  /** Min ms between accel dust puffs (emit-rate cap — never per frame). */
+  dustIntervalMs: 70,
+  /** How far behind the chassis centre (px, world) accel dust spawns. */
+  dustBehindPx: 26,
+  /** Random +/- horizontal jitter on a dust spawn, px. */
+  dustJitterPx: 8,
+  /** Bike speed (px/step) above which accel dust emits while gassing grounded. */
+  dustMinSpeedPxPerStep: 1.5,
+  /** Dust puff edge size range, px (small pixel squares — theme-neutral). */
+  dustSizeMinPx: 4,
+  dustSizeMaxPx: 9,
+  /** Dust upward drift (px/sec, negative screen-y is up) + backward drift. */
+  dustRiseSpeedPxPerSec: 26,
+  dustBackDriftPxPerSec: 22,
+  /** Dust puff lifetime range, ms. */
+  dustLifeMinMs: 260,
+  dustLifeMaxMs: 420,
+  /** Dust peak alpha (fades linearly to 0 over its life) — low + soft. */
+  dustPeakAlpha: 0.42,
+  /** Dust puff grows to this scale over its life (a spreading puff). */
+  dustGrowTo: 1.7,
+
+  // ------------------------------------------------- landing impact puff (#2)
+  /** Pieces flung at the wheels on a full-strength landing (scaled down for a
+   * softer landing). Drawn from the shared dust pool. */
+  landingPuffCount: 8,
+  /** Landing puff outward horizontal + upward launch speeds, px/sec. */
+  landingPuffSpreadPxPerSec: 130,
+  landingPuffUpPxPerSec: 60,
+
+  // -------------------------------------------------------- wheelie sparks (#5)
+  /** Min ms between spark emits during a flip (emit-rate cap). */
+  sparkIntervalMs: 45,
+  /** Sparks flung per emit. */
+  sparkCountPerEmit: 2,
+  /** |airborneRotation change per render frame| (rad) above which the flip is
+   * spinning fast enough to throw sparks. */
+  sparkFlipRateThreshRad: 0.11,
+  /** Upper sanity bound (rad/frame) on that rate: the airborne-rotation reset
+   * at takeoff shows as a ~2*PI jump for one frame — reject it so takeoff
+   * never sparks. A real fast flip is well under this. */
+  sparkFlipRateSanityRad: 1.5,
+  /** Spark launch speed range, px/sec (a small outward pop). */
+  sparkSpeedMinPxPerSec: 60,
+  sparkSpeedMaxPxPerSec: 180,
+  /** Random +/- spawn spread around the wheels, px. */
+  sparkSpreadPx: 22,
+  /** Spark gravity, px/sec^2 (they arc down like real sparks). */
+  sparkGravityPxPerSec2: 320,
+  /** Spark lifetime range, ms — brief. */
+  sparkLifeMinMs: 160,
+  sparkLifeMaxMs: 320,
+  /** Spark edge size range, px (tiny). */
+  sparkSizeMinPx: 2,
+  sparkSizeMaxPx: 4,
+  /** Spark peak alpha. */
+  sparkPeakAlpha: 0.9,
+
+  // ----------------------------------------------------------- speed lines (#4)
+  /** Number of pooled screen-space streak lines. */
+  speedLineCount: 12,
+  /** Speed ratio (bike.speed / CAMERA.fullSpeedPxPerStep) at which the lines
+   * BEGIN to fade in, and the ratio at which they reach full (max) alpha.
+   * Below `On` they are fully invisible. */
+  speedLineRatioOn: 0.62,
+  speedLineFullRatio: 0.96,
+  /** Peak container alpha of the streak lines (subtle glare, never a strobe). */
+  speedLineMaxAlpha: 0.22,
+  /** Streak line thickness + length range, px (design/screen space). */
+  speedLineThicknessPx: 3,
+  speedLineLenMinPx: 60,
+  speedLineLenMaxPx: 150,
+  /** Leftward streak speed, px/sec (design space) — the sense of motion. */
+  speedLineSpeedPxPerSec: 1400,
+
+  // --------------------------------------------- tulip-award confetti burst (#6)
+  // Reuses the shared confetti burst pool (systems/confetti.ts) — a small
+  // celebratory pop at the bike on a tulip award, alongside the toast + arc.
+  /** Pieces per award burst (small — subtle, alongside the toast). */
+  awardConfettiCount: 12,
+  awardConfettiSpeedMinPxPerSec: 120,
+  awardConfettiSpeedMaxPxPerSec: 300,
+  awardConfettiGravityPxPerSec2: 520,
+  awardConfettiSpinMaxRadPerSec: 8,
+  awardConfettiLifeMinMs: 500,
+  awardConfettiLifeMaxMs: 900,
+  awardConfettiSizeMinPx: 4,
+  awardConfettiSizeMaxPx: 8,
+  awardConfettiFadeStartFrac: 0.55,
+  /** Horizontal spawn half-band around the burst point, px. */
+  awardConfettiOriginSpreadXPx: 26,
+  /** How far above the chassis centre (px, world) the burst originates. */
+  awardConfettiYOffsetPx: 40,
+
+  // ---------------------------------------------- scene pixel-fade transitions (#7)
+  /** Fade-out / fade-in duration, ms — QUICK + cute (~200-300ms). Both the
+   * transitionTo() fade-out and every target scene's fadeInScene() use this,
+   * and both fade through PASTEL_BG_COLOR so a cross-fade is seamless. */
+  transitionFadeMs: 220,
+
+  // ------------------------------------------------------------- HUD slide-in (#8)
+  /** Intro banner slide-in: how far up (px) it starts before easing down into
+   * place, and the ease-in duration, ms. */
+  introSlideOffsetPx: 26,
+  introSlideMs: 320,
+  /** Bouquet HUD fade-in on level start, ms (alpha only — never touches the
+   * zoom-compensated position the tulip harness pins). */
+  bouquetFadeMs: 420,
+} as const;
+
 /** Level-complete screen tuning (PLAN-08 task 1 — see
  * src/scenes/LevelCompleteScene.ts). The congratulations screen shown after
  * every finished level 1..21 (level 22 SKIPS it for PartyScene): a

@@ -20,6 +20,7 @@ import {
   TEXTURE_KEYS,
 } from '../systems/constants';
 import { createPixelButton, createPixelText } from '../systems/ui';
+import { fadeInScene, transitionTo } from '../systems/transition';
 import {
   BIKE_OPTIONS,
   EYE_OPTIONS,
@@ -103,6 +104,8 @@ export class CharacterCreationScene extends Phaser.Scene {
     this.config = normalizeCharacterConfig(getSave().loadCharacter() ?? defaultCharacter());
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+    // Fade in from the pastel chrome (PLAN-10 ST-8 #7).
+    fadeInScene(this);
 
     // Shared menu theme (PLAN-10 ST-7b) — the same title loop as the rest of the
     // shell. Stopped in the SHUTDOWN handler below (alongside the tween/blink
@@ -380,7 +383,7 @@ export class CharacterCreationScene extends Phaser.Scene {
         // practice, but it's the documented contract for this button and
         // keeps navigation correct even if that ever changes.
         getSave().saveCharacter(this.config);
-        this.scene.start(SCENE_KEYS.levelSelect);
+        transitionTo(this, SCENE_KEYS.levelSelect);
       },
     });
   }

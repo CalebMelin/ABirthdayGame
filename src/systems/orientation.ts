@@ -17,6 +17,10 @@
 import type Phaser from 'phaser';
 import { PALETTE, PASTEL_BG_COLOR, TEXT_COLOR, FONT_STACK_PIXEL, hexToCss } from './constants';
 import { isTouchDevice } from './device';
+// getAudio is import-safe (audio.ts imports only the equally import-safe
+// ./save) — so this stays a Node no-op and orientation.ts keeps its
+// runtime-Phaser-free / side-effect-free-at-import contract.
+import { getAudio } from './audio';
 
 // ---------------------------------------------------------------------------
 // Pure core — no Phaser, no DOM. Unit-tested in tests/orientation.test.ts.
@@ -248,8 +252,17 @@ export function installOrientationGuard(game: Phaser.Game): void {
     // so re-firing on every resize event during a rotation is harmless.
     if (blocked) {
       game.loop.sleep();
+      // ST-8 #9 (folds in the ST-7 orientation-hum finding): sleeping the RAF
+      // loop freezes GameScene.update(), so the continuous engine hum / siren
+      // would otherwise DRONE at their last gain the whole time the phone is
+      // portrait. Duck the shared continuous bus to silence them (same call the
+      // pause menu uses). Guarded no-op when audio is unavailable / not started.
+      getAudio().pauseContinuous();
     } else {
       game.loop.wake();
+      // Un-duck on rotate-back-to-landscape: update() resumes retuning the
+      // engine from the next frame. Idempotent + guarded.
+      getAudio().resumeContinuous();
     }
   };
 

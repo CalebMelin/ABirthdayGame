@@ -74,8 +74,19 @@ export interface BikeHandle {
   /** Signed horizontal velocity, px per physics step — camera lookahead
    * (PLAN-02 task 3) wants the travel DIRECTION, which `speed` discards. */
   readonly velocityX: number;
-  /** True while NEITHER wheel is touching a terrain body. */
+  /** True while NEITHER wheel is touching a terrain body. RAW — chatters on
+   * ramp crests (sub-100ms wheel micro-touches against the coarse collision
+   * chords); prefer {@link trickAirborne} for edge-triggered feedback. */
   readonly airborne: boolean;
+  /** The DEBOUNCED "is genuinely airborne" phase (isTrickAirPhase): stays true
+   * through the ramp-crest wheel chatter that flickers the raw `airborne` flag,
+   * so a landing/takeoff EDGE off it fires once per real jump/land, not on
+   * chatter. This is the exact same phase the trick-input freshness logic
+   * already runs on (see onBeforeUpdate). Additive, read-only, cosmetic —
+   * exposed for GameScene's landing juice + the jump/land SFX edge (PLAN-10
+   * ST-8, which used to chatter off the raw flag). Touches NO control law,
+   * tuning, body, constraint, or update()/destroy() ordering. */
+  readonly trickAirborne: boolean;
   /** Cumulative signed chassis rotation (radians) accumulated during the
    * CURRENT airborne phase — or, once landed, during the most recent one.
    * Reset happens at TAKEOFF, not landing, so trick detection (PLAN-07)
@@ -582,6 +593,12 @@ export function createBike(
   let crashed = false;
   let destroyed = false;
   let airborne = false;
+  // The debounced trick-air phase (isTrickAirPhase) mirrored into a field so
+  // the additive `trickAirborne` getter can expose it (PLAN-10 ST-8). Purely
+  // cosmetic — read by GameScene's landing juice + jump/land SFX edge; NOTHING
+  // in the control law reads this field (the step recomputes `trickAir`
+  // locally, exactly as before).
+  let trickAirborne = false;
   let airborneRotation = 0;
   let previousAngle = chassis.angle;
   // Trick-input state (PLAN-02 task 6 — see nextPedalAirFresh /
@@ -688,6 +705,7 @@ export function createBike(
     const tookOffNow = airborneNow && !airborne;
     groundedSteps = nextGroundedSteps(groundedSteps, airborneNow);
     const trickAir = isTrickAirPhase(airborneNow, groundedSteps);
+    trickAirborne = trickAir; // mirror for the read-only getter (ST-8, cosmetic)
     gasHeldSteps = nextHeldSteps(gasHeldSteps, gas);
     brakeHeldSteps = nextHeldSteps(brakeHeldSteps, brake);
     gasAirFresh = nextPedalAirFresh(gasAirFresh, gas, gasWasHeldStep, trickAir, tookOffNow, gasHeldSteps);
@@ -780,6 +798,9 @@ export function createBike(
     },
     get airborne() {
       return airborne;
+    },
+    get trickAirborne() {
+      return trickAirborne;
     },
     get airborneRotation() {
       return airborneRotation;
