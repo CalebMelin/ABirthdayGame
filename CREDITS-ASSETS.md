@@ -16,11 +16,19 @@ image assets are used anywhere in the game.
   checkout with no external tools (no node-canvas, no headless browser).
 - Never hand-edit the PNGs in `public/assets/` — edit the generator and re-run
   `npm run art` (CLAUDE.md convention).
-- Status: PLAN-10 is replacing the runtime-generated placeholder rectangles with
-  real committed pixel art one category at a time. As of ST-1 the committed real
-  assets are the rider/bike recolor bases + their default fallbacks, the wheel,
-  and the finish flag (`public/assets/sprites/`, `public/assets/props/`); the
-  remaining textures still render as placeholders until their subtask lands.
+- Status: **COMPLETE.** PLAN-10 replaced every runtime-generated placeholder with
+  real pixel art. Committed generated PNGs (`public/assets/sprites`, `props`,
+  `vehicles`, + the root `apple-touch-icon.png`): the rider/bike recolor bases +
+  their default fallbacks, wheel, finish flag, Caleb, the level-11 wheelie-rider,
+  the traffic car + police car, tulip, balloon, and the tulip app icon. All other
+  visuals — the 15 per-theme parallax backdrops (`src/systems/backdropArt.ts`),
+  the roadside scenery + house/mailbox (`decorations.ts` / `pickup.ts`), the
+  pedals + UI + phone-rotate overlay, and the party/arrival venues + cast — are
+  drawn at runtime with Phaser Graphics from the same shared palette/style guide
+  (not committed PNGs, since they carry dynamic text / size-to-fit / animation).
+  Zero placeholder rectangles remain. `public/favicon.svg` is a matching vector
+  tulip. The committed PNGs are byte-freshness-guarded against their generators by
+  `tests/art-png.test.ts`.
 
 ## Fonts
 
