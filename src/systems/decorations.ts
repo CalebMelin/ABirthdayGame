@@ -71,6 +71,13 @@ const SIGN_TEXT_SIZE_PX = 12;
 const SIGN_OUTLINE_PX = 4;
 /** Height of the accent-colored strip along the top of the sign board. */
 const SIGN_STRIP_HEIGHT_PX = 8;
+/** Wood post stroke width, px (the STYLE-GUIDE 1px-dark look at design scale). */
+const SIGN_POST_OUTLINE_PX = 3;
+/** A little dark foot at the base so the post reads as planted, not floating. */
+const SIGN_FOOT_WIDTH_PX = 22;
+const SIGN_FOOT_HEIGHT_PX = 6;
+/** Tiny heart "topper" above the board — the gift-tone signature touch. */
+const SIGN_HEART_SIZE_PX = 14;
 
 // --- Billboard: a larger board on a tall pole, elevated well above the road.
 // Board WIDTH/HEIGHT/padding + word-wrap tunables live in constants.ts's
@@ -84,6 +91,13 @@ const BILLBOARD_POST_HEIGHT_PX = 190;
 const BILLBOARD_TEXT_SIZE_PX = 20;
 /** Billboard frame stroke width, px (drawn in the theme accent color). */
 const BILLBOARD_OUTLINE_PX = 6;
+/** Metal-pole highlight stripe width + a wider planted foot at the base. */
+const BILLBOARD_POST_HIGHLIGHT_PX = 5;
+const BILLBOARD_FOOT_WIDTH_PX = 30;
+const BILLBOARD_FOOT_HEIGHT_PX = 8;
+/** How far the dark backing frame extends past the board on every side, px — a
+ * solid 1px-style dark border sandwiched under the accent-stroked cream board. */
+const BILLBOARD_FRAME_MARGIN_PX = 6;
 
 // --- Balloon: a tinted balloon sprite floating on a short string above the road.
 /** Gap between the ground surface and the balloon's knot (its bottom). */
@@ -93,13 +107,20 @@ const BALLOON_STRING_LENGTH_PX = 40;
 /** The tex-balloon placeholder is 24x32; scale it up to read as a balloon. */
 const BALLOON_SCALE = 2.4;
 
-// --- Streamer: a short hanging zigzag ribbon in the theme accent color.
+// --- Streamer: a hanging pennant garland — a draped dark cord with little
+// triangle flags, alternating the theme accent and cream, hung from each vertex.
 /** Gap between the ground surface and the top (anchor) of the streamer. */
 const STREAMER_FLOAT_HEIGHT_PX = 150;
 const STREAMER_LENGTH_PX = 120;
 const STREAMER_SEGMENTS = 5;
 const STREAMER_AMPLITUDE_PX = 18;
-const STREAMER_THICKNESS_PX = 6;
+/** Draped cord thickness, px. */
+const STREAMER_CORD_PX = 3;
+/** Each pennant flag's base width + drop, px. */
+const STREAMER_PENNANT_WIDTH_PX = 20;
+const STREAMER_PENNANT_HEIGHT_PX = 26;
+/** Pennant outline stroke, px (the STYLE-GUIDE dark edge). */
+const STREAMER_OUTLINE_PX = 2;
 
 // ---------------------------------------------------------------------------
 // Per-kind drawers. Each pushes every GameObject it creates onto `objects` so
@@ -109,8 +130,27 @@ const STREAMER_THICKNESS_PX = 6;
 
 type DecoObjects = Phaser.GameObjects.GameObject[];
 
-/** A small roadside sign: dark post, cream board (grown to fit its text) with
- * an accent strip along the top, and the callout text. Stands on the surface. */
+/** A tiny filled pixel heart centred on (cx,cy): two lobes + a point, in
+ * `color`. Cheap Graphics accent (the pickup.ts heart shape), used as a cute
+ * sign topper. Returned so the caller can track/destroy it. */
+function drawHeart(
+  scene: Phaser.Scene,
+  cx: number,
+  cy: number,
+  size: number,
+  color: number
+): Phaser.GameObjects.Graphics {
+  const g = scene.add.graphics().setDepth(DEPTHS.props + 1);
+  g.fillStyle(color, 1);
+  g.fillCircle(cx - size * 0.26, cy - size * 0.12, size * 0.36);
+  g.fillCircle(cx + size * 0.26, cy - size * 0.12, size * 0.36);
+  g.fillTriangle(cx - size * 0.56, cy, cx + size * 0.56, cy, cx, cy + size * 0.62);
+  return g;
+}
+
+/** A small roadside sign: a WOOD post (dark-outlined, with a planted foot), a
+ * cream board (grown to fit its text) with an accent strip along the top and a
+ * cute little heart topper, and the callout text. Stands on the surface. */
 function drawSign(
   scene: Phaser.Scene,
   spec: DecorationSpec,
@@ -120,9 +160,15 @@ function drawSign(
 ): void {
   const boardCenterY = surfaceY - SIGN_POST_HEIGHT_PX - SIGN_BOARD_HEIGHT_PX / 2;
 
-  const post = scene.add
-    .rectangle(spec.x, surfaceY, SIGN_POST_WIDTH_PX, SIGN_POST_HEIGHT_PX, PALETTE.outline)
+  // A dark foot at the base + a wood post with a 1px dark outline (STYLE GUIDE).
+  const foot = scene.add
+    .rectangle(spec.x, surfaceY, SIGN_FOOT_WIDTH_PX, SIGN_FOOT_HEIGHT_PX, PALETTE.outline)
     .setOrigin(0.5, 1)
+    .setDepth(DEPTHS.props);
+  const post = scene.add
+    .rectangle(spec.x, surfaceY, SIGN_POST_WIDTH_PX, SIGN_POST_HEIGHT_PX, PALETTE.brown)
+    .setOrigin(0.5, 1)
+    .setStrokeStyle(SIGN_POST_OUTLINE_PX, PALETTE.outline)
     .setDepth(DEPTHS.props);
 
   // Text first so the board can be sized to fit it. Depth props+1 so it always
@@ -131,6 +177,7 @@ function drawSign(
     DEPTHS.props + 1
   );
   const boardWidth = Math.max(SIGN_BOARD_MIN_WIDTH_PX, label.width + SIGN_TEXT_PAD_PX * 2);
+  const boardTopY = boardCenterY - SIGN_BOARD_HEIGHT_PX / 2;
 
   const board = scene.add
     .rectangle(spec.x, boardCenterY, boardWidth, SIGN_BOARD_HEIGHT_PX, PALETTE.cream)
@@ -139,14 +186,17 @@ function drawSign(
   const strip = scene.add
     .rectangle(
       spec.x,
-      boardCenterY - SIGN_BOARD_HEIGHT_PX / 2 + SIGN_STRIP_HEIGHT_PX / 2,
+      boardTopY + SIGN_STRIP_HEIGHT_PX / 2,
       boardWidth,
       SIGN_STRIP_HEIGHT_PX,
       accent
     )
     .setDepth(DEPTHS.props);
+  // A little heart perched on the board's top edge — reads instantly as a
+  // friendly, personal roadside sign rather than corporate signage.
+  const heart = drawHeart(scene, spec.x, boardTopY - SIGN_HEART_SIZE_PX * 0.4, SIGN_HEART_SIZE_PX, accent);
 
-  objects.push(post, board, strip, label);
+  objects.push(foot, post, board, strip, heart, label);
 }
 
 /**
@@ -213,8 +263,19 @@ export function drawBillboard(
 ): Phaser.GameObjects.GameObject[] {
   const wrapped = wrapBillboardText(text, BILLBOARD.wrapMaxChars);
 
+  // Planted foot + dark pole + a metal highlight stripe down its centre — a
+  // sturdier support than the old flat dark bar. All BELOW/BEHIND the board and
+  // NON-cream, so scripts/playtest-level18.mjs's cream-board census is untouched.
+  const foot = scene.add
+    .rectangle(x, surfaceY, BILLBOARD_FOOT_WIDTH_PX, BILLBOARD_FOOT_HEIGHT_PX, PALETTE.outline)
+    .setOrigin(0.5, 1)
+    .setDepth(DEPTHS.props);
   const post = scene.add
     .rectangle(x, surfaceY, BILLBOARD_POST_WIDTH_PX, BILLBOARD_POST_HEIGHT_PX, PALETTE.outline)
+    .setOrigin(0.5, 1)
+    .setDepth(DEPTHS.props);
+  const postHighlight = scene.add
+    .rectangle(x, surfaceY, BILLBOARD_POST_HIGHLIGHT_PX, BILLBOARD_POST_HEIGHT_PX, PALETTE.slate)
     .setOrigin(0.5, 1)
     .setDepth(DEPTHS.props);
 
@@ -237,12 +298,27 @@ export function drawBillboard(
   const boardCenterY = surfaceY - BILLBOARD_POST_HEIGHT_PX - boardHeight / 2;
   label.setPosition(x, boardCenterY);
 
+  // A solid dark frame behind the board (NON-cream, unstroked → not counted as a
+  // billboard board by the harness) gives the accent-stroked cream board a clean
+  // 1px-style dark border all round, per the STYLE GUIDE.
+  const frame = scene.add
+    .rectangle(
+      x,
+      boardCenterY,
+      boardWidth + BILLBOARD_FRAME_MARGIN_PX * 2,
+      boardHeight + BILLBOARD_FRAME_MARGIN_PX * 2,
+      PALETTE.outline
+    )
+    .setDepth(DEPTHS.props);
+
+  // UNCHANGED board: the cream fill + accent stroke + exact boardWidth/boardHeight
+  // the level-18 egg harness measures for family-resemblance. Do not alter.
   const board = scene.add
     .rectangle(x, boardCenterY, boardWidth, boardHeight, PALETTE.cream)
     .setStrokeStyle(BILLBOARD_OUTLINE_PX, accent)
     .setDepth(DEPTHS.props);
 
-  return [post, board, label];
+  return [foot, post, postHighlight, frame, board, label];
 }
 
 /** A party balloon: the tex-balloon sprite tinted the theme accent, floating
@@ -272,8 +348,9 @@ function drawBalloon(
   objects.push(string, balloon);
 }
 
-/** A hanging streamer: a short zigzag ribbon in the theme accent color,
- * dangling from a point above the surface. Cheap placeholder festivity. */
+/** A hanging pennant garland: a draped dark cord dangling from a point above the
+ * surface, with a little triangle flag at each vertex alternating the theme
+ * accent and cream — festive bunting rather than a plain zigzag line. */
 function drawStreamer(
   scene: Phaser.Scene,
   spec: DecorationSpec,
@@ -283,19 +360,36 @@ function drawStreamer(
 ): void {
   const topY = surfaceY - STREAMER_FLOAT_HEIGHT_PX;
 
-  const ribbon = scene.add.graphics();
-  ribbon.lineStyle(STREAMER_THICKNESS_PX, accent, 1);
-  ribbon.beginPath();
-  ribbon.moveTo(spec.x, topY);
+  // The draped cord vertices — a gentle side-to-side zigzag as it hangs down.
+  const points: Array<{ x: number; y: number }> = [{ x: spec.x, y: topY }];
   for (let i = 1; i <= STREAMER_SEGMENTS; i++) {
     const y = topY + (i / STREAMER_SEGMENTS) * STREAMER_LENGTH_PX;
     const x = spec.x + (i % 2 === 0 ? STREAMER_AMPLITUDE_PX : -STREAMER_AMPLITUDE_PX);
-    ribbon.lineTo(x, y);
+    points.push({ x, y });
   }
-  ribbon.strokePath();
-  ribbon.setDepth(DEPTHS.props);
 
-  objects.push(ribbon);
+  const garland = scene.add.graphics().setDepth(DEPTHS.props);
+
+  // The dark cord threading the vertices.
+  garland.lineStyle(STREAMER_CORD_PX, PALETTE.outline, 1);
+  garland.beginPath();
+  garland.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) garland.lineTo(points[i].x, points[i].y);
+  garland.strokePath();
+
+  // A downward pennant flag hung from each vertex (skip the top anchor),
+  // alternating accent / cream with a 1px-style dark outline.
+  const halfW = STREAMER_PENNANT_WIDTH_PX / 2;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    const apexY = p.y + STREAMER_PENNANT_HEIGHT_PX;
+    garland.fillStyle(i % 2 === 0 ? PALETTE.cream : accent, 1);
+    garland.fillTriangle(p.x - halfW, p.y, p.x + halfW, p.y, p.x, apexY);
+    garland.lineStyle(STREAMER_OUTLINE_PX, PALETTE.outline, 1);
+    garland.strokeTriangle(p.x - halfW, p.y, p.x + halfW, p.y, p.x, apexY);
+  }
+
+  objects.push(garland);
 }
 
 // ---------------------------------------------------------------------------

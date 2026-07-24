@@ -12,7 +12,7 @@ import { Framebuffer } from './lib/framebuffer.mjs';
 import { encodePng } from './lib/png.mjs';
 import { MARKERS, PALETTE } from './palette.mjs';
 import { drawBike, drawCaleb, drawRider, drawWheel, drawWheelieRider, SPRITE_SIZES } from './sprites.mjs';
-import { drawFlag, PROP_SIZES } from './props.mjs';
+import { drawBalloon, drawFlag, drawTulip, PROP_SIZES } from './props.mjs';
 import { drawCar, drawPoliceCar, VEHICLE_SIZES } from './vehicles.mjs';
 
 /** Every committed asset: { file (path relative to public/assets), width, height, draw }. */
@@ -56,6 +56,10 @@ export const ASSETS_TO_BUILD = [
   // Never-recolored.
   { file: 'sprites/wheel.png', ...SPRITE_SIZES.wheel, draw: (fb) => drawWheel(fb) },
   { file: 'props/flag.png', ...PROP_SIZES.flag, draw: (fb) => drawFlag(fb) },
+  // The two remaining committed TEXTURE_KEYS props (ST-4a): the sentimental
+  // tulip (used as-is) and the party balloon (near-white body, TINTED at runtime).
+  { file: 'props/tulip.png', ...PROP_SIZES.tulip, draw: (fb) => drawTulip(fb) },
+  { file: 'props/balloon.png', ...PROP_SIZES.balloon, draw: (fb) => drawBalloon(fb) },
   // Vehicles (ST-3): the traffic car (tinted at runtime — painted near-white so
   // TRAFFIC.tints read as 5 pastel variants) and the friendly police car.
   { file: 'vehicles/car.png', ...VEHICLE_SIZES.car, draw: (fb) => drawCar(fb) },

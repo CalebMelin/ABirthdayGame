@@ -23,8 +23,11 @@ export type TextureName = keyof typeof TEXTURE_KEYS;
  * ST-2 (characters): Caleb (brown-haired, fixed color) and the level-11
  * all-black wheelie-rider easter egg.
  * ST-3 (vehicles): the traffic car (tinted at runtime by traffic.ts) and the
- * police car. Everything else (tulip, balloon) still falls through to
- * BootScene's placeholder generation.
+ * police car.
+ * ST-4a (world props): the tulip (used as-is) and the party balloon (tinted at
+ * runtime by decorations.ts / partyBalloons.ts) — the last two placeholder
+ * TEXTURE_KEYS textures. Every TEXTURE_KEYS texture now has committed real art;
+ * BootScene's placeholder generation is a pure fallback from here on.
  */
 export const ART_MANIFEST: Partial<Record<TextureName, string>> = {
   gabbyBase: 'assets/sprites/gabby-base.png',
@@ -37,4 +40,6 @@ export const ART_MANIFEST: Partial<Record<TextureName, string>> = {
   flag: 'assets/props/flag.png',
   car: 'assets/vehicles/car.png',
   policeCar: 'assets/vehicles/police-car.png',
+  tulip: 'assets/props/tulip.png',
+  balloon: 'assets/props/balloon.png',
 };

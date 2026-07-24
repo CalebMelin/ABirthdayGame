@@ -23,6 +23,8 @@ export declare const SPRITE_SIZES: {
  * match. */
 export declare const PROP_SIZES: {
   readonly flag: PixelSize;
+  readonly tulip: PixelSize;
+  readonly balloon: PixelSize;
 };
 
 /** Re-exported from src/art/vehicles.mjs — the sizes the committed vehicle PNGs
