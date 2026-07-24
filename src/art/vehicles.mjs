@@ -187,12 +187,20 @@ export function drawCar(fb) {
 // -----------------------------------------------------------------------------
 /** Police.ts light geometry, mirrored so the housing lenses line up under the
  * flashing rects (LIGHT_WIDTH_PX=12, LIGHT_SPREAD_PX=13; the 110px sprite's centre
- * origin puts cop.x at local x=55). Red sits LEFT (cop.x-13), blue RIGHT (cop.x+13). */
+ * origin puts cop.x at local x=55). Red sits LEFT (cop.x-13), blue RIGHT (cop.x+13).
+ * HAND-MIRRORED from police.ts; POLICE_LIGHT_MIRROR (below) exposes them so
+ * tests/art-png.test.ts can assert they equal police.ts's source and catch drift. */
 const SPRITE_CX = CAR_W / 2; // 55
 const LIGHT_SPREAD = 13;
 const LIGHT_W = 12;
 const RED_LENS_X = SPRITE_CX - LIGHT_SPREAD - LIGHT_W / 2; // 36 (span 36..47)
 const BLUE_LENS_X = SPRITE_CX + LIGHT_SPREAD - LIGHT_W / 2; // 62 (span 62..73)
+
+/** The mirrored police light geometry, EXPORTED for the cross-module drift guard:
+ * if police.ts's LIGHT_SPREAD_PX / LIGHT_WIDTH_PX change, the baked lenses here
+ * silently misalign under the still-firing flash rects and no PNG test fails —
+ * tests/art-png.test.ts asserts { spread, width } equals police.ts's source. */
+export const POLICE_LIGHT_MIRROR = { spread: LIGHT_SPREAD, width: LIGHT_W };
 
 /**
  * Paint the 110x40 police car. Full fixed colors (never tinted).
@@ -202,6 +210,10 @@ export function drawPoliceCar(fb) {
   paintSedanBody(fb, PALETTE.white);
   // Two-tone: dark lower body (classic black-&-white cruiser). Clipped to the body
   // so it respects the chamfered lower corners.
+  // LOAD-BEARING: painted in PALETTE.outline — the SAME tone as the auto-silhouette
+  // outline — which is why the lower body needs no separate outline AND why the
+  // coral taillight's dark frame reads against it. Recoloring this to a non-outline
+  // tone means re-adding the lower-body outline + the taillight's dark framing.
   fillOverOpaque(fb, 8, 24, 94, 10, PALETTE.outline);
   outlineSilhouette(fb, PALETTE.outline);
   drawWindows(fb, PALETTE.steelBlue);
@@ -213,7 +225,9 @@ export function drawPoliceCar(fb) {
   // Roof light-bar HOUSING: a dark mount from the sprite's top row (y0) down to the
   // cabin roof (y9), spanning both lens x-positions. police.ts's flashing rects
   // float 6px above y0 and align to the two dim lenses embedded in this housing.
-  fb.fillRect(34, 0, 42, 9, PALETTE.outline); // housing (y0..8, x34..75)
+  // Derived from the cabin silhouette consts — byte-identical to fillRect(34,0,42,9):
+  // spans the cabin base x-range across the full housing height above the roof.
+  fb.fillRect(CABIN_BASE_L, 0, CABIN_BASE_R - CABIN_BASE_L + 1, CABIN_TOP_Y, PALETTE.outline); // housing (y0..8, x34..75)
   fb.fillRect(RED_LENS_X + 1, 1, LIGHT_W - 2, 2, PALETTE.coral); // dim RED lens (left)
   fb.fillRect(BLUE_LENS_X + 1, 1, LIGHT_W - 2, 2, PALETTE.steelBlue); // dim BLUE lens (right)
 }

@@ -179,28 +179,37 @@ export function rollingAvgWindowSteps(windowMs: number, fps = POLICE.fps): numbe
 }
 
 // ---------------------------------------------------------------------------
-// Presentation-only local constants (placeholder art). Following the
-// decorations.ts / pickup.ts precedent, the DRAWING dimensions of the throwaway
-// placeholder cop lights / spin-out puff / toast (no gameplay effect — PLAN-10
-// replaces the art) stay here rather than in constants.ts. The GAMEPLAY/feel
-// tunables live in the POLICE block (constants.ts) + level15.ts's PoliceEvent.
-// All lengths are px at the 1280x720 DESIGN scale.
+// Presentation-only local constants. Following the decorations.ts / pickup.ts
+// precedent, the DRAWING dimensions of the cop's flashing light rects / spin-out
+// puff / toast (no gameplay effect) stay here rather than in constants.ts. As of
+// PLAN-10 ST-3 the police-car SPRITE is REAL committed art (src/art/vehicles.mjs
+// drawPoliceCar, loaded by BootScene from ART_MANIFEST); the flashing red/blue
+// light rects below are deliberately KEPT as the animated runtime overlay, and the
+// baked sprite's roof lenses are aligned to them (vehicles.mjs hand-mirrors the
+// LIGHT_SPREAD_PX / LIGHT_WIDTH_PX geometry — guarded in tests/art-png.test.ts).
+// The GAMEPLAY/feel tunables live in the POLICE block (constants.ts) +
+// level15.ts's PoliceEvent. All lengths are px at the 1280x720 DESIGN scale.
 // ---------------------------------------------------------------------------
 
-/** Matches BootScene's tex-police-car placeholder (110x40). The cop Image has a
- * centered origin, so its center sits this far (half its height) above the road
- * surface to rest its wheels ~on the ground. */
+/** Matches the committed tex-police-car sprite (110x40 — REAL art as of PLAN-10
+ * ST-3, loaded by BootScene from ART_MANIFEST). The cop Image has a centered
+ * origin, so its center sits this far (half its height) above the road surface to
+ * rest its wheels ~on the ground. */
 const COP_SPRITE_HEIGHT_PX = 40;
 const COP_RIDE_HALF_PX = COP_SPRITE_HEIGHT_PX / 2;
-/** Flashing light-bar rectangles perched above the cab. */
-const LIGHT_WIDTH_PX = 12;
+/** Flashing light-bar rectangles perched above the cab. EXPORTED so
+ * tests/art-png.test.ts can assert vehicles.mjs bakes the sprite's roof lenses at
+ * this exact geometry (cross-module drift guard). */
+export const LIGHT_WIDTH_PX = 12;
 const LIGHT_HEIGHT_PX = 8;
 /** Gap from the cop's roof (top edge) up to the light bar, px. */
 const LIGHT_ABOVE_PX = 6;
-/** How far each light sits left/right of the cop's center x, px. */
-const LIGHT_SPREAD_PX = 13;
-/** Placeholder siren colors from the existing pastel palette (real art is
- * PLAN-10): warm coral reads as the RED light, cool steel-blue as the BLUE. */
+/** How far each light sits left/right of the cop's center x, px. EXPORTED
+ * alongside LIGHT_WIDTH_PX for the vehicles.mjs lens-alignment guard. */
+export const LIGHT_SPREAD_PX = 13;
+/** Siren colors from the pastel palette: warm coral reads as the RED light, cool
+ * steel-blue as the BLUE — the same tones the baked sprite's roof lenses use, so
+ * the overlaid flashes read as those lenses lighting up. */
 const LIGHT_RED_COLOR = PALETTE.coral;
 const LIGHT_BLUE_COLOR = PALETTE.steelBlue;
 /** Spin-out puff: a burst of dust the cop kicks up as it loses you. */

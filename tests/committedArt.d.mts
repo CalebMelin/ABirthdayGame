@@ -32,4 +32,13 @@ export declare const VEHICLE_SIZES: {
   readonly policeCar: PixelSize;
 };
 
+/** Re-exported from src/art/vehicles.mjs — the police roof-light lens geometry
+ * baked into police-car.png, hand-mirrored from police.ts's LIGHT_SPREAD_PX /
+ * LIGHT_WIDTH_PX. art-png.test.ts asserts it equals the police.ts source so the
+ * baked lenses can't drift out from under the runtime flash rects. */
+export declare const POLICE_LIGHT_MIRROR: {
+  readonly spread: number;
+  readonly width: number;
+};
+
 export declare function readCommittedAsset(relPath: string): Uint8Array;

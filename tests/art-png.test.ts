@@ -11,8 +11,15 @@ import {
   resolveHair,
   resolveOutfit,
 } from '../src/data/characters';
-import { PROP_SIZES, readCommittedAsset, SPRITE_SIZES, VEHICLE_SIZES } from './committedArt.mjs';
+import {
+  POLICE_LIGHT_MIRROR,
+  PROP_SIZES,
+  readCommittedAsset,
+  SPRITE_SIZES,
+  VEHICLE_SIZES,
+} from './committedArt.mjs';
 import { ASSETS_TO_BUILD, renderAssetBytes } from '../src/art/assets.mjs';
+import { LIGHT_SPREAD_PX, LIGHT_WIDTH_PX } from '../src/systems/police';
 
 // -----------------------------------------------------------------------------
 // Tiny helpers to read a big-endian PNG without a Buffer type (the tsconfig
@@ -193,6 +200,20 @@ describe('art palette markers', () => {
     expect(ART_PALETTE.outline).toBe(PALETTE.outline);
     expect(ART_PALETTE.sunshine).toBe(PALETTE.sunshine);
     expect(ART_PALETTE.duskIndigo).toBe(PALETTE.duskIndigo);
+  });
+});
+
+describe('police light geometry mirror (vehicles.mjs <-> police.ts)', () => {
+  it('baked roof-lens geometry equals police.ts LIGHT_SPREAD_PX / LIGHT_WIDTH_PX', () => {
+    // vehicles.mjs bakes the police-car.png roof-light lenses at x-positions
+    // derived from LIGHT_SPREAD / LIGHT_W, HAND-MIRRORED from police.ts's
+    // LIGHT_SPREAD_PX (13) / LIGHT_WIDTH_PX (12). police.ts paints the animated
+    // flash rects at that same geometry, so if the police.ts source drifts the
+    // baked lenses silently misalign under the still-firing rects and NO PNG
+    // freshness test fails. This pins the two together (same class of guard as the
+    // marker-equality / palette-mirror assertions above).
+    expect(POLICE_LIGHT_MIRROR.spread).toBe(LIGHT_SPREAD_PX);
+    expect(POLICE_LIGHT_MIRROR.width).toBe(LIGHT_WIDTH_PX);
   });
 });
 
