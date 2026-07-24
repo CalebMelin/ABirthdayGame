@@ -37,6 +37,7 @@ import { createPixelText, createPixelButton, createPixelPanel } from '../systems
 import { createConfettiBurst } from '../systems/confetti';
 import type { ConfettiBurstHandle } from '../systems/confetti';
 import { getSave } from '../systems/save';
+import { getAudio } from '../systems/audio';
 import { selectNote } from '../systems/notes';
 import type { NoteStyle } from '../data/notes';
 import { normalizeLevel } from './types';
@@ -122,6 +123,13 @@ export class LevelCompleteScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
     const cx = DESIGN_WIDTH / 2;
+
+    // A happy level-complete jingle over the shared menu loop (PLAN-10 ST-7b):
+    // the one-shot 'complete' fanfare rings once as a flourish, the 'title' loop
+    // provides the bed while she reads the note. Both silent until the first
+    // gesture + silent while muted; the loop is stopped on SHUTDOWN.
+    getAudio().playMusic('title');
+    getAudio().playSfx('complete');
 
     // Tulips: read once. `earned` counts every award persisted up to now
     // (including during a finish-finale hold) — see the class doc.
@@ -214,6 +222,7 @@ export class LevelCompleteScene extends Phaser.Scene {
     // (so it can't stack across re-entries) and destroy any confetti still
     // flying if the player leaves early.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      getAudio().stopMusic();
       this.input.off(Phaser.Input.Events.POINTER_DOWN, this.skipTypewriter, this);
       this.confetti?.destroy();
       this.confetti = undefined;

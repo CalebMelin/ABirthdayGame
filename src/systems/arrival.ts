@@ -82,10 +82,11 @@
 // ui.ts, the ONE module left in src/systems with a runtime `import Phaser` —
 // decorations.ts stopped being the example here in PLAN-07 task 3, see its own
 // doc), this module has NO runtime Phaser import — its non-type
-// imports are the pure constants, themes.ts's pure camera-oversize helper, and
-// the equally import-safe character/save modules Gabby's texture comes from —
-// so it stays import-safe in Node and the pure helpers below (the ride-in
-// geometry, the crawl controller, the phase machine) are unit-tested directly in
+// imports are the pure constants, themes.ts's pure camera-oversize helper, the
+// equally import-safe character/save modules Gabby's texture comes from, and
+// audio.ts's import-safe getAudio (the doors-open swell SFX, PLAN-10 ST-7b — a
+// no-op in Node) — so it stays import-safe in Node and the pure helpers below (the
+// ride-in geometry, the crawl controller, the phase machine) are unit-tested directly in
 // tests/arrival.test.ts. createArrival only ever CALLS METHODS on the runtime
 // scene/ctx handles handed to it (same contract as createBike).
 //
@@ -96,8 +97,8 @@
 // pool spilling from the doors), deliberately echoing PartyScene's warm dusk
 // venue so the cut into the party never changes palette. Like PartyScene's
 // backdrop it is runtime Phaser Graphics/Rectangles (NOT a committed PNG), ZERO
-// Matter bodies. The music swell / door SFX still hook in at openVenue() and the
-// wash. The DOORWAY GEOMETRY is unchanged from the placeholder, so the never-fail
+// Matter bodies. The doors-open swell SFX hooks in at openVenue() (PLAN-10
+// ST-7b). The DOORWAY GEOMETRY is unchanged from the placeholder, so the never-fail
 // dismount choreography (ARRIVAL_DISMOUNT_OFFSETS) needed no re-tuning.
 import type Phaser from 'phaser';
 import {
@@ -114,6 +115,7 @@ import { cameraFixedOversizePx } from './themes';
 import { calebFigureParts } from './calebFigure';
 import { buildCharacterTextures } from './characterTextures';
 import { getSave } from './save';
+import { getAudio } from './audio';
 import { defaultCharacter } from '../data/characters';
 import type { LevelEventHandle, EventContext } from '../levels/events';
 import type { PartyArrivalEvent } from '../levels/types';
@@ -754,7 +756,11 @@ export function createArrival(
   function openVenue(): void {
     if (venueOpened || tornDown) return;
     venueOpened = true;
-    // TODO(PLAN-10): door-creak + music-swell SFX hook in here.
+    // The doors-open "swell" SFX (PLAN-10 ST-7b) — a warm major-chord bloom as
+    // the venue lights up. A guarded no-op when muted / audio unavailable. (The
+    // background music stays 'riding' through the arrival and swaps to 'party'
+    // when PartyScene loads a beat later; this is the door's own flourish.)
+    getAudio().playSfx('door');
     scene.tweens.add({
       targets: doorPanels,
       scaleX: DOOR_OPEN_SCALE,

@@ -64,6 +64,7 @@ import type { ConfettiFallHandle } from '../systems/confetti';
 import { PARTY_BANNER_TEXT, bouquetToastText } from '../data/finale';
 import { defaultCharacter } from '../data/characters';
 import { getSave } from '../systems/save';
+import { getAudio } from '../systems/audio';
 
 /** The bottom-right way out (PLAN-09 task 2's "Credits →"). The arrow is
  * U+2192, written as an explicit escape so an editor re-encoding this file can
@@ -211,6 +212,10 @@ export class PartyScene extends Phaser.Scene {
     // frame on entry.
     this.cameras.main.setBackgroundColor(PALETTE.duskIndigo);
 
+    // The celebratory party loop (PLAN-10 ST-7b), stopped on SHUTDOWN. Silent
+    // until the first gesture + silent while muted.
+    getAudio().playMusic('party');
+
     this.drawVenue();
     this.drawStringLights();
     this.drawStreamers();
@@ -264,6 +269,7 @@ export class PartyScene extends Phaser.Scene {
     // backdrop/banner objects are plain display-list members and go with the
     // scene, exactly as LevelCompleteScene's panels do.)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      getAudio().stopMusic();
       if (this.creditsButton) this.tweens.killTweensOf(this.creditsButton);
       this.cast?.destroy();
       this.balloons?.destroy();

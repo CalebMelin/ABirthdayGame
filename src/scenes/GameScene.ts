@@ -52,6 +52,7 @@ import { createTricks } from '../systems/tricks';
 import type { TricksHandle } from '../systems/tricks';
 import { dispatchLevelEvents } from '../levels/events';
 import type { EventContext, LevelEventHandle } from '../levels/events';
+import { getAudio, DRIVE_SFX } from '../systems/audio';
 import { normalizeLevel } from './types';
 import type { LevelSceneData } from './types';
 
@@ -166,6 +167,13 @@ export class GameScene extends Phaser.Scene {
   /** Latched once the run is over (crashed, fell, or finished) so the fail
    * overlay/transition can only fire once per run. */
   private ended = false;
+  /** Audio state (PLAN-10 ST-7b), reset every create(): last frame's airborne
+   * flag + whether a jump SFX is pending its paired land (so land only sounds
+   * after a real, speed-gated jump), and last frame's brake flag (so the brake
+   * chirp fires once on the rising edge, not every held frame). */
+  private audioWasAirborne = false;
+  private audioJumpActive = false;
+  private audioBrakeWasHeld = false;
   /** Dev-only debug overlay (PLAN-02 task 5) — always declared (cheap: just
    * these three field slots), but only ever CREATED/READ inside an
    * `import.meta.env.DEV` gate, which Vite dead-code-eliminates from
@@ -198,6 +206,9 @@ export class GameScene extends Phaser.Scene {
     this.ended = false;
     this.lookaheadPx = 0;
     this.inputOverride = null;
+    this.audioWasAirborne = false;
+    this.audioJumpActive = false;
+    this.audioBrakeWasHeld = false;
     // Clear the DEV-only fail handle from any prior run (set by failLevel) so
     // harnesses read only the CURRENT run's fail, never a stale one across a
     // restart. Stripped from production builds via import.meta.env.DEV.
@@ -216,6 +227,17 @@ export class GameScene extends Phaser.Scene {
 
     // Resolve this level's config (TOTAL function — clamps/defaults a bad id).
     const config = getLevelConfig(this.level);
+
+    // Riding music (PLAN-10 ST-7b): the tense 'police' chase loop on a level with
+    // a police event (level 15), the light 'riding' loop otherwise. Scheduled now;
+    // silent until the first gesture unlocks audio + silent while muted. Stopped
+    // on SHUTDOWN so it never bleeds into the next scene. The continuous engine
+    // hum starts here too and is retuned/gated every frame in update(); BOTH are
+    // torn down in SHUTDOWN (+ engine ducked on pause) so no sustained sound can
+    // ever leak across a restart/fail/finish — the ST-7b non-negotiable.
+    const hasPoliceEvent = (config.events ?? []).some((event) => event.type === 'police');
+    getAudio().playMusic(hasPoliceEvent ? 'police' : 'riding');
+    getAudio().startEngine();
 
     // Theme sky as the camera base fill: the parallax backdrop draws its own sky
     // bands + silhouette layers over this at DEPTHS.background (replaces the flat
@@ -385,6 +407,13 @@ export class GameScene extends Phaser.Scene {
     // somehow survived shutdown. `once`, not `on` — create() re-registers
     // after every restart, so `on` would stack handlers.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // Audio teardown FIRST (PLAN-10 ST-7b): stop the riding/police loop and —
+      // critically — the CONTINUOUS engine hum, so neither can bleed into the
+      // next scene or leak an oscillator across a restart/fail/finish. Both are
+      // fully guarded no-ops when audio is unavailable. The level-15 siren is
+      // torn down by police.ts's own destroy() (an event handle, swept below).
+      getAudio().stopMusic();
+      getAudio().stopEngine();
       // Runtime null-check: typed non-null, but MatterPhysics.shutdown
       // really does set it to null (see node_modules/phaser/src/physics/
       // matter-js/MatterPhysics.js).
@@ -483,6 +512,44 @@ export class GameScene extends Phaser.Scene {
     // Persistent passenger pins to the bike every frame — including during the
     // crash tumble (cosmetic, so it follows Gabby regardless of run state).
     this.passenger?.update();
+
+    // --- drive audio (PLAN-10 ST-7b) -------------------------------------
+    // All fully-guarded no-ops when audio is unavailable / muted. Read the
+    // bike's live signals; SFX are edge-triggered so nothing machine-guns.
+    const audio = getAudio();
+    const grounded = !this.bike.airborne;
+    // Brake chirp on the rising edge, only while grounded + live.
+    if (!this.ended && brake && !this.audioBrakeWasHeld && grounded) {
+      audio.playSfx('brake');
+    }
+    this.audioBrakeWasHeld = brake;
+    // Jump / land on REAL airborne transitions. Gating the jump on takeoff speed
+    // filters the near-zero-speed spawn-settle hop and ramp-crest chatter, and
+    // `audioJumpActive` pairs each land with the jump that preceded it so a land
+    // never sounds without a real jump first.
+    const airborneNow = this.bike.airborne;
+    if (!this.ended) {
+      if (
+        airborneNow &&
+        !this.audioWasAirborne &&
+        this.bike.speed > DRIVE_SFX.jumpMinSpeedPxPerStep
+      ) {
+        audio.playSfx('jump');
+        this.audioJumpActive = true;
+      } else if (!airborneNow && this.audioWasAirborne && this.audioJumpActive) {
+        audio.playSfx('land');
+        this.audioJumpActive = false;
+      }
+    }
+    this.audioWasAirborne = airborneNow;
+    // Continuous engine hum: pitch tracks speed; audible while driving on the
+    // ground (gassing OR coasting with speed), silent airborne / stopped / ended.
+    audio.updateEngine(
+      this.bike.speed,
+      !this.ended &&
+        grounded &&
+        (gas || this.bike.speed > DRIVE_SFX.engineMinSpeedPxPerStep)
+    );
 
     if (!this.ended && this.bike.y > this.worldBottomY) {
       this.failLevel();
@@ -674,6 +741,12 @@ export class GameScene extends Phaser.Scene {
   private failLevel(message?: string): void {
     if (this.ended) return;
     this.ended = true;
+
+    // A GENTLE fail "womp" (PLAN-10 ST-7b) — friendly, never harsh, matching the
+    // never-mock-the-player tone. Guarded no-op when muted / audio unavailable.
+    // The engine hum ramps to silent from the next update() (ended is now true)
+    // and the loop/engine are torn down by the restart's SHUTDOWN.
+    getAudio().playSfx('fail');
 
     // GENERIC fail (no message) -> a random pool message; SPECIAL fail -> the
     // passed message, verbatim (never paraphrased — CLAUDE.md Rule 4).
@@ -904,6 +977,12 @@ export class GameScene extends Phaser.Scene {
    * guard explicit). */
   private pauseGame(): void {
     if (this.ended || !this.scene.isActive()) return;
+    // Duck the continuous sounds (engine hum + level-15 siren) so they don't
+    // drone under the pause menu — a paused scene stops calling update(), so the
+    // engine gain would otherwise freeze at its last value and keep sounding.
+    // The music loop deliberately keeps playing under the menu. Restored on
+    // RESUME (onResume) or reset by the next create() on a Restart.
+    getAudio().pauseContinuous();
     this.scene.pause();
     this.scene.launch(SCENE_KEYS.pause, { level: this.level });
   }
@@ -926,5 +1005,8 @@ export class GameScene extends Phaser.Scene {
     this.gameInput?.setTouchGas(false);
     this.gameInput?.setTouchBrake(false);
     this.pedals?.releaseAll();
+    // Un-duck the continuous sounds ducked by pauseGame(); update() resumes
+    // retuning the engine from the next frame, and the siren (if any) returns.
+    getAudio().resumeContinuous();
   }
 }

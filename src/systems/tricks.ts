@@ -52,8 +52,10 @@
 // src/systems with a runtime `import Phaser` — decorations.ts was the example
 // here until PLAN-07 task 3 made it import-safe too, see its own doc), this
 // module has NO runtime Phaser import and does NOT import ui.ts — its only
-// non-type imports are the pure constants + pedals.ts's pure zoom helpers —
-// so it stays import-safe in Node. The pure helpers below (flip counting,
+// non-type imports are the pure constants, pedals.ts's pure zoom helpers, and
+// audio.ts's equally import-safe getAudio (the tulip-award sparkle SFX, PLAN-10
+// ST-7b — a no-op in Node, so the pure helpers still unit-test) — so it stays
+// import-safe in Node. The pure helpers below (flip counting,
 // direction -> toast, bouquet growth stage, the landing predicate) are
 // unit-tested in tests/tricks.test.ts; the createTricks factory only ever
 // CALLS METHODS on the runtime scene/bike/save handles handed to it (same
@@ -73,6 +75,7 @@ import { zoomCompensatedPosition, zoomCompensatedScale } from './pedals';
 import type { Vec2 } from './pedals';
 import type { BikeHandle } from './bike';
 import type { SaveSystem } from './save';
+import { getAudio } from './audio';
 
 /** VERBATIM copy from PLAN-07 task 1 (CLAUDE.md Rule 4 — never paraphrase or
  * restyle). Shown when a landed flip's accumulated rotation is NEGATIVE — the
@@ -464,6 +467,9 @@ export function createTricks(
   function award(flips: number, rotationDeg: number): void {
     save.addTulips(flips);
     awardedTulips += flips;
+    // A little sparkle (PLAN-10 ST-7b), beside the toast + arc. Guarded no-op
+    // when muted / audio unavailable.
+    getAudio().playSfx('tulip');
     showToast(flipToastMessage(rotationDeg));
     inFlight += flips;
     for (let i = 0; i < flips; i++) launchArc(i);

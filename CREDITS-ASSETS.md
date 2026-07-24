@@ -42,12 +42,34 @@ flag + a Title toggle); audio only starts after the first user gesture (mobile
 autoplay policy).
 
 - Generator: `src/systems/audio.ts` — no external tools, no files to license.
-- Status: **PLAN-10 ST-7a** shipped the audio ENGINE + mute persistence + a
-  small proof (a soft menu-button click SFX + a gentle title-music loop). The
-  full track/SFX set is added by **ST-7b**, and each entry is listed below as it
-  lands (all rows resolve to "synthesized at runtime, project-owned / CC0").
-- Music (title/menu, riding, police-chase, party loops): title/menu loop DONE
-  (synthesized); riding / police-chase / party loops _TBD (ST-7b)_.
-- Jingles (level complete, gentle fail, tulip sparkle): _TBD (ST-7b)_.
-- SFX (engine, brake, jump/land, car whoosh, siren, balloon pop, button):
-  button-click DONE (synthesized); the rest _TBD (ST-7b)_.
+- Status: **COMPLETE.** **PLAN-10 ST-7a** shipped the audio ENGINE + mute
+  persistence + a small proof (a soft menu-button click SFX + a gentle
+  title-music loop); **ST-7b** filled in the full music-track set and every SFX
+  and wired them at each event site. EVERY row below is **synthesized at runtime
+  via the Web Audio API (soft oscillators + gain envelopes) — project-owned /
+  CC0, no committed audio binaries, no audio npm dependencies.**
+
+- **Music loops** (note-sequence + tempo through the lookahead scheduler):
+  - `title` — warm, welcoming menu theme. Also reused for Level Select,
+    Character Creation and Level Complete so the whole shell is cohesive.
+  - `riding` — light, happy driving loop (normal levels).
+  - `police` — tense-but-cute minor-key chase loop (level 15).
+  - `party` — celebratory loop (PartyScene).
+  - `credits` — warm, gentle closing theme (CreditsScene).
+- **One-shot SFX** (short, soft, low-gain enveloped tones):
+  - `click` — menu-button blip (ST-7a).
+  - `brake` — soft skid chirp.
+  - `jump` / `land` — trick take-off boing / touchdown thud.
+  - `tulip` — trick-award sparkle.
+  - `whoosh` — oncoming-car pass (level 7).
+  - `pop` — balloon pop (PartyScene).
+  - `complete` — level-complete fanfare.
+  - `fail` — gentle, friendly "womp" (never harsh).
+  - `door` — party-venue doors-open swell (level 22 arrival).
+- **Continuous sounds** (sustained oscillators, started/stopped by the owning
+  scene/system with strict clean-stop teardown — no leaked oscillators):
+  - engine hum — a soft low tone whose pitch tracks bike speed
+    (`speedToEnginePitch`), gated on driving-while-grounded; torn down on every
+    scene shutdown / level restart / fail / finish, and ducked under the pause menu.
+  - police siren — a gentle two-tone wail (level 15), torn down on
+    catch-restart / escape / finish / any shutdown, ducked under the pause menu.

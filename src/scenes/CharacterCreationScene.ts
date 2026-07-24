@@ -8,6 +8,7 @@
 import Phaser from 'phaser';
 import type { CharacterConfig } from '../systems/save';
 import { getSave } from '../systems/save';
+import { getAudio } from '../systems/audio';
 import {
   BIKE_TUNING,
   CHARACTER_CREATE,
@@ -103,6 +104,11 @@ export class CharacterCreationScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
 
+    // Shared menu theme (PLAN-10 ST-7b) — the same title loop as the rest of the
+    // shell. Stopped in the SHUTDOWN handler below (alongside the tween/blink
+    // teardown) so it doesn't carry into Level Select's fresh start.
+    getAudio().playMusic('title');
+
     createPixelText(this, DESIGN_WIDTH / 2, 56, 'Customize Gabby!', 40);
 
     this.buildPreview();
@@ -118,6 +124,7 @@ export class CharacterCreationScene extends Phaser.Scene {
     // stack duplicate SHUTDOWN handlers across visits (same reasoning as
     // GameScene's SHUTDOWN backstop).
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      getAudio().stopMusic();
       this.tweens.killAll();
       this.time.removeAllEvents();
       this.previewContainer = undefined;

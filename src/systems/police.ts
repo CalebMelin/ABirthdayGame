@@ -24,7 +24,9 @@
 // module left in src/systems with a runtime `import Phaser` — decorations.ts was
 // the example here until PLAN-07 task 3 made it import-safe too, see its own doc),
 // this module has NO runtime Phaser import and does NOT import ui.ts — its only
-// non-type imports are the pure constants — so it stays import-safe in Node. The
+// non-type imports are the pure constants + audio.ts's equally import-safe
+// getAudio (the continuous chase-siren SFX, PLAN-10 ST-7b — a no-op in Node) — so
+// it stays import-safe in Node. The
 // pure helpers below (the rubber-band speed law, the hard-cap, refresh-independent
 // displacement, the catch timer, the rolling-average window) are therefore unit-
 // tested directly in tests/police.test.ts; the createPolice factory only ever
@@ -44,6 +46,7 @@ import {
   TEXT_COLOR,
   snapFontSize,
 } from './constants';
+import { getAudio } from './audio';
 import type { LevelEventHandle, EventContext } from '../levels/events';
 import type { PoliceEvent } from '../levels/types';
 
@@ -312,9 +315,14 @@ export function createPolice(
     .image(copX, copSurfaceY(copX), TEXTURE_KEYS.policeCar)
     .setDepth(DEPTHS.props);
 
-  // --- flashing red/blue light bars (siren; audio is PLAN-10) ---
-  // TODO(PLAN-10): add the siren SFX loop here (start on create, stop in
-  // destroy()); intentionally NO audio now.
+  // --- flashing red/blue light bars + the siren SFX (PLAN-10 ST-7b) ---
+  // The CONTINUOUS gentle two-tone siren starts with the chase and is torn down
+  // on onFinish (the cop spins out) AND in destroy() (which runs on the level's
+  // catch-restart / finish-transition / any shutdown) — the same clean-stop
+  // discipline the engine hum follows, so the siren can NEVER leak past level 15.
+  // A fully-guarded no-op when muted / audio unavailable. GameScene ducks it (and
+  // the engine) under the pause menu via pauseContinuous.
+  getAudio().startSiren();
   const redLight = scene.add
     .rectangle(copX - LIGHT_SPREAD_PX, 0, LIGHT_WIDTH_PX, LIGHT_HEIGHT_PX, LIGHT_RED_COLOR)
     .setDepth(DEPTHS.props + 1);
@@ -435,6 +443,10 @@ export function createPolice(
     if (finaleStarted) return POLICE.finaleHoldMs; // idempotent (defensive)
     finaleStarted = true;
 
+    // She shook the cop — fade the siren out with the spin-out (destroy() also
+    // stops it, so this is the "escaped" beat, not the teardown). Idempotent.
+    getAudio().stopSiren();
+
     // Cop loses control: spin out + drift back/down as Gabby pulls away.
     scene.tweens.add({
       targets: cop,
@@ -479,6 +491,11 @@ export function createPolice(
   }
 
   function destroy(): void {
+    // Stop the siren FIRST — this runs on the catch-restart, the finish
+    // transition, and any scene shutdown, so it is the definitive guarantee the
+    // continuous siren can never outlive level 15. Idempotent (onFinish may have
+    // already stopped it on the escape path). Guarded no-op when audio is off.
+    getAudio().stopSiren();
     // Remove the world listener FIRST (no callbacks during teardown). Same
     // rationale as traffic.ts: on the normal shutdown/restart path Phaser's Matter
     // plugin has already destroyed the world (taking every world listener with it)

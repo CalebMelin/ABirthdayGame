@@ -64,6 +64,62 @@ const AUDIO = {
    * = 0.6 * 18 = 10.8). Kept as a plain literal so this module imports no
    * gameplay constants (stays a leaf). */
   engineMaxSpeed: 10.8,
+  // ------- continuous ENGINE tone (ST-7b) ------------------------------------
+  /** Engine hum waveform — triangle, deliberately the softest of the shaped
+   * waveforms (a sawtooth at this low pitch buzzes). */
+  engineWaveform: 'triangle' as OscillatorType,
+  /** Engine hum PEAK gain (into the continuous bus). LOW on purpose — a subtle
+   * hum UNDER the SFX, never a scream (NORTH_STAR: this is a gift). */
+  engineGain: 0.09,
+  /** Time-constant (s) for the engine frequency glide (setTargetAtTime) as speed
+   * changes, so retuning never zippers/steps. */
+  enginePitchGlideSec: 0.08,
+  /** Time-constant (s) for the engine gain easing on (driving on the ground) /
+   * off (airborne, stopped, or the run ended), so it fades rather than clicks. */
+  engineGainGlideSec: 0.06,
+  /** Fade-out (s) applied to the engine gain when stopEngine tears it down, plus
+   * the extra tail (s) before the oscillator actually stops — long enough to let
+   * the fade complete so shutdown never clicks, short enough to be gone promptly
+   * (no leaked oscillator across a scene change — the #1 continuous-sound risk). */
+  engineStopFadeSec: 0.03,
+  engineStopTailSec: 0.06,
+  // ------- continuous police SIREN (ST-7b, level 15) -------------------------
+  /** Siren main-tone waveform — sine, the gentlest option (a cute wail, not a
+   * blaring square). */
+  sirenWaveform: 'sine' as OscillatorType,
+  /** Siren PEAK gain (into the continuous bus) — gentle, still cute. */
+  sirenGain: 0.06,
+  /** The two tones (Hz) the siren wavers between and the LFO period (s) of one
+   * full low->high->low sweep. Implemented as a slow SINE LFO on the main
+   * oscillator's frequency (a smooth two-tone waver), not a hard square
+   * alternation — softer, per the gentle mandate. */
+  sirenLowHz: 440,
+  sirenHighHz: 620,
+  sirenSweepSec: 0.9,
+  /** Fade (s) the siren gain uses easing in on start / out on stop, so it never
+   * clicks in or out; plus the tail (s) before its oscillators stop. */
+  sirenGainGlideSec: 0.05,
+  sirenStopTailSec: 0.08,
+  // ------- shared CONTINUOUS bus (engine + siren) ----------------------------
+  /** Ramp (s) the continuous bus uses to duck to 0 on pause and back on resume,
+   * so pausing mid-drive silences the hum/siren without a click and resuming
+   * brings it back. Engine + siren both route through this one bus so a single
+   * duck covers both. */
+  continuousPauseRampSec: 0.03,
+} as const;
+
+/** Speed gates (px per physics step, in BikeHandle.speed units) for the drive
+ * SFX, exported so GameScene references NAMED tunables rather than burying magic
+ * numbers in scene code (CLAUDE.md). Kept beside the AUDIO block since they are
+ * audio-only thresholds. */
+export const DRIVE_SFX = {
+  /** The bike must be moving at least this fast at takeoff for a jump/land SFX
+   * to fire — filters the near-zero-speed spawn-settle hop and ramp-crest
+   * chatter, so jump/land only sound on a real launch off a ramp. */
+  jumpMinSpeedPxPerStep: 2.5,
+  /** The engine hum stays audible while coasting at least this fast even off the
+   * gas; below it (stopped and not gassing) the hum fades out. */
+  engineMinSpeedPxPerStep: 0.5,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -187,14 +243,101 @@ interface SfxSpec {
   notes: readonly SfxNote[];
 }
 
-/** ST-7a ships ONE real SFX — the soft menu-button blip — as the proof that the
- * gesture -> resume -> schedule -> master-gain -> mute chain works end to end.
- * ST-7b adds engine/brake/jump/land/whoosh/siren/pop/etc. */
+/** The one-shot SFX table. ST-7a shipped `click` (the menu-button blip) as the
+ * proof that gesture -> resume -> schedule -> master-gain -> mute works end to
+ * end; ST-7b fills in the rest. All are SHORT, SOFT, low-gain (a gift — harsh
+ * audio is worse than silence): the continuous engine + siren are NOT here (they
+ * are sustained oscillators managed separately, see startEngine/startSiren). */
 const SFX_SPECS = {
   click: {
     waveform: 'triangle',
     gain: 0.16,
     notes: [{ note: 'A5', at: 0, dur: 0.05 }],
+  },
+  // A soft brake chirp: a quick downward two-note skid.
+  brake: {
+    waveform: 'triangle',
+    gain: 0.11,
+    notes: [
+      { note: 'A4', at: 0, dur: 0.04 },
+      { note: 'E4', at: 0.04, dur: 0.08 },
+    ],
+  },
+  // A quick upward "boing" as the bike leaves a ramp.
+  jump: {
+    waveform: 'triangle',
+    gain: 0.13,
+    notes: [
+      { note: 'C5', at: 0, dur: 0.05 },
+      { note: 'G5', at: 0.05, dur: 0.07 },
+    ],
+  },
+  // A soft low thud on touchdown.
+  land: {
+    waveform: 'sine',
+    gain: 0.18,
+    notes: [{ note: 'G2', at: 0, dur: 0.1 }],
+  },
+  // A little rising sparkle when a trick awards a tulip.
+  tulip: {
+    waveform: 'sine',
+    gain: 0.12,
+    notes: [
+      { note: 'C6', at: 0, dur: 0.05 },
+      { note: 'E6', at: 0.05, dur: 0.05 },
+      { note: 'G6', at: 0.1, dur: 0.09 },
+    ],
+  },
+  // A soft "fwip" as an oncoming car passes (level 7). A short low descending
+  // pair — an oscillator can't make noise, so this reads as a gentle swish.
+  whoosh: {
+    waveform: 'triangle',
+    gain: 0.1,
+    notes: [
+      { note: 'A3', at: 0, dur: 0.05 },
+      { note: 'E3', at: 0.05, dur: 0.11 },
+    ],
+  },
+  // A cute, very short balloon pop.
+  pop: {
+    waveform: 'triangle',
+    gain: 0.16,
+    notes: [
+      { note: 'A5', at: 0, dur: 0.03 },
+      { note: 'A4', at: 0.02, dur: 0.05 },
+    ],
+  },
+  // A happy little ascending fanfare on the level-complete screen.
+  complete: {
+    waveform: 'triangle',
+    gain: 0.15,
+    notes: [
+      { note: 'C5', at: 0, dur: 0.12 },
+      { note: 'E5', at: 0.12, dur: 0.12 },
+      { note: 'G5', at: 0.24, dur: 0.12 },
+      { note: 'C6', at: 0.36, dur: 0.28 },
+    ],
+  },
+  // A GENTLE fail "womp" — a soft minor-third down. Never harsh; matches the
+  // never-mock-the-player tone (NORTH_STAR §7).
+  fail: {
+    waveform: 'sine',
+    gain: 0.16,
+    notes: [
+      { note: 'G4', at: 0, dur: 0.14 },
+      { note: 'D4', at: 0.16, dur: 0.32 },
+    ],
+  },
+  // A warm swell as the party venue's doors open (level 22 arrival) — the
+  // "door-creak / music-swell" beat, drawn as a soft major chord bloom.
+  door: {
+    waveform: 'sine',
+    gain: 0.13,
+    notes: [
+      { note: 'C4', at: 0, dur: 0.42 },
+      { note: 'E4', at: 0.03, dur: 0.42 },
+      { note: 'G4', at: 0.06, dur: 0.42 },
+    ],
   },
 } as const satisfies Record<string, SfxSpec>;
 
@@ -224,19 +367,128 @@ interface MusicTrack {
   notes: readonly MelodyNote[];
 }
 
-/** ST-7a ships ONE gentle title loop as proof; ST-7b refines it and adds the
- * riding / police-chase / party loops + jingles. A soft, slow pentatonic phrase
- * in C major — nothing harsh, everything low-gain. */
+// Every loop below is a GENTLE chiptune phrase: soft waveforms (sine / triangle),
+// low note gains, mid/low registers, nothing harsh — a GIFT, where annoying
+// audio is worse than silence. Each is a note-sequence + tempo the existing
+// lookahead scheduler lays down every loopSec (= beats * 60/bpm).
+
+/** TITLE / MENU — a warm, welcoming phrase in C major over a soft low anchor.
+ * Refined from ST-7a's proof loop into a fuller top line. Reused (ST-7b) by the
+ * Level Select, Character Creation and Level Complete menus so the whole shell
+ * shares one cohesive theme. */
 const TITLE_NOTES: readonly MelodyNote[] = [
-  { note: 'C4', beat: 0, dur: 1.5 },
-  { note: 'E4', beat: 1.5, dur: 1.5 },
-  { note: 'G4', beat: 3, dur: 1.5 },
-  { note: 'A4', beat: 4.5, dur: 1.5 },
-  { note: 'G4', beat: 6, dur: 1 },
-  { note: 'E4', beat: 7, dur: 1 },
+  { note: 'G4', beat: 0, dur: 1 },
+  { note: 'C5', beat: 1, dur: 1 },
+  { note: 'E5', beat: 2, dur: 1 },
+  { note: 'D5', beat: 3, dur: 1 },
+  { note: 'C5', beat: 4, dur: 1 },
+  { note: 'A4', beat: 5, dur: 1 },
+  { note: 'G4', beat: 6, dur: 2 },
   // a soft low anchor under the phrase
-  { note: 'C3', beat: 0, dur: 4, gain: 0.5 },
-  { note: 'G3', beat: 4, dur: 4, gain: 0.5 },
+  { note: 'C3', beat: 0, dur: 4, gain: 0.45 },
+  { note: 'G3', beat: 4, dur: 2, gain: 0.45 },
+  { note: 'C3', beat: 6, dur: 2, gain: 0.45 },
+];
+
+/** RIDING — a light, bouncy, happy driving loop in C major (I-V-vi-IV feel): a
+ * plucky on-the-beat bass under a cheerful melody. The normal-level track. */
+const RIDING_NOTES: readonly MelodyNote[] = [
+  // bouncy bass
+  { note: 'C3', beat: 0, dur: 0.5, gain: 0.5 },
+  { note: 'C3', beat: 1, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 2, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 3, dur: 0.5, gain: 0.5 },
+  { note: 'A3', beat: 4, dur: 0.5, gain: 0.5 },
+  { note: 'A3', beat: 5, dur: 0.5, gain: 0.5 },
+  { note: 'F3', beat: 6, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 7, dur: 0.5, gain: 0.5 },
+  // light melody on top
+  { note: 'E4', beat: 0, dur: 0.5 },
+  { note: 'G4', beat: 0.5, dur: 0.5 },
+  { note: 'C5', beat: 1, dur: 1 },
+  { note: 'B4', beat: 2, dur: 0.5 },
+  { note: 'G4', beat: 2.5, dur: 0.5 },
+  { note: 'A4', beat: 3, dur: 1 },
+  { note: 'C5', beat: 4, dur: 0.5 },
+  { note: 'A4', beat: 4.5, dur: 0.5 },
+  { note: 'F4', beat: 5, dur: 1 },
+  { note: 'E4', beat: 6, dur: 0.5 },
+  { note: 'G4', beat: 6.5, dur: 0.5 },
+  { note: 'C5', beat: 7, dur: 1 },
+];
+
+/** POLICE (level 15) — tense but still cute: a driving eighth-note A-minor bass
+ * ostinato under a two-tone "siren" melody motif. Faster + minor for urgency,
+ * but soft triangle and low-gain so it never grates. */
+const POLICE_NOTES: readonly MelodyNote[] = [
+  // driving bass ostinato (A minor)
+  { note: 'A2', beat: 0, dur: 0.5, gain: 0.5 },
+  { note: 'A2', beat: 0.5, dur: 0.5, gain: 0.5 },
+  { note: 'A2', beat: 1, dur: 0.5, gain: 0.5 },
+  { note: 'A2', beat: 1.5, dur: 0.5, gain: 0.5 },
+  { note: 'F2', beat: 2, dur: 0.5, gain: 0.5 },
+  { note: 'F2', beat: 2.5, dur: 0.5, gain: 0.5 },
+  { note: 'F2', beat: 3, dur: 0.5, gain: 0.5 },
+  { note: 'F2', beat: 3.5, dur: 0.5, gain: 0.5 },
+  { note: 'G2', beat: 4, dur: 0.5, gain: 0.5 },
+  { note: 'G2', beat: 4.5, dur: 0.5, gain: 0.5 },
+  { note: 'G2', beat: 5, dur: 0.5, gain: 0.5 },
+  { note: 'G2', beat: 5.5, dur: 0.5, gain: 0.5 },
+  { note: 'E2', beat: 6, dur: 0.5, gain: 0.5 },
+  { note: 'E2', beat: 6.5, dur: 0.5, gain: 0.5 },
+  { note: 'E2', beat: 7, dur: 0.5, gain: 0.5 },
+  { note: 'E2', beat: 7.5, dur: 0.5, gain: 0.5 },
+  // two-tone siren motif on top
+  { note: 'E5', beat: 0, dur: 0.75 },
+  { note: 'A4', beat: 1, dur: 0.75 },
+  { note: 'E5', beat: 2, dur: 0.75 },
+  { note: 'A4', beat: 3, dur: 0.75 },
+  { note: 'F5', beat: 4, dur: 0.75 },
+  { note: 'C5', beat: 5, dur: 0.75 },
+  { note: 'E5', beat: 6, dur: 0.75 },
+  { note: 'B4', beat: 7, dur: 0.75 },
+];
+
+/** PARTY — celebratory C major: a bouncy bass under bright arpeggios. */
+const PARTY_NOTES: readonly MelodyNote[] = [
+  // bass
+  { note: 'C3', beat: 0, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 1, dur: 0.5, gain: 0.5 },
+  { note: 'F3', beat: 2, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 3, dur: 0.5, gain: 0.5 },
+  { note: 'C3', beat: 4, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 5, dur: 0.5, gain: 0.5 },
+  { note: 'A3', beat: 6, dur: 0.5, gain: 0.5 },
+  { note: 'G3', beat: 7, dur: 0.5, gain: 0.5 },
+  // bright arpeggio melody
+  { note: 'C5', beat: 0, dur: 0.25 },
+  { note: 'E5', beat: 0.5, dur: 0.25 },
+  { note: 'G5', beat: 1, dur: 0.5 },
+  { note: 'E5', beat: 1.5, dur: 0.5 },
+  { note: 'F5', beat: 2, dur: 0.25 },
+  { note: 'A5', beat: 2.5, dur: 0.25 },
+  { note: 'G5', beat: 3, dur: 0.5 },
+  { note: 'E5', beat: 3.5, dur: 0.5 },
+  { note: 'C5', beat: 4, dur: 0.25 },
+  { note: 'E5', beat: 4.5, dur: 0.25 },
+  { note: 'G5', beat: 5, dur: 0.5 },
+  { note: 'C6', beat: 5.5, dur: 0.5 },
+  { note: 'A5', beat: 6, dur: 0.5 },
+  { note: 'G5', beat: 6.5, dur: 0.5 },
+  { note: 'C6', beat: 7, dur: 1 },
+];
+
+/** CREDITS — a warm, slow, tender closing theme in F major over a soft bass. */
+const CREDITS_NOTES: readonly MelodyNote[] = [
+  { note: 'A4', beat: 0, dur: 1.5 },
+  { note: 'G4', beat: 1.5, dur: 0.5 },
+  { note: 'F4', beat: 2, dur: 2 },
+  { note: 'C5', beat: 4, dur: 1.5 },
+  { note: 'A4', beat: 5.5, dur: 0.5 },
+  { note: 'G4', beat: 6, dur: 2 },
+  // soft low anchor
+  { note: 'F3', beat: 0, dur: 4, gain: 0.45 },
+  { note: 'C3', beat: 4, dur: 4, gain: 0.45 },
 ];
 
 const MUSIC_TRACKS = {
@@ -246,6 +498,34 @@ const MUSIC_TRACKS = {
     waveform: 'sine',
     noteGain: 0.5,
     notes: TITLE_NOTES,
+  },
+  riding: {
+    bpm: 116,
+    beats: 8,
+    waveform: 'triangle',
+    noteGain: 0.42,
+    notes: RIDING_NOTES,
+  },
+  police: {
+    bpm: 138,
+    beats: 8,
+    waveform: 'triangle',
+    noteGain: 0.4,
+    notes: POLICE_NOTES,
+  },
+  party: {
+    bpm: 128,
+    beats: 8,
+    waveform: 'triangle',
+    noteGain: 0.42,
+    notes: PARTY_NOTES,
+  },
+  credits: {
+    bpm: 76,
+    beats: 8,
+    waveform: 'sine',
+    noteGain: 0.5,
+    notes: CREDITS_NOTES,
   },
 } as const satisfies Record<string, MusicTrack>;
 
@@ -275,6 +555,30 @@ export interface AudioManager {
   stopMusic(): void;
   /** Fire a one-shot sound effect. */
   playSfx(id: SfxId, opts?: SfxOptions): void;
+  /** Start the CONTINUOUS engine hum — a single sustained oscillator whose pitch
+   * updateEngine() retunes. Idempotent (replaces any running engine). MUST be
+   * paired with stopEngine() on scene shutdown / restart / fail so no oscillator
+   * ever leaks. No-op when Web Audio is unavailable. */
+  startEngine(): void;
+  /** Retune the engine hum: pitch tracks `speedPxPerStep` (via speedToEnginePitch,
+   * glided so it never zippers), gain eases toward the engine level when `on`
+   * (driving on the ground) else toward 0 (airborne / stopped / run ended). Cheap
+   * to call every frame; a no-op if the engine isn't running. */
+  updateEngine(speedPxPerStep: number, on: boolean): void;
+  /** Fade out + stop the engine hum and release its oscillator. Safe to call
+   * twice, and safe to call when no engine is running. */
+  stopEngine(): void;
+  /** Start the CONTINUOUS police siren — a gentle two-tone wail (level 15).
+   * Idempotent. MUST be paired with stopSiren() so it can never leak. */
+  startSiren(): void;
+  /** Fade out + stop the siren and release its oscillators. Safe to call twice. */
+  stopSiren(): void;
+  /** Duck the shared continuous bus (engine + siren) to silence — used when the
+   * game is paused so a sustained hum/siren doesn't drone under the pause menu.
+   * The one-shot SFX + music are unaffected. */
+  pauseContinuous(): void;
+  /** Restore the continuous bus after pauseContinuous(). */
+  resumeContinuous(): void;
 }
 
 interface ActiveMusic {
@@ -292,6 +596,19 @@ class WebAudioManager implements AudioManager {
   private masterGain: GainNode | undefined;
   private muted: boolean;
   private music: ActiveMusic | undefined;
+  /** Shared sub-bus for the CONTINUOUS sounds (engine + siren), so a single
+   * duck (pauseContinuous) silences both under the pause menu. Created lazily in
+   * ensureStarted alongside the master. */
+  private continuousBus: GainNode | undefined;
+  /** The engine hum's sustained oscillator + its gain (undefined when stopped). */
+  private engineOsc: OscillatorNode | undefined;
+  private engineGainNode: GainNode | undefined;
+  /** The siren's main oscillator, its frequency-modulating LFO + LFO depth gain,
+   * and its output gain (all undefined when stopped). */
+  private sirenOsc: OscillatorNode | undefined;
+  private sirenLfo: OscillatorNode | undefined;
+  private sirenLfoGain: GainNode | undefined;
+  private sirenGainNode: GainNode | undefined;
 
   constructor() {
     // Initialize from persisted state. getSave() is import-safe (in-memory
@@ -328,11 +645,19 @@ class WebAudioManager implements AudioManager {
         const master = ctx.createGain();
         master.gain.value = this.muted ? 0 : AUDIO.masterVolume;
         master.connect(ctx.destination);
+        // Shared continuous-sound sub-bus (engine + siren) under the master, at
+        // full gain — pauseContinuous ducks it to 0. Music + one-shot SFX go
+        // straight to the master and are unaffected by the pause duck.
+        const continuous = ctx.createGain();
+        continuous.gain.value = 1;
+        continuous.connect(master);
         this.context = ctx;
         this.masterGain = master;
+        this.continuousBus = continuous;
       } catch {
         this.context = undefined;
         this.masterGain = undefined;
+        this.continuousBus = undefined;
         return;
       }
     }
@@ -384,6 +709,201 @@ class WebAudioManager implements AudioManager {
       }
     } catch {
       // never throw from a play call.
+    }
+  }
+
+  // ------------------------------------------------------------------ engine
+  startEngine(): void {
+    this.ensureStarted();
+    const ctx = this.context;
+    const bus = this.continuousBus;
+    if (!ctx || !bus) return;
+    // Replace any already-running engine (idempotent) and make sure the shared
+    // bus isn't left ducked from a prior pause that never resumed (e.g. a
+    // pause -> Restart, which shuts the scene down without a RESUME event).
+    this.stopEngine();
+    this.resumeContinuous();
+    try {
+      const osc = ctx.createOscillator();
+      osc.type = AUDIO.engineWaveform;
+      osc.frequency.setValueAtTime(speedToEnginePitch(0), ctx.currentTime);
+      const g = ctx.createGain();
+      g.gain.value = 0; // eased up by updateEngine so the start never clicks
+      osc.connect(g);
+      g.connect(bus);
+      osc.start();
+      this.engineOsc = osc;
+      this.engineGainNode = g;
+    } catch {
+      this.engineOsc = undefined;
+      this.engineGainNode = undefined;
+    }
+  }
+
+  updateEngine(speedPxPerStep: number, on: boolean): void {
+    const ctx = this.context;
+    const osc = this.engineOsc;
+    const g = this.engineGainNode;
+    if (!ctx || !osc || !g) return;
+    try {
+      const now = ctx.currentTime;
+      osc.frequency.setTargetAtTime(
+        speedToEnginePitch(speedPxPerStep),
+        now,
+        AUDIO.enginePitchGlideSec
+      );
+      g.gain.setTargetAtTime(on ? AUDIO.engineGain : 0, now, AUDIO.engineGainGlideSec);
+    } catch {
+      // never throw from a per-frame update.
+    }
+  }
+
+  stopEngine(): void {
+    const osc = this.engineOsc;
+    const g = this.engineGainNode;
+    // Clear the refs FIRST so a concurrent startEngine() builds a fresh pair and
+    // this teardown can only ever run against the pair it captured.
+    this.engineOsc = undefined;
+    this.engineGainNode = undefined;
+    if (!osc) return;
+    const ctx = this.context;
+    try {
+      if (ctx && g) {
+        const now = ctx.currentTime;
+        // Fade the gain out, then stop the oscillator just after the fade so the
+        // teardown never clicks; disconnect on ended so nothing leaks.
+        g.gain.setTargetAtTime(0, now, AUDIO.engineStopFadeSec);
+        osc.stop(now + AUDIO.engineStopFadeSec + AUDIO.engineStopTailSec);
+      } else {
+        osc.stop();
+      }
+      osc.onended = (): void => {
+        try {
+          osc.disconnect();
+          g?.disconnect();
+        } catch {
+          // ignore
+        }
+      };
+    } catch {
+      try {
+        osc.disconnect();
+        g?.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------- siren
+  startSiren(): void {
+    this.ensureStarted();
+    const ctx = this.context;
+    const bus = this.continuousBus;
+    if (!ctx || !bus) return;
+    this.stopSiren(); // idempotent
+    this.resumeContinuous();
+    try {
+      const now = ctx.currentTime;
+      const centerHz = (AUDIO.sirenLowHz + AUDIO.sirenHighHz) / 2;
+      const depthHz = (AUDIO.sirenHighHz - AUDIO.sirenLowHz) / 2;
+      const osc = ctx.createOscillator();
+      osc.type = AUDIO.sirenWaveform;
+      osc.frequency.setValueAtTime(centerHz, now);
+      // A slow SINE LFO on the main oscillator's frequency = a smooth two-tone
+      // waver (gentler than a hard hi/lo square alternation).
+      const lfo = ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.setValueAtTime(1 / AUDIO.sirenSweepSec, now);
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = depthHz;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(g);
+      g.connect(bus);
+      osc.start();
+      lfo.start();
+      g.gain.setTargetAtTime(AUDIO.sirenGain, now, AUDIO.sirenGainGlideSec);
+      this.sirenOsc = osc;
+      this.sirenLfo = lfo;
+      this.sirenLfoGain = lfoGain;
+      this.sirenGainNode = g;
+    } catch {
+      this.sirenOsc = undefined;
+      this.sirenLfo = undefined;
+      this.sirenLfoGain = undefined;
+      this.sirenGainNode = undefined;
+    }
+  }
+
+  stopSiren(): void {
+    const osc = this.sirenOsc;
+    const lfo = this.sirenLfo;
+    const lfoGain = this.sirenLfoGain;
+    const g = this.sirenGainNode;
+    this.sirenOsc = undefined;
+    this.sirenLfo = undefined;
+    this.sirenLfoGain = undefined;
+    this.sirenGainNode = undefined;
+    if (!osc) return;
+    const ctx = this.context;
+    const disconnectAll = (): void => {
+      try {
+        osc.disconnect();
+        lfo?.disconnect();
+        lfoGain?.disconnect();
+        g?.disconnect();
+      } catch {
+        // ignore
+      }
+    };
+    try {
+      if (ctx && g) {
+        const now = ctx.currentTime;
+        g.gain.setTargetAtTime(0, now, AUDIO.sirenGainGlideSec);
+        const stopAt = now + AUDIO.sirenGainGlideSec + AUDIO.sirenStopTailSec;
+        osc.stop(stopAt);
+        try {
+          lfo?.stop(stopAt);
+        } catch {
+          // ignore
+        }
+      } else {
+        osc.stop();
+        try {
+          lfo?.stop();
+        } catch {
+          // ignore
+        }
+      }
+      osc.onended = disconnectAll;
+    } catch {
+      disconnectAll();
+    }
+  }
+
+  // --------------------------------------------------- continuous bus (pause)
+  pauseContinuous(): void {
+    const ctx = this.context;
+    const bus = this.continuousBus;
+    if (!ctx || !bus) return;
+    try {
+      bus.gain.setTargetAtTime(0, ctx.currentTime, AUDIO.continuousPauseRampSec);
+    } catch {
+      // never throw.
+    }
+  }
+
+  resumeContinuous(): void {
+    const ctx = this.context;
+    const bus = this.continuousBus;
+    if (!ctx || !bus) return;
+    try {
+      bus.gain.setTargetAtTime(1, ctx.currentTime, AUDIO.continuousPauseRampSec);
+    } catch {
+      // never throw.
     }
   }
 
@@ -453,20 +973,32 @@ class WebAudioManager implements AudioManager {
 
   /** Lookahead scheduler tick: lay down whole loop copies whose start falls
    * inside the lookahead window. No-ops unless the context is actually running,
-   * so a suspended context never stacks overlapping copies at frozen time. */
+   * so a suspended context never stacks overlapping copies at frozen time.
+   *
+   * WRAPPED IN A DEFENSIVE try/catch (ST-7b hardening, from the ST-7a
+   * code-quality review): this runs UNATTENDED on a window.setInterval, so
+   * unlike the play* methods there is no caller to absorb a throw — a bad time
+   * value or a closing context surfacing here would become an uncaught console
+   * error, which every playtest harness gates its exit code on. scheduleNote is
+   * already individually guarded; this is belt-and-suspenders around the whole
+   * body so a throw can NEVER reach the interval callback. */
   private pumpMusicScheduler(): void {
-    const ctx = this.context;
-    const music = this.music;
-    if (!ctx || !music) return;
-    if (ctx.state !== 'running') return;
-    const loopSec = (music.track.beats * 60) / music.track.bpm;
-    if (loopSec <= 0) return;
-    const horizon = ctx.currentTime + AUDIO.scheduleAheadSec;
-    let guard = 0;
-    while (music.nextLoopStart < horizon && guard < 64) {
-      this.scheduleMelody(music.track, music.nextLoopStart, music.bus);
-      music.nextLoopStart += loopSec;
-      guard++;
+    try {
+      const ctx = this.context;
+      const music = this.music;
+      if (!ctx || !music) return;
+      if (ctx.state !== 'running') return;
+      const loopSec = (music.track.beats * 60) / music.track.bpm;
+      if (loopSec <= 0) return;
+      const horizon = ctx.currentTime + AUDIO.scheduleAheadSec;
+      let guard = 0;
+      while (music.nextLoopStart < horizon && guard < 64) {
+        this.scheduleMelody(music.track, music.nextLoopStart, music.bus);
+        music.nextLoopStart += loopSec;
+        guard++;
+      }
+    } catch {
+      // never throw out of the unattended interval callback.
     }
   }
 

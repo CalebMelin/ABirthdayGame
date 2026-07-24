@@ -11,13 +11,16 @@
 //
 // Like bike.ts / terrain.ts / passenger.ts (and UNLIKE ui.ts), this
 // module has NO runtime Phaser import and does NOT import ui.ts — its only
-// non-type imports are the pure constants — so it stays import-safe in Node.
+// non-type imports are the pure constants + audio.ts's equally import-safe
+// getAudio (the car-pass whoosh SFX, PLAN-10 ST-7b — a no-op in Node) — so it
+// stays import-safe in Node.
 // The pure helpers below (lane fraction, lane y, collision predicate, spawn
 // scheduling) are therefore unit-tested directly in tests/traffic.test.ts; the
 // createTraffic factory only ever CALLS METHODS on the runtime `scene`/`ctx`
 // handles handed to it (same contract as createBike).
 import type Phaser from 'phaser';
 import { TRAFFIC, TEXTURE_KEYS, DEPTHS } from './constants';
+import { getAudio } from './audio';
 import type { LevelEventHandle, EventContext } from '../levels/events';
 import type { TrafficEvent } from '../levels/types';
 
@@ -164,6 +167,9 @@ interface Car {
   encounterX: number;
   /** true if this car's encounter is a punch-through (short trigger lead) one. */
   punchThrough: boolean;
+  /** Whether this car has already played its pass-by whoosh SFX this spawn —
+   * fires once as it draws level with the bike, reset when it next spawns. */
+  whooshed: boolean;
 }
 
 /** One encounter: fixed world centre, whether its car has spawned, and whether
@@ -233,7 +239,7 @@ export function createTraffic(
       .setDepth(DEPTHS.props)
       .setFlipX(true) // face the oncoming (leftward) travel direction
       .setVisible(false);
-    pool.push({ sprite, active: false, x: 0, encounterX: 0, punchThrough: false });
+    pool.push({ sprite, active: false, x: 0, encounterX: 0, punchThrough: false, whooshed: false });
   }
 
   function laneFractionOf(car: Car): number {
@@ -302,6 +308,7 @@ export function createTraffic(
       car.x = e.centerX + spawnAheadPx;
       car.encounterX = e.centerX;
       car.punchThrough = e.punchThrough;
+      car.whooshed = false;
       car.sprite.setTint(TRAFFIC.tints[tintIndex]).setVisible(true);
       e.triggered = true;
     }
@@ -319,6 +326,13 @@ export function createTraffic(
       );
       car.sprite.setPosition(car.x, y);
       car.sprite.setAlpha(TRAFFIC.farLaneAlpha + (TRAFFIC.nearLaneAlpha - TRAFFIC.farLaneAlpha) * f);
+
+      // Soft pass-by whoosh (PLAN-10 ST-7b) exactly once, as the leftward car
+      // draws level with the bike. Guarded no-op when muted / audio unavailable.
+      if (!car.whooshed && car.x <= bikeX) {
+        getAudio().playSfx('whoosh');
+        car.whooshed = true;
+      }
 
       if (
         isTrafficCollision(

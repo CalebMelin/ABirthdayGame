@@ -71,17 +71,19 @@
 // (verbatimModuleSyntax + erasableSyntaxOnly), so it cannot use
 // Phaser.Math.Between and instead takes an injectable `rng: () => number`
 // defaulting to Math.random (the randomCharacterConfig precedent in
-// data/characters.ts). The pure helpers below are unit-tested in plain Node
-// (tests/partyBalloons.test.ts); createPartyBalloons only ever CALLS METHODS on
-// the runtime `scene` handle it is given (same contract as createBike).
+// data/characters.ts). Its only runtime import is audio.ts's equally import-safe
+// getAudio (the balloon-pop SFX, PLAN-10 ST-7b — a no-op in Node). The pure
+// helpers below are unit-tested in plain Node (tests/partyBalloons.test.ts);
+// createPartyBalloons only ever CALLS METHODS on the runtime `scene` handle it is
+// given (same contract as createBike).
 //
-// FORWARD-NOTE — AUDIO IS PLAN-10's, NOT THIS SUBTASK'S: the balloon-pop SFX
-// hooks in at the ONE `pop()` call site below (marked there), right beside the
-// confetti burst. Deliberately nothing audio-related exists here yet.
+// AUDIO (PLAN-10 ST-7b): the balloon-pop SFX fires at the ONE `pop()` call site
+// below, right beside the confetti puff.
 import type Phaser from 'phaser';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, PALETTE, PARTY, TEXTURE_KEYS } from './constants';
 import { confettiColorAt, confettiRangeAt, createConfettiBurst } from './confetti';
 import type { ConfettiBurstHandle } from './confetti';
+import { getAudio } from './audio';
 
 // ---------------------------------------------------------------------------
 // Presentation-only local constants (PLACEHOLDER art). Following the
@@ -466,9 +468,9 @@ export function createPartyBalloons(
     // tap aimed at a live balloon drifting behind it.
     balloon.zone.disableInteractive();
     popConfetti.burst(balloon.x, balloonHitCenterY(balloon.y));
-    // FORWARD-NOTE (PLAN-10 owns ALL audio): the balloon-pop SFX plays HERE,
-    // one line, right beside the puff. Nothing audio-related exists yet — this
-    // subtask is explicitly sound-free.
+    // The balloon-pop SFX (PLAN-10 ST-7b), right beside the puff — a cute short
+    // pop. Guarded no-op when muted / audio unavailable.
+    getAudio().playSfx('pop');
   }
 
   const now0 = scene.time.now;

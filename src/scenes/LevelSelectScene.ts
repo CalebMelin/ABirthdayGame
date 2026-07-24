@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { DESIGN_WIDTH, PASTEL_BG_COLOR, PALETTE, DEPTHS, SCENE_KEYS, TEXTURE_KEYS, TOTAL_LEVELS } from '../systems/constants';
 import { createPixelText, createPixelButton } from '../systems/ui';
 import { getSave } from '../systems/save';
+import { getAudio } from '../systems/audio';
 
 /** Grid layout constants — 6 columns x 4 rows (22 cells, last row has 4). */
 const GRID_COLS = 6;
@@ -20,6 +21,15 @@ export class LevelSelectScene extends Phaser.Scene {
 
   create(): void {
     this.cameras.main.setBackgroundColor(PASTEL_BG_COLOR);
+
+    // Shared menu theme (PLAN-10 ST-7b): the title loop, so the whole shell
+    // (Title / Character Creation / Level Select / Level Complete) sounds
+    // cohesive. Stopped on SHUTDOWN so it doesn't bleed into GameScene's riding
+    // loop; silent until the first gesture + silent while muted.
+    getAudio().playMusic('title');
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      getAudio().stopMusic();
+    });
 
     const progress = getSave().loadProgress();
 

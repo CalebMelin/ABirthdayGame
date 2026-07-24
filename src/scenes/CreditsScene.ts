@@ -78,6 +78,7 @@ import {
   tulipTallyText,
 } from '../data/finale';
 import { getSave } from '../systems/save';
+import { getAudio } from '../systems/audio';
 
 // ---------------------------------------------------------------------------
 // Placeholder DRAWING dimensions (PLAN-10 replaces the art). The established
@@ -194,6 +195,10 @@ export class CreditsScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(CREDITS.backgroundColor);
 
+    // The warm, gentle closing theme (PLAN-10 ST-7b) — the last thing the
+    // recipient hears. Stopped on SHUTDOWN. Silent while muted.
+    getAudio().playMusic('credits');
+
     // The party's rain, still falling (PLAN-09 task 3's "confetti still
     // falling") — the same shared pool and the same PARTY.confettiFall* feel, so
     // pressing "Credits ->" reads as walking out of the party rather than as
@@ -222,6 +227,7 @@ export class CreditsScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.skipReveal, this);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      getAudio().stopMusic();
       this.input.off(Phaser.Input.Events.POINTER_DOWN, this.skipReveal, this);
       // Kill every fade this scene may still be running: the line fades, the
       // tail fade (whose onComplete builds the buttons) and any tween on the
